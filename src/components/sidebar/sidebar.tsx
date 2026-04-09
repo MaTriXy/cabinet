@@ -482,8 +482,8 @@ export function Sidebar() {
           variant="ghost"
           size="icon"
           className={cn(
-            "absolute top-3 z-10 h-7 w-7",
-            isMobile ? "left-3 z-50" : "left-2"
+            "absolute top-3 h-7 w-7",
+            isMobile ? "left-3 z-50" : "left-2 z-20"
           )}
           onClick={() => setCollapsed(false)}
         >

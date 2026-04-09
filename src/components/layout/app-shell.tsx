@@ -233,7 +233,10 @@ export function AppShell() {
   return (
     <div className="flex h-screen bg-background text-foreground">
       <Sidebar />
-      <div className={`flex-1 flex flex-col overflow-hidden ${sidebarCollapsed ? "pl-9" : ""}`}>
+      <div
+        className="flex-1 flex flex-col overflow-hidden"
+        style={{ '--sidebar-toggle-offset': sidebarCollapsed ? '2.25rem' : '0px' } as React.CSSProperties}
+      >
         <main className="flex-1 flex flex-col overflow-hidden">
           {renderContent()}
         </main>

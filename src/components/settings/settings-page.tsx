@@ -274,7 +274,10 @@ export function SettingsPage() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-border transition-[padding] duration-200"
+        style={{ paddingLeft: `calc(1rem + var(--sidebar-toggle-offset, 0px))` }}
+      >
         <div className="flex items-center gap-2">
           <Settings className="h-4 w-4" />
           <h2 className="text-[15px] font-semibold tracking-[-0.02em]">

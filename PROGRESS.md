@@ -1,6 +1,6 @@
 # Progress
 
-[2026-04-09] Fixed sidebar collapse overlap bug: when the sidebar is collapsed, the toggle button icon was overlapping the page title/content. Added left padding (`pl-9`) to the main content area when the sidebar is collapsed to make room for the toggle button.
+[2026-04-09] Fixed sidebar collapse overlap bug. The toggle button now hovers over content (z-20), and each page's header bar slides right via a CSS variable (`--sidebar-toggle-offset`) with a 200ms transition. Applied to Header, WebsiteViewer, PdfViewer, CsvViewer, SettingsPage, AgentsWorkspace, and JobsManager top bars.
 
 [2026-04-09] Added delete conversation support to the agents workspace. Conversations can be removed via a trash icon (appears after 1s hover in list) or Delete button in detail header. Replaced plain-text metadata line in detail header with styled pill tags: agent name (clickable, navigates to settings), trigger type (colored with icon — green/clock for job, pink/heartpulse for heartbeat, sky/bot for manual), and status (green for completed, red for failed, primary for running). Settings button now only shows for job-triggered conversations. Backend: added `deleteConversation()` to conversation-store and DELETE handler on `/api/agents/conversations/[id]`.
 

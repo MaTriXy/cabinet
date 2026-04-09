@@ -1670,7 +1670,8 @@ export function AgentsWorkspace({
             {activeAgent ? (
               <button
                 onClick={() => openAgentSettings(activeAgent.slug)}
-                className="rounded-xl bg-muted/40 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+                className="rounded-xl bg-muted/40 px-3 py-2 text-left transition-colors hover:bg-muted/60 transition-[margin] duration-200"
+                style={{ marginLeft: `var(--sidebar-toggle-offset, 0px)` }}
               >
                 <h3 className="text-[14px] font-semibold">
                   {activeAgent.name}
@@ -1680,7 +1681,10 @@ export function AgentsWorkspace({
                 </p>
               </button>
             ) : (
-              <div className="rounded-xl bg-muted/40 px-3 py-2">
+              <div
+                className="rounded-xl bg-muted/40 px-3 py-2 transition-[margin] duration-200"
+                style={{ marginLeft: `var(--sidebar-toggle-offset, 0px)` }}
+              >
                 <h3 className="text-[14px] font-semibold">All agents</h3>
                 <p className="text-[11px] text-muted-foreground">
                   Recent runs across your whole team

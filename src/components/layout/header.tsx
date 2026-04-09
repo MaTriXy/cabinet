@@ -50,7 +50,10 @@ export function Header() {
   };
 
   return (
-    <header className="flex items-center justify-between border-b border-border px-4 py-2 bg-background/80 backdrop-blur-sm">
+    <header
+      className="flex items-center justify-between border-b border-border px-4 py-2 bg-background/80 backdrop-blur-sm transition-[padding] duration-200"
+      style={{ paddingLeft: `calc(1rem + var(--sidebar-toggle-offset, 0px))` }}
+    >
       <div className="flex items-center gap-2">
         <h1 className="text-[13px] font-medium text-foreground truncate tracking-[-0.01em]">
           {frontmatter?.title || "Cabinet"}
