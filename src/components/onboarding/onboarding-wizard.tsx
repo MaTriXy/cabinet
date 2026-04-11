@@ -8,7 +8,10 @@ import {
   CheckCircle2,
   Cloud,
   Check,
+  ClipboardCheck,
+  Copy,
   ExternalLink,
+  Info,
   Loader2,
   Rocket,
   Bot,
@@ -215,6 +218,37 @@ const TEAM_DOMAIN_COLORS: Record<string, { bg: string; text: string }> = {
   Content: { bg: "#FFF8E1", text: "#8D7039" },
   Services: { bg: "#E3F2FD", text: "#4A7FB5" },
 };
+
+function TerminalCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg px-3 py-2 mt-1.5 font-mono text-[12px]"
+      style={{ background: "#1e1e1e", color: "#d4d4d4" }}
+    >
+      <span style={{ color: "#6A9955" }}>$</span>
+      <span className="flex-1 select-all">{command}</span>
+      <button
+        onClick={copy}
+        className="shrink-0 p-1 rounded transition-colors hover:bg-white/10"
+        title="Copy to clipboard"
+      >
+        {copied ? (
+          <ClipboardCheck className="size-3.5" style={{ color: "#6A9955" }} />
+        ) : (
+          <Copy className="size-3.5" style={{ color: "#808080" }} />
+        )}
+      </button>
+    </div>
+  );
+}
 
 function TeamCarousel() {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1005,16 +1039,15 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
             />
           )}
 
-          {/* Step 4: AI Provider Check */}
+          {/* Step 3: AI Provider Check */}
           {step === 3 && (
-            <div className="mx-auto flex max-w-xl flex-col gap-8 animate-in fade-in duration-300">
+            <div className="mx-auto flex max-w-xl flex-col gap-6 animate-in fade-in duration-300">
               <div className="text-center space-y-2">
                 <h1 className="font-logo text-2xl tracking-tight italic">
                   Agent Provider
                 </h1>
                 <p className="text-sm leading-relaxed" style={{ color: WEB.textSecondary }}>
-                  Cabinet uses AI agent providers to power your team.
-                  Let&apos;s make sure yours is set up.
+                  Cabinet needs an AI CLI to power your agents.
                 </p>
               </div>
 
@@ -1027,110 +1060,156 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                 <div className="space-y-3">
                   {providers.map((p) => {
                     const isReady = !!(p.available && p.authenticated);
+                    const isInstalled = !!p.available;
                     const isExpanded = expandedProvider === p.id;
                     const ProviderIcon = p.icon === "sparkles" ? Sparkles : p.icon === "bot" ? Bot : Terminal;
+                    const statusColor = isReady ? "#16a34a" : isInstalled ? "#d97706" : WEB.textTertiary;
+                    const statusText = isReady
+                      ? `Ready ${p.version ? `\u2014 ${p.version}` : ""}`
+                      : isInstalled
+                        ? "Installed but not logged in"
+                        : "Not detected on this machine";
+                    const setupSteps: { title: string; detail: string; cmd?: string; openTerminal?: boolean; link?: { label: string; url: string } }[] = p.id === "claude-code"
+                      ? [
+                          { title: "Get a Claude subscription", detail: "Any Claude Code subscription will do (Pro, Max, or Team).", link: { label: "Open Claude billing", url: "https://claude.ai/settings/billing" } },
+                          { title: "Open a terminal", detail: "You'll need a terminal to run the next steps.", openTerminal: true },
+                          { title: "Install Claude Code", detail: "Run the following in your terminal:", cmd: "npm install -g @anthropic-ai/claude-code" },
+                          { title: "Log in to Claude", detail: "Authenticate with your subscription:", cmd: "claude auth login" },
+                          { title: "Verify login", detail: "Check that you're logged in:", cmd: "claude auth status" },
+                        ]
+                      : [
+                          { title: "Get an OpenAI API key", detail: "You need an OpenAI account with API access.", link: { label: "OpenAI API keys", url: "https://platform.openai.com/api-keys" } },
+                          { title: "Open a terminal", detail: "You'll need a terminal to run the next steps.", openTerminal: true },
+                          { title: "Set your API key", detail: "Add to your shell profile to persist:", cmd: "export OPENAI_API_KEY=sk-..." },
+                          { title: "Install Codex CLI", detail: "Run the following in your terminal:", cmd: "npm install -g @openai/codex" },
+                          { title: "Verify it works", detail: "If it prints a version, you're good:", cmd: "codex --version" },
+                        ];
                     return (
                       <div
                         key={p.id}
-                        className="rounded-2xl p-6 space-y-4"
+                        className="group rounded-xl p-4 space-y-3"
                         style={{
                           background: WEB.bgCard,
-                          border: `1px solid ${isReady ? WEB.accent : WEB.border}`,
-                          boxShadow: "0 1px 3px rgba(59, 47, 47, 0.04), 0 8px 30px rgba(59, 47, 47, 0.04)",
+                          border: `1px solid ${WEB.borderLight}`,
                         }}
                       >
                         <div className="flex items-center gap-3">
                           <div
-                            className="flex size-10 items-center justify-center rounded-xl"
-                            style={{ background: WEB.accentBg, color: WEB.accent }}
+                            className="flex size-9 items-center justify-center rounded-lg"
+                            style={{ background: WEB.bgWarm, color: WEB.accent }}
                           >
-                            <ProviderIcon className="size-5" />
+                            <ProviderIcon className="size-4" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold" style={{ color: WEB.text }}>
+                            <p className="text-sm font-medium" style={{ color: WEB.text }}>
                               {p.name}
                             </p>
-                            <p className="text-xs" style={{ color: isReady ? "#16a34a" : WEB.textTertiary }}>
-                              {isReady ? "Installed and ready" : "Not found"}
-                              {isReady && p.version && ` (${p.version})`}
+                            <p className="text-[11px]" style={{ color: statusColor }}>
+                              {statusText}
                             </p>
                           </div>
-                          {isReady ? (
-                            <CheckCircle2 className="size-5" style={{ color: "#16a34a" }} />
-                          ) : (
+                          <div className="flex items-center gap-2">
                             <button
                               onClick={() => setExpandedProvider(isExpanded ? null : p.id)}
-                              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
-                              style={{ background: WEB.accentBg, border: `1px solid ${WEB.border}`, color: WEB.accent }}
+                              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all"
+                              style={{
+                                background: isExpanded ? WEB.bgWarm : "transparent",
+                                color: WEB.textTertiary,
+                              }}
                             >
-                              Install instructions
-                              {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                              <Info className="size-3" />
+                              Guide
+                              <ChevronDown
+                                className="size-3 transition-transform duration-300"
+                                style={{ transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+                              />
                             </button>
-                          )}
+                            {isReady && (
+                              <CheckCircle2 className="size-5" style={{ color: "#16a34a" }} />
+                            )}
+                            {isInstalled && !isReady && (
+                              <XCircle className="size-5" style={{ color: "#d97706" }} />
+                            )}
+                            {!isInstalled && (
+                              <XCircle className="size-5" style={{ color: WEB.textTertiary }} />
+                            )}
+                          </div>
                         </div>
 
-                        {!isReady && isExpanded && (
-                          <div className="space-y-3">
-                            {p.installSteps && p.installSteps.length > 0 ? (
-                              <div
-                                className="rounded-xl p-4 space-y-3"
-                                style={{ background: WEB.bgWarm, border: `1px solid ${WEB.borderLight}` }}
-                              >
-                                {p.installSteps.map((installStep, i) => (
-                                  <div key={i} className="flex items-start gap-3">
-                                    <span
-                                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                                      style={{ background: WEB.accent, color: "white" }}
+                        <div
+                          className="overflow-hidden transition-all duration-300 ease-in-out"
+                          style={{
+                            maxHeight: isExpanded ? 500 : 0,
+                            opacity: isExpanded ? 1 : 0,
+                          }}
+                        >
+                          <div
+                            className="rounded-lg p-3 space-y-3"
+                            style={{ background: WEB.bgWarm }}
+                          >
+                            {setupSteps.map((setupStep, i) => (
+                              <div key={i} className="flex items-start gap-2.5">
+                                <span
+                                  className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold mt-0.5"
+                                  style={{ background: WEB.accent, color: "white" }}
+                                >
+                                  {i + 1}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[13px] font-medium" style={{ color: WEB.text }}>
+                                    {setupStep.title}
+                                  </p>
+                                  <p className="text-[11px] mt-0.5" style={{ color: WEB.textSecondary }}>
+                                    {setupStep.detail}
+                                  </p>
+                                  {setupStep.cmd && (
+                                    <TerminalCommand command={setupStep.cmd} />
+                                  )}
+                                  {setupStep.openTerminal && (
+                                    <button
+                                      onClick={() => {
+                                        fetch("/api/terminal/open", { method: "POST" }).catch(() => {
+                                          alert("Could not open terminal automatically. Please open Terminal.app (Mac) or your system terminal manually.");
+                                        });
+                                      }}
+                                      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 mt-1.5 text-[11px] font-medium transition-all hover:-translate-y-0.5"
+                                      style={{ background: "#1e1e1e", color: "#d4d4d4" }}
                                     >
-                                      {i + 1}
-                                    </span>
-                                    <div>
-                                      <p className="text-sm font-medium" style={{ color: WEB.text }}>
-                                        {installStep.title}
-                                      </p>
-                                      <p className="text-xs mt-0.5" style={{ color: WEB.textSecondary }}>
-                                        {installStep.detail}
-                                      </p>
-                                      {installStep.link && (
-                                        <a
-                                          href={installStep.link.url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-1 text-xs font-medium mt-1"
-                                          style={{ color: WEB.accent }}
-                                        >
-                                          {installStep.link.label}
-                                          <ExternalLink className="size-3" />
-                                        </a>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
+                                      <Terminal className="size-3" />
+                                      Open terminal
+                                    </button>
+                                  )}
+                                  {setupStep.link && (
+                                    <a
+                                      href={setupStep.link.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-medium mt-1.5"
+                                      style={{ color: WEB.accent }}
+                                    >
+                                      {setupStep.link.label}
+                                      <ExternalLink className="size-3" />
+                                    </a>
+                                  )}
+                                </div>
                               </div>
-                            ) : p.installMessage ? (
-                              <div
-                                className="rounded-xl px-4 py-3 text-sm"
-                                style={{ background: WEB.bgWarm, border: `1px solid ${WEB.borderLight}`, color: WEB.text }}
-                              >
-                                {p.installMessage}
-                              </div>
-                            ) : null}
+                            ))}
 
-                            <p className="text-xs" style={{ color: WEB.textTertiary }}>
-                              After installing, click Re-check below. If the provider was installed while Cabinet was running, you may need to restart the app.
+                            <p className="text-[11px]" style={{ color: WEB.textTertiary }}>
+                              After setup, click Re-check below. You may need to restart Cabinet if it was already running.
                             </p>
                           </div>
-                        )}
+                        </div>
                       </div>
                     );
                   })}
 
                   <button
                     onClick={checkProvider}
-                    className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-all hover:-translate-y-0.5"
-                    style={{ background: WEB.accentBg, border: `1px solid ${WEB.border}`, color: WEB.accent }}
+                    className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium transition-all hover:-translate-y-0.5"
+                    style={{ background: WEB.bgWarm, border: `1px solid ${WEB.borderLight}`, color: WEB.accent }}
                   >
-                    <RefreshCw className="size-3.5" />
+                    <RefreshCw className="size-3" />
                     Re-check providers
                   </button>
                 </div>
@@ -1138,7 +1217,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
 
               {/* Coming soon providers */}
               <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider" style={{ color: WEB.textTertiary }}>
+                <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: WEB.textTertiary }}>
                   Coming soon
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -1150,7 +1229,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                   ].map((p) => (
                     <div
                       key={p.name}
-                      className="flex items-center gap-3 rounded-xl px-4 py-3 opacity-50"
+                      className="flex items-center gap-3 rounded-xl px-4 py-3 opacity-40"
                       style={{
                         background: WEB.bgCard,
                         border: `1px solid ${WEB.borderLight}`,
@@ -1167,10 +1246,10 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium" style={{ color: WEB.textSecondary }}>
+                        <p className="text-[12px] font-medium" style={{ color: WEB.textSecondary }}>
                           {p.name}
                         </p>
-                        <p className="text-[11px]" style={{ color: WEB.textTertiary }}>
+                        <p className="text-[10px]" style={{ color: WEB.textTertiary }}>
                           {p.type} agent
                         </p>
                       </div>
