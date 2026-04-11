@@ -158,7 +158,7 @@ async function buildTreeRecursive(
       } else if (isLinked) {
         fm = await readCabinetMeta(fullPath);
       }
-      const children = await buildTreeRecursive(fullPath, nextAncestorRealPaths);
+      const children = await buildTreeRecursive(fullPath, nextAncestorRealPaths, showHidden);
 
       nodes.push({
         name: entry.name,
@@ -240,6 +240,6 @@ async function buildTreeRecursive(
   return nodes;
 }
 
-export async function buildTree(): Promise<TreeNode[]> {
-  return buildTreeRecursive(DATA_DIR);
+export async function buildTree(showHidden = false): Promise<TreeNode[]> {
+  return buildTreeRecursive(DATA_DIR, new Set<string>(), showHidden);
 }

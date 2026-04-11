@@ -4,11 +4,13 @@ import { useEffect } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
+import { useTreeStore } from "@/stores/tree-store";
 
 export function KeyboardShortcuts() {
   const { toggleTerminal, section, setSection } = useAppStore();
   const { save } = useEditorStore();
   const { toggle: toggleAI } = useAIPanelStore();
+  const { toggleHiddenFiles } = useTreeStore();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -42,12 +44,18 @@ export function KeyboardShortcuts() {
         }
       }
 
+      // Cmd+Shift+. — toggle hidden files (same as macOS Finder)
+      if (isMod && e.shiftKey && e.key === ".") {
+        e.preventDefault();
+        toggleHiddenFiles();
+      }
+
       // Cmd+K is handled by search-dialog component
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleTerminal, save, toggleAI, section, setSection]);
+  }, [toggleTerminal, save, toggleAI, toggleHiddenFiles, section, setSection]);
 
   return null;
 }

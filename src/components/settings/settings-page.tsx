@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
+import { useTreeStore } from "@/stores/tree-store";
 import {
   Settings,
   CheckCircle,
@@ -121,6 +122,7 @@ const PROVIDER_SETUP_STEPS: Record<string, SetupStep[]> = {
 };
 
 export function SettingsPage() {
+  const { showHiddenFiles, setShowHiddenFiles } = useTreeStore();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [defaultProvider, setDefaultProvider] = useState("");
   const [loading, setLoading] = useState(true);
@@ -512,6 +514,33 @@ export function SettingsPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="border-t border-border pt-6">
+                <h3 className="text-[13px] font-semibold mb-1">Sidebar</h3>
+                <p className="text-[12px] text-muted-foreground mb-4">
+                  Configure how files are displayed in the sidebar.
+                </p>
+
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 cursor-pointer hover:border-primary/30 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={showHiddenFiles}
+                      onChange={(e) => setShowHiddenFiles(e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                    <div>
+                      <span className="text-[13px] font-medium">Show hidden files</span>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Display files and folders starting with a dot (e.g. .env, .git)
+                      </p>
+                    </div>
+                  </div>
+                  <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                    {typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ? "⌘" : "Ctrl"}+⇧+.
+                  </kbd>
+                </label>
               </div>
             </div>
           )}
