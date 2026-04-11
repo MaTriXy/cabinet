@@ -17,6 +17,7 @@ export interface JobConfig {
   prompt: string;
   on_complete?: JobPostAction[];
   on_failure?: JobPostAction[];
+  cabinetPath?: string;
   createdAt: string;
   updatedAt: string;
 }

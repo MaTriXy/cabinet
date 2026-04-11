@@ -1,3 +1,4 @@
+import path from "path";
 import type { JobConfig, JobRun, JobPostAction } from "@/types/jobs";
 import type { ConversationMeta } from "@/types/conversations";
 import { readPage } from "../storage/page-io";
@@ -304,14 +305,15 @@ async function processPostActions(
 }
 
 export async function startJobConversation(job: JobConfig): Promise<JobRun> {
-  const persona = job.agentSlug ? await readPersona(job.agentSlug) : null;
+  const persona = job.agentSlug ? await readPersona(job.agentSlug, job.cabinetPath) : null;
   const jobPrompt = substituteTemplateVars(job.prompt, job);
+  const baseCwd = job.cabinetPath ? path.join(DATA_DIR, job.cabinetPath) : DATA_DIR;
   const cwd =
-    job.workdir && job.workdir !== "/data"
-      ? `${DATA_DIR}/${job.workdir.replace(/^\/+/, "")}`
-      : persona?.workdir && persona.workdir !== "/data"
-        ? `${DATA_DIR}/${persona.workdir.replace(/^\/+/, "")}`
-        : DATA_DIR;
+    job.workdir && job.workdir !== "/data" && job.workdir !== "/"
+      ? path.join(baseCwd, job.workdir.replace(/^\/+/, ""))
+      : persona?.workdir && persona.workdir !== "/data" && persona.workdir !== "/"
+        ? path.join(baseCwd, persona.workdir.replace(/^\/+/, ""))
+        : baseCwd;
 
   const prompt = [
     buildAgentContextHeader(persona, job.agentSlug || "agent"),

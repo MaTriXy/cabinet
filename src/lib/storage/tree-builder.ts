@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import matter from "gray-matter";
 import yaml from "js-yaml";
+import { CABINET_LINK_META_CANDIDATES, CABINET_MANIFEST_FILE } from "@/lib/cabinets/files";
 import type { TreeNode } from "@/types";
 import { DATA_DIR, virtualPathFromFs, isHiddenEntry } from "./path-utils";
 import { listDirectory, readFileContent, fileExists } from "./fs-operations";
@@ -77,15 +78,19 @@ async function readFrontmatter(
 async function readCabinetMeta(
   dirPath: string
 ): Promise<Record<string, unknown>> {
-  try {
-    const raw = await readFileContent(path.join(dirPath, ".cabinet.yaml"));
-    const parsed = yaml.load(raw);
-    return typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+  for (const filename of CABINET_LINK_META_CANDIDATES) {
+    try {
+      const raw = await readFileContent(path.join(dirPath, filename));
+      const parsed = yaml.load(raw);
+      return typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      // Try the next metadata filename.
+    }
   }
+
+  return {};
 }
 
 async function buildTreeRecursive(
@@ -129,7 +134,7 @@ async function buildTreeRecursive(
       const indexHtml = path.join(fullPath, "index.html");
       const hasIndexMd = await fileExists(indexMd);
       const hasIndexHtml = await fileExists(indexHtml);
-      const hasCabinet = await fileExists(path.join(fullPath, ".cabinet"));
+      const hasCabinet = await fileExists(path.join(fullPath, CABINET_MANIFEST_FILE));
 
       const repoYaml = path.join(fullPath, ".repo.yaml");
       const hasRepo = await fileExists(repoYaml);
@@ -152,7 +157,7 @@ async function buildTreeRecursive(
         continue;
       }
 
-      // Resolve metadata: prefer index.md frontmatter, fall back to .cabinet.yaml
+      // Resolve metadata: prefer index.md frontmatter, fall back to linked-folder metadata.
       let fm: Record<string, unknown> = {};
       if (hasIndexMd) {
         fm = await readFrontmatter(indexMd);

@@ -24,24 +24,14 @@ import { StatusBar } from "@/components/layout/status-bar";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { UpdateDialog } from "@/components/layout/update-dialog";
 import { NotificationToasts } from "@/components/layout/notification-toasts";
+import { CabinetView } from "@/components/cabinets/cabinet-view";
+import { findNodeByPath } from "@/lib/cabinets/tree";
 import { useCabinetUpdate } from "@/hooks/use-cabinet-update";
 import { useHashRoute } from "@/hooks/use-hash-route";
 import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
-import type { TreeNode } from "@/types";
 
 const DISMISSED_UPDATE_STORAGE_KEY = "cabinet.dismissed-update-version";
-
-function findNode(nodes: TreeNode[], path: string): TreeNode | null {
-  for (const node of nodes) {
-    if (node.path === path) return node;
-    if (node.children) {
-      const found = findNode(node.children, path);
-      if (found) return found;
-    }
-  }
-  return null;
-}
 
 export function AppShell() {
   const loadTree = useTreeStore((s) => s.loadTree);
@@ -133,7 +123,7 @@ export function AppShell() {
     setUpdateDialogOpen(false);
   }
 
-  const selectedNode = selectedPath ? findNode(nodes, selectedPath) : null;
+  const selectedNode = selectedPath ? findNodeByPath(nodes, selectedPath) : null;
   // For paths not in the tree (e.g. .agents/ workspace files), infer type from extension
   const inferredType = !selectedNode && selectedPath
     ? selectedPath.endsWith(".csv") ? "csv"
@@ -199,6 +189,9 @@ export function AppShell() {
     if (section.type === "jobs") return <JobsManager />;
 
     // Page-based views (when a KB page is selected)
+    if (selectedNode?.type === "cabinet" && selectedPath) {
+      return <CabinetView cabinetPath={selectedPath} />;
+    }
     if (isApp && selectedNode) {
       return (
         <WebsiteViewer

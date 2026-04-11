@@ -107,25 +107,59 @@ export async function loadAllJobs(): Promise<JobConfig[]> {
   return [...legacy, ...agentScoped];
 }
 
-/** Load jobs for a specific agent */
-export async function loadAgentJobsBySlug(agentSlug: string): Promise<JobConfig[]> {
-  const agentJobsDir = path.join(AGENTS_DIR, agentSlug, "jobs");
-  if (!(await fileExists(agentJobsDir))) return [];
-
-  const entries = await listDirectory(agentJobsDir);
+/** Load jobs owned by a specific agent, optionally scoped to a cabinet */
+export async function loadAgentJobsBySlug(agentSlug: string, cabinetPath?: string): Promise<JobConfig[]> {
+  const agentsDir = cabinetPath ? path.join(DATA_DIR, cabinetPath, ".agents") : AGENTS_DIR;
+  const agentJobsDir = path.join(agentsDir, agentSlug, "jobs");
   const jobs = new Map<string, JobConfig>();
+
+  if (await fileExists(agentJobsDir)) {
+    const entries = await listDirectory(agentJobsDir);
+    for (const entry of entries) {
+      if (!entry.name.endsWith(".yaml") || entry.isDirectory) continue;
+      try {
+        const config = await loadNormalizedJobFile(
+          path.join(agentJobsDir, entry.name),
+          agentSlug
+        );
+        if (config?.id) jobs.set(config.id, config);
+      } catch { /* skip */ }
+    }
+  }
+
+  // Also check cabinet-level .jobs/ for jobs owned by this agent
+  if (cabinetPath) {
+    const cabinetJobs = await loadCabinetLevelJobsForAgent(cabinetPath, agentSlug);
+    for (const job of cabinetJobs) {
+      if (job.id && !jobs.has(job.id)) jobs.set(job.id, job);
+    }
+  }
+
+  return Array.from(jobs.values());
+}
+
+/** Load jobs from a cabinet's .jobs/ directory that belong to a specific agent */
+async function loadCabinetLevelJobsForAgent(cabinetPath: string, agentSlug: string): Promise<JobConfig[]> {
+  const cabinetJobsDir = path.join(DATA_DIR, cabinetPath, ".jobs");
+  if (!(await fileExists(cabinetJobsDir))) return [];
+
+  const entries = await listDirectory(cabinetJobsDir);
+  const jobs: JobConfig[] = [];
 
   for (const entry of entries) {
     if (!entry.name.endsWith(".yaml") || entry.isDirectory) continue;
     try {
       const config = await loadNormalizedJobFile(
-        path.join(agentJobsDir, entry.name),
+        path.join(cabinetJobsDir, entry.name),
         agentSlug
       );
-      if (config?.id) jobs.set(config.id, config);
+      if (config?.id && config.agentSlug === agentSlug) {
+        jobs.push(config);
+      }
     } catch { /* skip */ }
   }
-  return Array.from(jobs.values());
+
+  return jobs;
 }
 
 /** Save a job to the appropriate directory based on agentSlug */

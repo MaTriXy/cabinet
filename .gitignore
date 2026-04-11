@@ -44,18 +44,19 @@ next-env.d.ts
 # data: keep only the shipped templates, agent library, and guidance tracked
 data/**
 !data/
+!data/.cabinet
 !data/getting-started/
 !data/getting-started/**
 !data/example-cabinet-carousel-factory/
 !data/example-cabinet-carousel-factory/**
 !data/example-text-your-mom/
 !data/example-text-your-mom/**
-!data/.agents/
-!data/.agents/.library/
-!data/.agents/.library/**
 !data/index.md
 !data/CLAUDE.md
 data/**/.DS_Store
+
+# old data backup
+/old-data/
 
 # claude code
 .claude/

@@ -1,6 +1,9 @@
 import { create } from "zustand";
+import type { CabinetVisibilityMode } from "@/types/cabinets";
 
 export type SectionType = "home" | "page" | "agents" | "agent" | "jobs" | "settings";
+
+const CABINET_VISIBILITY_STORAGE_KEY = "cabinet.visibility.mode";
 
 export interface SelectedSection {
   type: SectionType;
@@ -21,6 +24,7 @@ interface AppState {
   activeTerminalTab: string | null;
   sidebarCollapsed: boolean;
   aiPanelCollapsed: boolean;
+  cabinetVisibilityMode: CabinetVisibilityMode;
   setSection: (section: SelectedSection) => void;
   toggleTerminal: () => void;
   closeTerminal: () => void;
@@ -30,6 +34,21 @@ interface AppState {
   openAgentTab: (taskTitle: string, prompt: string) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setAiPanelCollapsed: (collapsed: boolean) => void;
+  setCabinetVisibilityMode: (mode: CabinetVisibilityMode) => void;
+}
+
+function loadCabinetVisibilityMode(): CabinetVisibilityMode {
+  if (typeof window === "undefined") return "own";
+  try {
+    const stored = window.localStorage.getItem(CABINET_VISIBILITY_STORAGE_KEY);
+    return stored === "children-1" ||
+      stored === "children-2" ||
+      stored === "all"
+      ? stored
+      : "own";
+  } catch {
+    return "own";
+  }
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -39,6 +58,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTerminalTab: null,
   sidebarCollapsed: false,
   aiPanelCollapsed: false,
+  cabinetVisibilityMode: loadCabinetVisibilityMode(),
 
   setSection: (section) => set({ section }),
 
@@ -90,6 +110,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setAiPanelCollapsed: (collapsed) => set({ aiPanelCollapsed: collapsed }),
+  setCabinetVisibilityMode: (mode) => {
+    try {
+      window.localStorage.setItem(CABINET_VISIBILITY_STORAGE_KEY, mode);
+    } catch {
+      // ignore storage failures
+    }
+    set({ cabinetVisibilityMode: mode });
+  },
 
   openAgentTab: (taskTitle: string, prompt: string) => {
     const id = `agent-${Date.now()}`;

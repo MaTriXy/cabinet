@@ -72,7 +72,7 @@ The symlinked folder's contents appear as direct children in the tree — no wra
 
 Cabinet writes two hidden dotfiles into the **target directory**:
 
-### `.cabinet.yaml` (all linked dirs)
+### `.cabinet-meta` (all linked dirs)
 Display metadata for the KB. Hidden from the sidebar by `isHiddenEntry`.
 
 ```yaml
@@ -112,7 +112,7 @@ When an agent is working on a KB page that has a `.repo.yaml` in the same direct
 **Example structure:**
 ```
 /data/
-  my-project -> /external/path    ← direct symlink (has .cabinet.yaml + .repo.yaml inside)
+  my-project -> /external/path    ← direct symlink (has .cabinet-meta + .repo.yaml inside)
   gpu-emulator/
     index.html          ← the app
     .app                ← full-screen mode

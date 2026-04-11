@@ -74,7 +74,8 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   }
 
   if (body.action === "run") {
-    const sessionId = await startManualHeartbeat(slug);
+    const cabinetPath = typeof body.cabinetPath === "string" ? body.cabinetPath : undefined;
+    const sessionId = await startManualHeartbeat(slug, cabinetPath);
     if (!sessionId) {
       return NextResponse.json({ ok: false, message: "Agent inactive or over budget" }, { status: 400 });
     }

@@ -1,5 +1,9 @@
 # Progress
 
+[2026-04-11] Daemon recursive cabinet scheduling: the daemon now discovers all `.cabinet` files recursively under DATA_DIR and schedules heartbeats and jobs for every cabinet's agents. Schedule keys are cabinet-qualified (e.g., `example-text-your-mom/marketing/tiktok::heartbeat::trend-scout`) to prevent slug collisions across cabinets. Cabinet-level `.jobs/*.yaml` with `ownerAgent` are picked up alongside legacy agent-scoped jobs. The file watcher now monitors `**/.agents/*/persona.md`, `**/.jobs/*.yaml`, and `**/.cabinet` across all depths. API endpoints accept `cabinetPath` in request body so heartbeats and jobs execute in the correct cabinet scope with the right cwd.
+
+[2026-04-11] Cleaned data directory: moved all old content (agents, jobs, missions, playbooks, chat, and content dirs) to `old-data/` at project root. Created root `.cabinet` manifest and `index.md` for the root cabinet. Renamed `data/.cabinet/` (runtime config dir) to `data/.cabinet-state/` to avoid conflict with `.cabinet` manifest file.
+
 [2026-04-11] Onboarding provider step: redesigned to show only working providers as selectable radio cards with model selector. Users choose their default provider (Claude Code or Codex CLI) and pick a model (sonnet/opus/haiku or o3/o4-mini/gpt-4.1). Selection is saved to provider settings on launch. Non-working providers show setup guides in an expandable section.
 
 [2026-04-11] Onboarding launch step: replaced right-side activity feed with animated agent chat preview. Agents now appear to talk to each other in a #general channel — CEO greets the team, delegates tasks to selected agents by name, and agents reply and coordinate. Messages appear one-by-one with typing indicators. Panel height reduced.
@@ -22,7 +26,7 @@
 
 [2026-04-11] Added source/code viewer, image viewer, and video/audio player as first-class file viewers. Code files (.js, .ts, .py, .json, .yaml, .sh, .sql, +25 more extensions) open in a dark-themed source viewer with line numbers, copy, download, wrap toggle, and raw view. Images (.png, .jpg, .gif, .webp, .svg) render centered on a dark background with download/open-in-tab. Video/audio (.mp4, .webm, .mp3, .wav) use native HTML5 players. Tree builder now classifies files by extension and shows type-specific sidebar icons. Added node_modules and other build dirs to the hidden entries filter.
 
-[2026-04-11] Load Knowledge now creates direct symlinks (`data/my-project -> /external/path`) instead of wrapper directories with a `source` symlink inside. Metadata is stored as dotfiles (`.cabinet.yaml`, `.repo.yaml`) in the target directory. Added `isLinked` flag to TreeNode for UI differentiation — linked dirs show a Link2 icon and "Unlink" instead of "Delete" in context menus. Updated `readPage` with `.cabinet.yaml` fallback for linked dirs without `index.md`, and `deletePage` to safely unlink symlinks while cleaning up `.cabinet.yaml`.
+[2026-04-11] Load Knowledge now creates direct symlinks (`data/my-project -> /external/path`) instead of wrapper directories with a `source` symlink inside. Metadata is stored as dotfiles (`.cabinet-meta`, `.repo.yaml`) in the target directory, while legacy `.cabinet.yaml` is still read for compatibility. Added `isLinked` flag to TreeNode for UI differentiation — linked dirs show a Link2 icon and "Unlink" instead of "Delete" in context menus. Updated linked-folder page fallback and symlink cleanup to support the new metadata file plus the legacy filename during transition.
 
 [2026-04-11] Added "Copy Relative Path" and "Copy Full Path" options to sidebar context menus. TreeNode menu gets both options; Knowledge Base root menu gets "Copy Full Path". Full path is resolved via `/api/health` with a client-side cache.
 

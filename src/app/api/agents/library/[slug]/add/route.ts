@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 import { DATA_DIR } from "@/lib/storage/path-utils";
+import { PROJECT_ROOT } from "@/lib/runtime/runtime-config";
 import { ensureAgentScaffold } from "@/lib/agents/scaffold";
 
-const LIBRARY_DIR = path.join(DATA_DIR, ".agents", ".library");
+const LIBRARY_DIR = path.join(PROJECT_ROOT, "src", "lib", "agents", "library");
 const AGENTS_DIR = path.join(DATA_DIR, ".agents");
 
 export async function POST(

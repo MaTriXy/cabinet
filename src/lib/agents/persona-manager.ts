@@ -20,6 +20,23 @@ const MEMORY_DIR = path.join(AGENTS_DIR, ".memory");
 const MESSAGES_DIR = path.join(AGENTS_DIR, ".messages");
 const HISTORY_DIR = path.join(AGENTS_DIR, ".history");
 
+function resolveAgentsDir(cabinetPath?: string): string {
+  if (cabinetPath) return path.join(DATA_DIR, cabinetPath, ".agents");
+  return AGENTS_DIR;
+}
+
+function resolveMemoryDir(cabinetPath?: string): string {
+  return path.join(resolveAgentsDir(cabinetPath), ".memory");
+}
+
+function resolveMessagesDir(cabinetPath?: string): string {
+  return path.join(resolveAgentsDir(cabinetPath), ".messages");
+}
+
+function resolveHistoryDir(cabinetPath?: string): string {
+  return path.join(resolveAgentsDir(cabinetPath), ".history");
+}
+
 // Track currently running heartbeats
 const runningHeartbeats = new Set<string>();
 
@@ -168,12 +185,13 @@ export async function listPersonas(): Promise<AgentPersona[]> {
   return personas;
 }
 
-export async function readPersona(slug: string): Promise<AgentPersona | null> {
+export async function readPersona(slug: string, cabinetPath?: string): Promise<AgentPersona | null> {
+  const agentsDir = resolveAgentsDir(cabinetPath);
   // Try directory-based first: {slug}/persona.md
-  let filePath = path.join(AGENTS_DIR, slug, "persona.md");
+  let filePath = path.join(agentsDir, slug, "persona.md");
   if (!(await fileExists(filePath))) {
     // Fall back to legacy flat file: {slug}.md
-    filePath = path.join(AGENTS_DIR, `${slug}.md`);
+    filePath = path.join(agentsDir, `${slug}.md`);
     if (!(await fileExists(filePath))) return null;
   }
 
@@ -205,8 +223,8 @@ export async function readPersona(slug: string): Promise<AgentPersona | null> {
   };
 
   // Load stats — check agent dir first, then legacy shared dir
-  const agentStatsPath = path.join(AGENTS_DIR, slug, "memory", "stats.json");
-  const legacyStatsPath = path.join(MEMORY_DIR, slug, "stats.json");
+  const agentStatsPath = path.join(agentsDir, slug, "memory", "stats.json");
+  const legacyStatsPath = path.join(resolveMemoryDir(cabinetPath), slug, "stats.json");
   const statsPath = (await fileExists(agentStatsPath)) ? agentStatsPath : legacyStatsPath;
   if (await fileExists(statsPath)) {
     try {
@@ -288,22 +306,22 @@ export async function deletePersona(slug: string): Promise<void> {
 
 // --- Memory ---
 
-export async function readMemory(slug: string, file: string): Promise<string> {
-  const memDir = path.join(MEMORY_DIR, slug);
+export async function readMemory(slug: string, file: string, cabinetPath?: string): Promise<string> {
+  const memDir = path.join(resolveMemoryDir(cabinetPath), slug);
   await ensureDirectory(memDir);
   const filePath = path.join(memDir, file);
   if (!(await fileExists(filePath))) return "";
   return readFileContent(filePath);
 }
 
-export async function writeMemory(slug: string, file: string, content: string): Promise<void> {
-  const memDir = path.join(MEMORY_DIR, slug);
+export async function writeMemory(slug: string, file: string, content: string, cabinetPath?: string): Promise<void> {
+  const memDir = path.join(resolveMemoryDir(cabinetPath), slug);
   await ensureDirectory(memDir);
   await writeFileContent(path.join(memDir, file), content);
 }
 
-export async function listMemoryFiles(slug: string): Promise<string[]> {
-  const memDir = path.join(MEMORY_DIR, slug);
+export async function listMemoryFiles(slug: string, cabinetPath?: string): Promise<string[]> {
+  const memDir = path.join(resolveMemoryDir(cabinetPath), slug);
   await ensureDirectory(memDir);
   const entries = await listDirectory(memDir);
   return entries.filter((e) => !e.isDirectory).map((e) => e.name);
@@ -320,8 +338,8 @@ export async function sendMessage(from: string, to: string, message: string): Pr
   await writeFileContent(path.join(inboxDir, filename), content);
 }
 
-export async function readInbox(slug: string): Promise<Array<{ from: string; timestamp: string; message: string; filename: string }>> {
-  const inboxDir = path.join(MESSAGES_DIR, slug);
+export async function readInbox(slug: string, cabinetPath?: string): Promise<Array<{ from: string; timestamp: string; message: string; filename: string }>> {
+  const inboxDir = path.join(resolveMessagesDir(cabinetPath), slug);
   await ensureDirectory(inboxDir);
   const entries = await listDirectory(inboxDir);
   const messages: Array<{ from: string; timestamp: string; message: string; filename: string }> = [];
@@ -341,8 +359,8 @@ export async function readInbox(slug: string): Promise<Array<{ from: string; tim
   return messages.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
-export async function clearInbox(slug: string): Promise<void> {
-  const inboxDir = path.join(MESSAGES_DIR, slug);
+export async function clearInbox(slug: string, cabinetPath?: string): Promise<void> {
+  const inboxDir = path.join(resolveMessagesDir(cabinetPath), slug);
   const fs = await import("fs/promises");
   const entries = await listDirectory(inboxDir).catch(() => []);
   for (const entry of entries) {
@@ -354,20 +372,21 @@ export async function clearInbox(slug: string): Promise<void> {
 
 // --- Heartbeat History ---
 
-export async function recordHeartbeat(record: HeartbeatRecord): Promise<void> {
+export async function recordHeartbeat(record: HeartbeatRecord & { cabinetPath?: string }): Promise<void> {
   const slug = record.agentSlug;
+  const histDir = resolveHistoryDir(record.cabinetPath);
 
   // Append to history log
-  const historyFile = path.join(HISTORY_DIR, `${slug}.jsonl`);
+  const historyFile = path.join(histDir, `${slug}.jsonl`);
   const line = JSON.stringify(record) + "\n";
   const fs = await import("fs/promises");
   await fs.appendFile(historyFile, line).catch(async () => {
-    await ensureDirectory(HISTORY_DIR);
+    await ensureDirectory(histDir);
     await fs.writeFile(historyFile, line);
   });
 
   // Update stats
-  const memDir = path.join(MEMORY_DIR, slug);
+  const memDir = path.join(resolveMemoryDir(record.cabinetPath), slug);
   await ensureDirectory(memDir);
   const statsPath = path.join(memDir, "stats.json");
   let stats = { heartbeatsUsed: 0, lastHeartbeat: "" };
@@ -379,8 +398,8 @@ export async function recordHeartbeat(record: HeartbeatRecord): Promise<void> {
   await writeFileContent(statsPath, JSON.stringify(stats, null, 2));
 }
 
-export async function getHeartbeatHistory(slug: string, limit = 20): Promise<HeartbeatRecord[]> {
-  const historyFile = path.join(HISTORY_DIR, `${slug}.jsonl`);
+export async function getHeartbeatHistory(slug: string, limit = 20, cabinetPath?: string): Promise<HeartbeatRecord[]> {
+  const historyFile = path.join(resolveHistoryDir(cabinetPath), `${slug}.jsonl`);
   if (!(await fileExists(historyFile))) return [];
 
   const raw = await readFileContent(historyFile);

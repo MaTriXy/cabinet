@@ -45,14 +45,77 @@ import {
 
 const PORT = getDaemonPort();
 const AGENTS_DIR = path.join(DATA_DIR, ".agents");
-const ALLOWED_BROWSER_ORIGINS = new Set(
-  [
-    getAppOrigin(),
-    ...(process.env.CABINET_APP_ORIGIN
-      ? process.env.CABINET_APP_ORIGIN.split(",").map((value) => value.trim()).filter(Boolean)
-      : []),
-  ]
-);
+const CABINET_MANIFEST_FILE = ".cabinet";
+
+interface CabinetEntry {
+  /** Relative path from DATA_DIR, empty string for root */
+  relPath: string;
+  /** Absolute directory path */
+  absDir: string;
+}
+
+function discoverAllCabinets(): CabinetEntry[] {
+  const cabinets: CabinetEntry[] = [];
+
+  // Always include root
+  cabinets.push({ relPath: "", absDir: DATA_DIR });
+
+  function walk(dir: string): void {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+
+      const childDir = path.join(dir, entry.name);
+      const manifestPath = path.join(childDir, CABINET_MANIFEST_FILE);
+
+      if (fs.existsSync(manifestPath)) {
+        const relPath = path.relative(DATA_DIR, childDir);
+        cabinets.push({ relPath, absDir: childDir });
+      }
+
+      // Always recurse — cabinets can be nested at any depth
+      walk(childDir);
+    }
+  }
+
+  walk(DATA_DIR);
+  return cabinets;
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function getAllowedBrowserOrigins(): Set<string> {
+  return new Set(
+    [
+      getAppOrigin(),
+      ...(process.env.CABINET_APP_ORIGIN
+        ? process.env.CABINET_APP_ORIGIN.split(",").map((value) => value.trim()).filter(Boolean)
+        : []),
+    ]
+  );
+}
+
+function browserOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return false;
+  if (getAllowedBrowserOrigins().has(origin)) {
+    return true;
+  }
+
+  return isLoopbackOrigin(origin);
+}
 
 // ----- Database Initialization -----
 
@@ -108,7 +171,7 @@ function resolveSessionCwd(input?: string): string {
 
 function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_BROWSER_ORIGINS.has(origin)) {
+  if (browserOriginAllowed(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
@@ -533,6 +596,7 @@ interface JobConfig {
   prompt: string;
   timeout?: number;
   agentSlug: string;
+  cabinetPath: string;
 }
 
 const scheduledJobs = new Map<string, ReturnType<typeof cron.schedule>>();
@@ -559,7 +623,9 @@ function stopScheduledTasks(): void {
 }
 
 function scheduleJob(job: JobConfig): void {
-  const key = `${job.agentSlug}/${job.id}`;
+  const key = job.cabinetPath
+    ? `${job.cabinetPath}::job::${job.agentSlug}/${job.id}`
+    : `::job::${job.agentSlug}/${job.id}`;
   const existingTask = scheduledJobs.get(key);
   if (existingTask) existingTask.stop();
 
@@ -573,6 +639,7 @@ function scheduleJob(job: JobConfig): void {
     void putJson(`${getAppOrigin()}/api/agents/${job.agentSlug}/jobs/${job.id}`, {
       action: "run",
       source: "scheduler",
+      cabinetPath: job.cabinetPath || undefined,
     }).catch((error) => {
       console.error(`Failed to trigger scheduled job ${key}:`, error);
     });
@@ -582,82 +649,139 @@ function scheduleJob(job: JobConfig): void {
   console.log(`  Scheduled job: ${key} (${job.schedule})`);
 }
 
-function scheduleHeartbeat(slug: string, cronExpr: string): void {
+function scheduleHeartbeat(slug: string, cronExpr: string, cabinetPath: string): void {
+  const key = cabinetPath
+    ? `${cabinetPath}::heartbeat::${slug}`
+    : `::heartbeat::${slug}`;
+
   if (!cron.validate(cronExpr)) {
-    console.warn(`Invalid heartbeat schedule for ${slug}: ${cronExpr}`);
+    console.warn(`Invalid heartbeat schedule for ${key}: ${cronExpr}`);
     return;
   }
 
   const task = cron.schedule(cronExpr, () => {
-    console.log(`Triggering heartbeat ${slug}`);
+    console.log(`Triggering heartbeat ${key}`);
     void putJson(`${getAppOrigin()}/api/agents/personas/${slug}`, {
       action: "run",
       source: "scheduler",
+      cabinetPath: cabinetPath || undefined,
     }).catch((error) => {
-      console.error(`Failed to trigger heartbeat ${slug}:`, error);
+      console.error(`Failed to trigger heartbeat ${key}:`, error);
     });
   });
 
-  scheduledHeartbeats.set(slug, task);
-  console.log(`  Scheduled heartbeat: ${slug} (${cronExpr})`);
+  scheduledHeartbeats.set(key, task);
+  console.log(`  Scheduled heartbeat: ${key} (${cronExpr})`);
 }
 
 async function reloadSchedules(): Promise<void> {
   stopScheduledTasks();
 
-  if (!fs.existsSync(AGENTS_DIR)) return;
-
-  const entries = fs.readdirSync(AGENTS_DIR, { withFileTypes: true });
+  const cabinets = discoverAllCabinets();
   let jobCount = 0;
   let heartbeatCount = 0;
 
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+  for (const cabinet of cabinets) {
+    const agentsDir = path.join(cabinet.absDir, ".agents");
 
-    const personaPath = path.join(AGENTS_DIR, entry.name, "persona.md");
-    if (fs.existsSync(personaPath)) {
+    // --- Heartbeats + agent-scoped jobs from .agents/*/persona.md ---
+    if (fs.existsSync(agentsDir)) {
+      let agentEntries: fs.Dirent[];
       try {
-        const rawPersona = fs.readFileSync(personaPath, "utf-8");
-        const { data } = matter(rawPersona);
-        const active = data.active !== false;
-        const heartbeat = typeof data.heartbeat === "string" ? data.heartbeat : "";
-        if (active && heartbeat) {
-          scheduleHeartbeat(entry.name, heartbeat);
-          heartbeatCount++;
-        }
+        agentEntries = fs.readdirSync(agentsDir, { withFileTypes: true });
       } catch {
-        // Skip malformed personas.
+        agentEntries = [];
+      }
+
+      for (const entry of agentEntries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+
+        const personaPath = path.join(agentsDir, entry.name, "persona.md");
+        if (fs.existsSync(personaPath)) {
+          try {
+            const rawPersona = fs.readFileSync(personaPath, "utf-8");
+            const { data } = matter(rawPersona);
+            const active = data.active !== false;
+            const heartbeat = typeof data.heartbeat === "string" ? data.heartbeat : "";
+            if (active && heartbeat) {
+              scheduleHeartbeat(entry.name, heartbeat, cabinet.relPath);
+              heartbeatCount++;
+            }
+          } catch {
+            // Skip malformed personas.
+          }
+        }
+
+        // Legacy agent-scoped jobs: .agents/{slug}/jobs/*.yaml
+        const agentJobsDir = path.join(agentsDir, entry.name, "jobs");
+        if (fs.existsSync(agentJobsDir)) {
+          let jobFiles: string[];
+          try {
+            jobFiles = fs.readdirSync(agentJobsDir);
+          } catch {
+            jobFiles = [];
+          }
+          for (const jf of jobFiles) {
+            if (!jf.endsWith(".yaml") && !jf.endsWith(".yml")) continue;
+            try {
+              const raw = fs.readFileSync(path.join(agentJobsDir, jf), "utf-8");
+              const config: JobConfig = {
+                ...normalizeJobConfig(
+                  yaml.load(raw) as Partial<JobConfig>,
+                  entry.name,
+                  normalizeJobId(path.basename(jf, path.extname(jf)))
+                ),
+                agentSlug: entry.name,
+                cabinetPath: cabinet.relPath,
+              };
+              if (config.id && config.enabled && config.schedule) {
+                scheduleJob(config);
+                jobCount++;
+              }
+            } catch {
+              // Skip malformed jobs.
+            }
+          }
+        }
       }
     }
 
-    const jobsDir = path.join(AGENTS_DIR, entry.name, "jobs");
-    if (!fs.existsSync(jobsDir)) continue;
-
-    const jobFiles = fs.readdirSync(jobsDir);
-    for (const jf of jobFiles) {
-      if (!jf.endsWith(".yaml")) continue;
-
+    // --- Cabinet-level jobs: .jobs/*.yaml ---
+    const cabinetJobsDir = path.join(cabinet.absDir, ".jobs");
+    if (fs.existsSync(cabinetJobsDir)) {
+      let jobFiles: string[];
       try {
-        const raw = fs.readFileSync(path.join(jobsDir, jf), "utf-8");
-        const config: JobConfig = {
-          ...normalizeJobConfig(
-            yaml.load(raw) as Partial<JobConfig>,
-            entry.name,
-            normalizeJobId(path.basename(jf, ".yaml"))
-          ),
-          agentSlug: entry.name,
-        };
-        if (config.id && config.enabled && config.schedule) {
-          scheduleJob(config);
-          jobCount++;
-        }
+        jobFiles = fs.readdirSync(cabinetJobsDir);
       } catch {
-        // Skip malformed jobs.
+        jobFiles = [];
+      }
+      for (const jf of jobFiles) {
+        if (!jf.endsWith(".yaml") && !jf.endsWith(".yml")) continue;
+        try {
+          const raw = fs.readFileSync(path.join(cabinetJobsDir, jf), "utf-8");
+          const parsed = yaml.load(raw) as Record<string, unknown>;
+          const ownerAgent = (parsed.ownerAgent as string) || (parsed.agentSlug as string) || "";
+          const config: JobConfig = {
+            ...normalizeJobConfig(
+              parsed as Partial<JobConfig>,
+              ownerAgent,
+              normalizeJobId(path.basename(jf, path.extname(jf)))
+            ),
+            agentSlug: ownerAgent,
+            cabinetPath: cabinet.relPath,
+          };
+          if (config.id && config.enabled && config.schedule && ownerAgent) {
+            scheduleJob(config);
+            jobCount++;
+          }
+        } catch {
+          // Skip malformed jobs.
+        }
       }
     }
   }
 
-  console.log(`Scheduled ${jobCount} jobs and ${heartbeatCount} heartbeats.`);
+  console.log(`Discovered ${cabinets.length} cabinet(s). Scheduled ${jobCount} jobs and ${heartbeatCount} heartbeats.`);
 }
 
 function queueScheduleReload(): void {
@@ -946,7 +1070,12 @@ wssEvents.on("connection", (ws) => {
 // ===== Startup =====
 
 const scheduleWatcher = chokidar.watch(
-  [path.join(AGENTS_DIR, "*/persona.md"), path.join(AGENTS_DIR, "*/jobs/*.yaml")],
+  [
+    path.join(DATA_DIR, "**", ".agents", "*", "persona.md"),
+    path.join(DATA_DIR, "**", ".jobs", "*.yaml"),
+    path.join(DATA_DIR, "**", ".agents", "*", "jobs", "*.yaml"),
+    path.join(DATA_DIR, "**", CABINET_MANIFEST_FILE),
+  ],
   {
     ignoreInitial: true,
   }

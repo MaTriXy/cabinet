@@ -12,12 +12,14 @@ import {
 } from "@/lib/jobs/job-normalization";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string; jobId: string }> }
 ) {
   const { id: slug, jobId } = await params;
+  const { searchParams } = new URL(req.url);
+  const cabinetPath = searchParams.get("cabinetPath") || undefined;
   try {
-    const jobs = await loadAgentJobsBySlug(slug);
+    const jobs = await loadAgentJobsBySlug(slug, cabinetPath);
     const job = jobs.find((j) => jobIdMatches(j.id, jobId));
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -35,16 +37,18 @@ export async function PUT(
 ) {
   const { id: slug, jobId } = await params;
   try {
-    const jobs = await loadAgentJobsBySlug(slug);
+    const body = await req.json();
+    const cabinetPath = typeof body.cabinetPath === "string" ? body.cabinetPath : undefined;
+
+    const jobs = await loadAgentJobsBySlug(slug, cabinetPath);
     const existing = jobs.find((j) => jobIdMatches(j.id, jobId));
     if (!existing) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    const body = await req.json();
-
     // Handle run action
     if (body.action === "run") {
+      if (cabinetPath) existing.cabinetPath = cabinetPath;
       const run = await executeJob(existing);
       return NextResponse.json({ ok: true, run });
     }
