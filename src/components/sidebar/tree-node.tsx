@@ -18,6 +18,11 @@ import {
   ClipboardCopy,
   Link2,
   Link2Off,
+  Code,
+  Image,
+  Video,
+  Music,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TreeNode as TreeNodeType } from "@/types";
@@ -202,6 +207,16 @@ export function TreeNode({ node, depth }: TreeNodeProps) {
               <AppWindow className="h-4 w-4 shrink-0 text-emerald-400" />
             ) : node.type === "website" ? (
               <Globe className="h-4 w-4 shrink-0 text-blue-400" />
+            ) : node.type === "code" ? (
+              <Code className="h-4 w-4 shrink-0 text-violet-400" />
+            ) : node.type === "image" ? (
+              <Image className="h-4 w-4 shrink-0 text-pink-400" />
+            ) : node.type === "video" ? (
+              <Video className="h-4 w-4 shrink-0 text-cyan-400" />
+            ) : node.type === "audio" ? (
+              <Music className="h-4 w-4 shrink-0 text-amber-400" />
+            ) : node.type === "mermaid" ? (
+              <Workflow className="h-4 w-4 shrink-0 text-teal-400" />
             ) : node.hasRepo ? (
               <GitBranch className="h-4 w-4 shrink-0 text-orange-400" />
             ) : node.isLinked ? (
