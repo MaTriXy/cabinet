@@ -862,41 +862,41 @@ export function RegistryBrowser() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
               style={{
-                borderColor: P.border,
-                backgroundColor: P.bgCard,
-                color: P.textSecondary,
+                borderColor: P.borderDark,
+                backgroundColor: P.accentBg,
+                color: P.accent,
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = P.bgWarm;
-                e.currentTarget.style.color = P.textPrimary;
+                e.currentTarget.style.backgroundColor = P.accentBgSubtle;
+                e.currentTarget.style.borderColor = P.accent;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = P.bgCard;
-                e.currentTarget.style.color = P.textSecondary;
+                e.currentTarget.style.backgroundColor = P.accentBg;
+                e.currentTarget.style.borderColor = P.borderDark;
               }}
             >
               <Globe className="h-3.5 w-3.5" />
               cabinets.sh
             </a>
 
-            {/* GitHub star */}
+            {/* GitHub star — filled accent */}
             <a
               href="https://github.com/hilash/cabinets"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
               style={{
-                borderColor: P.border,
-                backgroundColor: P.bgCard,
-                color: P.textSecondary,
+                borderColor: P.accent,
+                backgroundColor: P.accent,
+                color: "#fff",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = P.bgWarm;
-                e.currentTarget.style.color = P.textPrimary;
+                e.currentTarget.style.backgroundColor = P.accentWarm;
+                e.currentTarget.style.borderColor = P.accentWarm;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = P.bgCard;
-                e.currentTarget.style.color = P.textSecondary;
+                e.currentTarget.style.backgroundColor = P.accent;
+                e.currentTarget.style.borderColor = P.accent;
               }}
             >
               <Star className="h-3.5 w-3.5" />

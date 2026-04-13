@@ -232,3 +232,5 @@
 [2026-04-13] New Cabinet dialog: move "Import from Registry" to header top-right as a compact button next to close; remove bottom card + or-divider that made dialog too tall.
 
 [2026-04-13] Registry browser header: add "cabinets.sh" and "Star us" (→ github.com/hilash/cabinets) link buttons in top-right. Also committed calendar overflow fix from cabinet-view/schedule-calendar.
+
+[2026-04-13] Registry header buttons: cabinets.sh uses accentBg/accent colors; Star us uses filled accent (#8B5E3C) with white text as primary CTA.
