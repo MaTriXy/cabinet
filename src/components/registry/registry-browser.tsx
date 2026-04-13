@@ -849,10 +849,12 @@ export function RegistryBrowser() {
       <div className="border-b px-6 py-5 shrink-0" style={{ borderColor: P.border, backgroundColor: P.bgWarm }}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold" style={{ color: P.textPrimary }}>Cabinet Registry</h1>
-            <p className="text-sm mt-0.5" style={{ color: P.textSecondary }}>
-              Browse and import pre-made zero-human teams
-            </p>
+            <h1 className="text-xl font-bold" style={{ color: P.textPrimary }}>
+              Cabinets{" "}
+              <span className="font-normal" style={{ color: P.textSecondary }}>
+                | AI teams, off the shelf
+              </span>
+            </h1>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {/* cabinets.sh */}

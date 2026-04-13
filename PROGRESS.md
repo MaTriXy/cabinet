@@ -234,3 +234,5 @@
 [2026-04-13] Registry browser header: add "cabinets.sh" and "Star us" (→ github.com/hilash/cabinets) link buttons in top-right. Also committed calendar overflow fix from cabinet-view/schedule-calendar.
 
 [2026-04-13] Registry header buttons: cabinets.sh uses accentBg/accent colors; Star us uses filled accent (#8B5E3C) with white text as primary CTA.
+
+[2026-04-13] Registry header title changed from "Cabinet Registry" to "Cabinets | AI teams, off the shelf" with the tagline in muted weight.
