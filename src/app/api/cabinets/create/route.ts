@@ -7,6 +7,7 @@ import {
   resolveContentPath,
   sanitizeFilename,
 } from "@/lib/storage/path-utils";
+import { PROJECT_ROOT } from "@/lib/runtime/runtime-config";
 
 interface CreateCabinetRequest {
   name: string;
@@ -15,7 +16,7 @@ interface CreateCabinetRequest {
   selectedAgents?: string[];
 }
 
-const LIBRARY_DIR = path.join(DATA_DIR, ".agents", ".library");
+const LIBRARY_DIR = path.join(PROJECT_ROOT, "src", "lib", "agents", "library");
 
 export async function POST(req: NextRequest) {
   try {

@@ -1,15 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Archive } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { Archive, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
@@ -26,20 +20,12 @@ interface NewCabinetDialogProps {
   defaultName?: string;
 }
 
-export function NewCabinetDialog({
-  open: controlledOpen,
-  onOpenChange: controlledOnOpenChange,
+function NewCabinetOverlay({
+  open,
+  onOpenChange,
   parentPath = "",
   defaultName = "",
-}: NewCabinetDialogProps) {
-  const controlled = controlledOpen !== undefined;
-  const [internalOpen, setInternalOpen] = useState(false);
-  const open = controlled ? controlledOpen : internalOpen;
-  const setOpen = controlled
-    ? controlledOnOpenChange!
-    : setInternalOpen;
-
-  const [step, setStep] = useState<"name" | "agents">("name");
+}: NewCabinetDialogProps & { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [name, setName] = useState(defaultName);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,23 +34,28 @@ export function NewCabinetDialog({
   const setSection = useAppStore((s) => s.setSection);
   const picker = useAgentPicker();
 
-  const reset = useCallback(() => {
-    setStep("name");
-    setName(defaultName);
-    setCreating(false);
-    setError(null);
-  }, [defaultName]);
+  // Reset state when opening
+  useEffect(() => {
+    if (open) {
+      setName(defaultName);
+      setCreating(false);
+      setError(null);
+    }
+  }, [open, defaultName]);
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      if (!next) reset();
-      setOpen(next);
-    },
-    [setOpen, reset]
-  );
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !creating) onOpenChange(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, creating, onOpenChange]);
 
-  const handleCreate = async () => {
-    if (!name.trim()) return;
+  const handleCreate = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!name.trim() || creating) return;
     setCreating(true);
     setError(null);
 
@@ -94,85 +85,148 @@ export function NewCabinetDialog({
         mode: "cabinet",
         cabinetPath: data.path,
       });
-      handleOpenChange(false);
+      onOpenChange(false);
     } catch {
       setError("Failed to create cabinet");
       setCreating(false);
     }
   };
 
-  const dialogContent = (
-    <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
-      <DialogHeader>
-        <DialogTitle>
-          {step === "name" ? "Create New Cabinet" : "Select Agents"}
-        </DialogTitle>
-      </DialogHeader>
+  if (!open) return null;
 
-      {step === "name" ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) setStep("agents");
-          }}
-          className="space-y-3"
-        >
-          <Input
-            placeholder="Cabinet name..."
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-          />
-          <div className="flex justify-end">
-            <Button type="submit" disabled={!name.trim()}>
-              Next
-            </Button>
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 backdrop-blur-md"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !creating) onOpenChange(false);
+      }}
+    >
+      <div className="relative w-full max-w-5xl mx-4 my-8 bg-card rounded-2xl border border-border shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-8 pt-8 pb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Create New Cabinet</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              A cabinet is a workspace with its own agents, jobs, and knowledge.
+            </p>
+          </div>
+          <button
+            onClick={() => !creating && onOpenChange(false)}
+            disabled={creating}
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleCreate} className="px-8 pb-8 space-y-6">
+          {/* Cabinet name */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">Cabinet name</label>
+            <Input
+              placeholder="e.g. My Startup, Marketing Team, Research Lab..."
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+              className="text-base h-11"
+              disabled={creating}
+            />
+          </div>
+
+          {/* Agent picker */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-foreground">Select agents</label>
+              <span className="text-xs text-muted-foreground">
+                {picker.agents.filter((a) => a.checked).length} selected
+              </span>
+            </div>
+            <AgentPicker
+              agents={picker.agents}
+              libraryTemplates={picker.templates}
+              onToggle={picker.toggleAgent}
+              loading={picker.loading}
+              layout="grid"
+            />
+          </div>
+
+          {error && (
+            <p className="text-sm text-destructive">{error}</p>
+          )}
+
+          {/* Footer */}
+          <div className="flex items-center justify-between pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                setSection({ type: "registry" });
+              }}
+              disabled={creating}
+              className="text-sm text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+            >
+              or import a pre-made team &rarr;
+            </button>
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={creating}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!name.trim() || creating}>
+                {creating ? "Creating..." : "Create Cabinet"}
+              </Button>
+            </div>
           </div>
         </form>
-      ) : (
-        <div className="space-y-4">
-          <AgentPicker
-            agents={picker.agents}
-            libraryTemplates={picker.templates}
-            onToggle={picker.toggleAgent}
-            loading={picker.loading}
-          />
-          {error && (
-            <p className="text-xs text-destructive">{error}</p>
-          )}
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              onClick={() => setStep("name")}
-            >
-              Back
-            </Button>
-            <Button onClick={handleCreate} disabled={creating}>
-              {creating ? "Creating..." : "Create Cabinet"}
-            </Button>
-          </div>
-        </div>
-      )}
-    </DialogContent>
+      </div>
+    </div>,
+    document.body
   );
+}
 
-  // Controlled mode: no trigger, dialog managed externally
-  if (controlled) {
+export function NewCabinetDialog({
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  parentPath = "",
+  defaultName = "",
+}: NewCabinetDialogProps) {
+  const controlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlled ? controlledOpen! : internalOpen;
+  const setOpen = controlled ? controlledOnOpenChange! : setInternalOpen;
+
+  // Uncontrolled mode: render with trigger button
+  if (!controlled) {
     return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        {dialogContent}
-      </Dialog>
+      <>
+        <button
+          onClick={() => setInternalOpen(true)}
+          className="flex items-center gap-2 w-full text-sm px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+        >
+          <Archive className="h-4 w-4" />
+          New Cabinet
+        </button>
+        <NewCabinetOverlay
+          open={open}
+          onOpenChange={setOpen}
+          parentPath={parentPath}
+          defaultName={defaultName}
+        />
+      </>
     );
   }
 
-  // Uncontrolled mode: render with trigger button
+  // Controlled mode
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger className="flex items-center gap-2 w-full text-sm px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer">
-        <Archive className="h-4 w-4" />
-        New Cabinet
-      </DialogTrigger>
-      {dialogContent}
-    </Dialog>
+    <NewCabinetOverlay
+      open={open}
+      onOpenChange={setOpen}
+      parentPath={parentPath}
+      defaultName={defaultName}
+    />
   );
 }

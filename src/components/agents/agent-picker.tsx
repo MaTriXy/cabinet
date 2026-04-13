@@ -77,6 +77,8 @@ interface AgentPickerProps {
   onToggle: (slug: string) => void;
   alwaysChecked?: Set<string>;
   loading?: boolean;
+  /** "scroll" = horizontal scroll (default, compact dialogs); "grid" = wrapping grid (fullscreen) */
+  layout?: "scroll" | "grid";
 }
 
 export function AgentPicker({
@@ -86,6 +88,7 @@ export function AgentPicker({
   onToggle,
   alwaysChecked = ALWAYS_CHECKED,
   loading = false,
+  layout = "scroll",
 }: AgentPickerProps) {
   const selectedCount = agents.filter((a) => a.checked).length;
 
@@ -113,7 +116,12 @@ export function AgentPicker({
           </span>
         </p>
       )}
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className={cn(
+        "gap-3 pb-2",
+        layout === "grid"
+          ? "flex flex-wrap"
+          : "flex overflow-x-auto"
+      )}>
         {groupByDepartment(agents, libraryTemplates).map(
           ([label, groupAgents]) => (
             <div
