@@ -174,7 +174,7 @@ export function TreeView() {
   const cabinetVisibilityMode =
     cabinetVisibilityModes[effectiveCabinetPath] || (activeCabinet ? "own" : "all");
   const visibleTreeNodes = activeCabinet?.children || rootCabinet?.children || nodes;
-  const kbSectionLabel = activeCabinet ? "Data" : "Knowledge Base";
+  const kbSectionLabel = cabinetAgentScopeName || "Cabinet";
 
   /* ── agent polling ─────────────────────────────────────────── */
 
@@ -189,9 +189,7 @@ export function TreeView() {
       });
       if (res.ok) {
         const data = (await res.json()) as CabinetOverview;
-        setCabinetAgentScopeName(
-          activeCabinet ? data.cabinet.name : "All cabinets"
-        );
+        setCabinetAgentScopeName(data.cabinet.name || "Cabinet");
         setAgents(
           (data.agents || []).map((agent) => ({
             scopedId: agent.scopedId,
@@ -730,7 +728,7 @@ export function TreeView() {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            Add Sub Page to &ldquo;{activeCabinet ? kbSectionLabel : "Knowledge Base"}&rdquo;
+            Add Sub Page to &ldquo;{kbSectionLabel}&rdquo;
           </DialogTitle>
         </DialogHeader>
         <form
