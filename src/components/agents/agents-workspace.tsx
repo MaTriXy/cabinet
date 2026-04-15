@@ -62,6 +62,12 @@ import {
 } from "@/components/ui/select";
 import { ComposerInput } from "@/components/composer/composer-input";
 import { useComposer, type MentionableItem } from "@/hooks/use-composer";
+import {
+  formatAdapterOptionLabel,
+  getAdapterOptionsForProvider,
+  getDefaultAdapterTypeForProviderInfo,
+  resolveAdapterTypeForProvider,
+} from "@/lib/agents/adapter-options";
 
 type TriggerFilter = "all" | "manual" | "job" | "heartbeat";
 type StatusFilter = "all" | "running" | "completed" | "failed";
@@ -89,6 +95,7 @@ interface NewAgentDraft {
   role: string;
   heartbeat: string;
   provider: string;
+  adapterType?: string;
   department: string;
   type: string;
   workspace: string;
@@ -360,7 +367,11 @@ function TriggerIcon({
   return <HeartPulse className={cn("h-3 w-3", className)} />;
 }
 
-function blankJobDraft(agentSlug: string, provider = "claude-code"): JobConfig {
+function blankJobDraft(
+  agentSlug: string,
+  provider = "claude-code",
+  adapterType?: string
+): JobConfig {
   const now = new Date().toISOString();
   return {
     id: "",
@@ -368,6 +379,7 @@ function blankJobDraft(agentSlug: string, provider = "claude-code"): JobConfig {
     enabled: true,
     schedule: "0 9 * * 1-5",
     provider,
+    adapterType,
     agentSlug,
     prompt: "",
     timeout: 600,
@@ -544,14 +556,60 @@ export function AgentsWorkspace({
             available: true,
           } as ProviderInfo,
         ];
+  const newAgentAdapterOptions = getAdapterOptionsForProvider(
+    providers,
+    newAgentDraft.provider || defaultProvider,
+    defaultProvider
+  );
+  const settingsEditorAdapterOptions = getAdapterOptionsForProvider(
+    providers,
+    settingsEditorDraft?.provider || defaultProvider,
+    defaultProvider
+  );
+  const jobDraftAdapterOptions = getAdapterOptionsForProvider(
+    providers,
+    jobDraft?.provider || settingsPersona?.provider || defaultProvider,
+    defaultProvider
+  );
 
   async function refreshProviders() {
     try {
       const response = await fetch("/api/agents/providers");
       if (!response.ok) return;
       const data = await response.json();
-      setProviders((data.providers || []) as ProviderInfo[]);
-      setDefaultProvider(data.defaultProvider || "claude-code");
+      const nextProviders = (data.providers || []) as ProviderInfo[];
+      const nextDefaultProvider = data.defaultProvider || "claude-code";
+      setProviders(nextProviders);
+      setDefaultProvider(nextDefaultProvider);
+      setNewAgentDraft((current) => {
+        const nextProvider = current.provider || nextDefaultProvider;
+        return {
+          ...current,
+          provider: nextProvider,
+          adapterType: resolveAdapterTypeForProvider(
+            nextProviders,
+            nextProvider,
+            current.adapterType,
+            nextDefaultProvider
+          ),
+        };
+      });
+      setSettingsEditorDraft((current) => {
+        if (!current) return current;
+        const nextProvider = current.provider || nextDefaultProvider;
+        return {
+          ...current,
+          provider: nextProvider,
+        };
+      });
+      setJobDraft((current) => {
+        if (!current) return current;
+        const nextProvider = current.provider || nextDefaultProvider;
+        return {
+          ...current,
+          provider: nextProvider,
+        };
+      });
     } catch {
       // Ignore transient startup/network failures.
     }
@@ -711,6 +769,8 @@ export function AgentsWorkspace({
         department: GENERAL_AGENT.department || "",
         type: GENERAL_AGENT.type || "",
         heartbeat: GENERAL_AGENT.heartbeat || "",
+        provider: GENERAL_AGENT.provider || "",
+        adapterType: GENERAL_AGENT.adapterType || "",
         workspace: GENERAL_AGENT.workspace || "",
         body: "",
       });
@@ -737,6 +797,8 @@ export function AgentsWorkspace({
         department: data.persona.department || "",
         type: data.persona.type || "",
         heartbeat: data.persona.heartbeat || "",
+        provider: data.persona.provider || "",
+        adapterType: data.persona.adapterType || "",
         workspace: data.persona.workspace || "",
         body: data.persona.body || "",
       });
@@ -1056,6 +1118,11 @@ export function AgentsWorkspace({
       setNewAgentDraft({
         ...DEFAULT_NEW_AGENT,
         provider: defaultProvider || DEFAULT_NEW_AGENT.provider,
+        adapterType: getDefaultAdapterTypeForProviderInfo(
+          providers,
+          defaultProvider || DEFAULT_NEW_AGENT.provider,
+          defaultProvider
+        ),
       });
       setAgentFlowError(null);
     }
@@ -1066,6 +1133,11 @@ export function AgentsWorkspace({
     setNewAgentDraft({
       ...DEFAULT_NEW_AGENT,
       provider: defaultProvider || DEFAULT_NEW_AGENT.provider,
+      adapterType: getDefaultAdapterTypeForProviderInfo(
+        providers,
+        defaultProvider || DEFAULT_NEW_AGENT.provider,
+        defaultProvider
+      ),
     });
     setAgentFlowError(null);
     setCustomAgentDialogOpen(true);
@@ -1153,6 +1225,7 @@ export function AgentsWorkspace({
       type: settingsEditorDraft.type || "",
       heartbeat: settingsEditorDraft.heartbeat || "",
       provider: settingsEditorDraft.provider || "",
+      adapterType: settingsEditorDraft.adapterType || "",
       workspace: settingsEditorDraft.workspace || "",
       body: settingsEditorBody,
     });
@@ -1230,7 +1303,13 @@ export function AgentsWorkspace({
     setJobDraft(
       blankJobDraft(
         settingsAgentSlug,
-        settingsPersona?.provider || defaultProvider || "claude-code"
+        settingsPersona?.provider || defaultProvider || "claude-code",
+        resolveAdapterTypeForProvider(
+          providers,
+          settingsPersona?.provider || defaultProvider || "claude-code",
+          settingsPersona?.adapterType,
+          defaultProvider
+        )
       )
     );
     setNewJobDialogOpen(true);
@@ -1247,7 +1326,13 @@ export function AgentsWorkspace({
     setJobDraft({
       ...blankJobDraft(
         settingsAgentSlug,
-        settingsPersona?.provider || defaultProvider || "claude-code"
+        settingsPersona?.provider || defaultProvider || "claude-code",
+        resolveAdapterTypeForProvider(
+          providers,
+          settingsPersona?.provider || defaultProvider || "claude-code",
+          settingsPersona?.adapterType,
+          defaultProvider
+        )
       ),
       id: template.id,
       name: template.name,
@@ -1474,6 +1559,7 @@ export function AgentsWorkspace({
           heartbeat: newAgentDraft.heartbeat,
           workspace: newAgentDraft.workspace || "workspace",
           provider: newAgentDraft.provider,
+          adapterType: newAgentDraft.adapterType,
           budget: 100,
           active: newAgentDraft.active,
           workdir: "/data",
@@ -1596,6 +1682,7 @@ export function AgentsWorkspace({
     type: settingsEditorDraft.type || "",
     heartbeat: settingsEditorDraft.heartbeat || "",
     provider: settingsEditorDraft.provider || "",
+    adapterType: settingsEditorDraft.adapterType || "",
     workspace: settingsEditorDraft.workspace || "",
     body: settingsEditorBody,
   }) !== lastSavedSettingsRef.current;
@@ -2537,7 +2624,16 @@ export function AgentsWorkspace({
                       <select
                         value={newAgentDraft.provider}
                         onChange={(event) =>
-                          setNewAgentDraft({ ...newAgentDraft, provider: event.target.value })
+                          setNewAgentDraft({
+                            ...newAgentDraft,
+                            provider: event.target.value,
+                            adapterType: resolveAdapterTypeForProvider(
+                              providers,
+                              event.target.value,
+                              undefined,
+                              defaultProvider
+                            ),
+                          })
                         }
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
                       >
@@ -2548,6 +2644,35 @@ export function AgentsWorkspace({
                         ))}
                       </select>
                     </label>
+                    {newAgentAdapterOptions.length > 0 ? (
+                      <label className="space-y-1 text-[11px] text-muted-foreground">
+                        <span>Runtime</span>
+                        <select
+                          value={
+                            newAgentDraft.adapterType ||
+                            getDefaultAdapterTypeForProviderInfo(
+                              providers,
+                              newAgentDraft.provider,
+                              defaultProvider
+                            ) ||
+                            ""
+                          }
+                          onChange={(event) =>
+                            setNewAgentDraft({
+                              ...newAgentDraft,
+                              adapterType: event.target.value,
+                            })
+                          }
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
+                        >
+                          {newAgentAdapterOptions.map((adapter) => (
+                            <option key={adapter.type} value={adapter.type}>
+                              {formatAdapterOptionLabel(adapter)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <label className="space-y-1 text-[11px] text-muted-foreground md:col-span-2">
                       <span>Workspace</span>
                       <input
@@ -2838,6 +2963,12 @@ export function AgentsWorkspace({
                                 setSettingsEditorDraft({
                                   ...settingsEditorDraft,
                                   provider: event.target.value,
+                                  adapterType: resolveAdapterTypeForProvider(
+                                    providers,
+                                    event.target.value,
+                                    undefined,
+                                    defaultProvider
+                                  ),
                                 })
                               }
                               className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
@@ -2849,6 +2980,35 @@ export function AgentsWorkspace({
                               ))}
                             </select>
                           </label>
+                          {settingsEditorAdapterOptions.length > 0 ? (
+                            <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                              <span>Runtime</span>
+                              <select
+                                value={
+                                  settingsEditorDraft.adapterType ||
+                                  getDefaultAdapterTypeForProviderInfo(
+                                    providers,
+                                    settingsEditorDraft.provider || defaultProvider,
+                                    defaultProvider
+                                  ) ||
+                                  ""
+                                }
+                                onChange={(event) =>
+                                  setSettingsEditorDraft({
+                                    ...settingsEditorDraft,
+                                    adapterType: event.target.value,
+                                  })
+                                }
+                                className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
+                              >
+                                {settingsEditorAdapterOptions.map((adapter) => (
+                                  <option key={adapter.type} value={adapter.type}>
+                                    {formatAdapterOptionLabel(adapter)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
                           <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:col-span-2">
                             <span>Workspace</span>
                             <input
@@ -3027,7 +3187,18 @@ export function AgentsWorkspace({
                                 value={jobDraft.provider}
                                 onChange={(event) =>
                                   setJobDraft((current) =>
-                                    current ? { ...current, provider: event.target.value } : current
+                                    current
+                                      ? {
+                                          ...current,
+                                          provider: event.target.value,
+                                          adapterType: resolveAdapterTypeForProvider(
+                                            providers,
+                                            event.target.value,
+                                            undefined,
+                                            defaultProvider
+                                          ),
+                                        }
+                                      : current
                                   )
                                 }
                                 className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
@@ -3039,6 +3210,36 @@ export function AgentsWorkspace({
                                 ))}
                               </select>
                             </label>
+                            {jobDraftAdapterOptions.length > 0 ? (
+                              <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                                <span>Runtime</span>
+                                <select
+                                  value={
+                                    jobDraft.adapterType ||
+                                    getDefaultAdapterTypeForProviderInfo(
+                                      providers,
+                                      jobDraft.provider,
+                                      defaultProvider
+                                    ) ||
+                                    ""
+                                  }
+                                  onChange={(event) =>
+                                    setJobDraft((current) =>
+                                      current
+                                        ? { ...current, adapterType: event.target.value }
+                                        : current
+                                    )
+                                  }
+                                  className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
+                                >
+                                  {jobDraftAdapterOptions.map((adapter) => (
+                                    <option key={adapter.type} value={adapter.type}>
+                                      {formatAdapterOptionLabel(adapter)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            ) : null}
                             <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
                               <span>Timeout (s)</span>
                               <input

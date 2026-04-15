@@ -70,6 +70,7 @@ export interface AgentListItem {
   emoji: string;
   role: string;
   provider?: string;
+  adapterType?: string;
   active: boolean;
   type?: AgentType | string;
   department?: string;
@@ -109,6 +110,16 @@ export interface ProviderInfo {
   installSteps?: Array<{ title: string; detail: string; link?: { label: string; url: string } }>;
   models?: ProviderModel[];
   effortLevels?: ProviderEffortLevel[];
+  defaultAdapterType?: string;
+  adapters?: Array<{
+    type: string;
+    name: string;
+    description?: string;
+    experimental?: boolean;
+    executionEngine?: string;
+    supportsDetachedRuns?: boolean;
+    supportsSessionResume?: boolean;
+  }>;
   usage?: {
     agentSlugs: string[];
     jobs: Array<{
