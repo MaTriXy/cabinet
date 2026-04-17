@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import { conversationMetaToTaskMeta } from "@/lib/agents/conversation-to-task-view";
+import type { ConversationMeta } from "@/types/conversations";
 import type { TaskMeta, TaskStatus } from "@/types/tasks";
+
+function normalizeConversation(meta: ConversationMeta): TaskMeta {
+  return conversationMetaToTaskMeta(meta);
+}
 
 const STATUS_DOT: Record<TaskStatus, string> = {
   idle: "bg-muted-foreground/35",
@@ -38,11 +44,13 @@ export function RecentTasks({
     let cancelled = false;
     const params = new URLSearchParams({ limit: String(MAX_VISIBLE) });
     if (cabinetPath) params.set("cabinetPath", cabinetPath);
-    fetch(`/api/tasks?${params.toString()}`, { cache: "no-store" })
+    fetch(`/api/agents/conversations?${params.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        setTasks(Array.isArray(data.tasks) ? data.tasks : []);
+        // Map ConversationMeta[] → TaskMeta-like shape for the existing renderer.
+        const convos = Array.isArray(data.conversations) ? data.conversations : [];
+        setTasks(convos.map(normalizeConversation));
       })
       .catch(() => {
         if (!cancelled) setTasks([]);

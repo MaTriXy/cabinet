@@ -184,7 +184,7 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
   // SSE subscription (skip for demo)
   useEffect(() => {
     if (isDemo) return;
-    const url = `/api/tasks/${encodeURIComponent(taskId)}/events`;
+    const url = `/api/agents/conversations/${encodeURIComponent(taskId)}/events`;
     const es = new EventSource(url);
     es.onmessage = async (msg) => {
       try {

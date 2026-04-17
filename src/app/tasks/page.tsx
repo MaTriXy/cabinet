@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
-import { listTaskMetas } from "@/lib/agents/task-store";
+import { listConversationMetas } from "@/lib/agents/conversation-store";
+import { conversationMetaToTaskMeta } from "@/lib/agents/conversation-to-task-view";
 import { TaskList } from "@/components/tasks/conversation/task-list";
 
 export const dynamic = "force-dynamic";
 
 export default async function TasksIndexPage() {
-  const tasks = await listTaskMetas({ limit: 500 });
+  const conversations = await listConversationMetas({ limit: 500 });
+  const tasks = conversations.map(conversationMetaToTaskMeta);
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
