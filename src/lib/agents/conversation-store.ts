@@ -23,6 +23,7 @@ import {
   turnFilePath as turnFileFs,
   turnsDir as turnsDirFs,
 } from "./conversation-turns";
+import { publishConversationEvent } from "./conversation-events";
 import { discoverCabinetPaths } from "../cabinets/discovery";
 import { buildConversationInstanceKey } from "./conversation-identity";
 import {
@@ -1265,6 +1266,12 @@ export async function appendUserTurn(
     { type: "turn.appended", turn: turnNumber, role: "user" },
     cp
   );
+  publishConversationEvent({
+    type: "turn.appended",
+    taskId: id,
+    cabinetPath: cp,
+    payload: { turn: turnNumber, role: "user" },
+  });
 
   return turn;
 }
@@ -1344,6 +1351,12 @@ export async function appendAgentTurn(
     { type: "turn.appended", turn: turnNumber, role: "agent", pending: !!input.pending },
     cp
   );
+  publishConversationEvent({
+    type: "turn.appended",
+    taskId: id,
+    cabinetPath: cp,
+    payload: { turn: turnNumber, role: "agent", pending: !!input.pending },
+  });
 
   return turn;
 }
@@ -1425,6 +1438,12 @@ export async function updateAgentTurn(
     { type: "turn.updated", turn: turnNumber, role: "agent" },
     cp
   );
+  publishConversationEvent({
+    type: "turn.updated",
+    taskId: id,
+    cabinetPath: cp,
+    payload: { turn: turnNumber, role: "agent" },
+  });
 
   return nextTurn;
 }
