@@ -44,7 +44,6 @@ import {
   Megaphone,
   Search,
   ShieldCheck,
-  HeartPulse,
   Code,
   BarChart3,
   Briefcase,
@@ -61,7 +60,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { cronToShortLabel } from "@/lib/agents/cron-utils";
 import { getAgentColor } from "@/lib/agents/cron-compute";
 import {
   findNodeByPath,
@@ -287,7 +285,7 @@ export function TreeView() {
 
   return (
     <>
-    <ScrollArea className="flex-1 min-h-0">
+    <ScrollArea className="flex-1 min-h-0 [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-scrollbar]]:py-0 [&_[data-slot=scroll-area-scrollbar]]:pr-0 [&_[data-slot=scroll-area-scrollbar]]:pl-1 [&_[data-slot=scroll-area-scrollbar]]:border-l-0">
       <div className="py-1">
         {/* ── Back to parent cabinet ────────────────────── */}
         {activeCabinet && parentCabinet ? (
@@ -405,7 +403,7 @@ export function TreeView() {
 
             {/* ── Agents (depth 1) ─────────────────────────── */}
             <div
-              className="group flex items-center gap-1.5 px-3 pt-3 pb-px w-full"
+              className="group flex items-center gap-1.5 px-3 pt-3 pb-1.5 w-full"
               style={pad(0)}
             >
               <button
@@ -436,21 +434,27 @@ export function TreeView() {
                 <Users className="h-3.5 w-3.5 shrink-0" />
                 Agents
               </button>
-              {activeCabinet ? null : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (activeCabinet) {
+                    setSection({
+                      type: "agents",
+                      mode: "cabinet",
+                      cabinetPath: activeCabinet.path,
+                    });
+                  } else {
                     setSection({ type: "agents", mode: "ops" });
-                    setTimeout(() => {
-                      window.dispatchEvent(new CustomEvent("cabinet:open-add-agent"));
-                    }, 100);
-                  }}
-                  className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                  title="Add agent"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              )}
+                  }
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent("cabinet:open-add-agent"));
+                  }, 100);
+                }}
+                className="ml-auto opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-200 text-muted-foreground hover:text-foreground"
+                title="Add agent"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
 
             {agentsExpanded && (
@@ -460,17 +464,6 @@ export function TreeView() {
                     agents.map((agent) => {
                       const Icon = getAgentIcon(agent.slug);
                       const color = getAgentColor(agent.slug);
-                      const heartbeatLabel = agent.heartbeat
-                        ? cronToShortLabel(agent.heartbeat)
-                        : null;
-                      const tooltipMeta = [
-                        agent.inherited ? agent.cabinetName : null,
-                        `${agent.jobCount || 0} ${(agent.jobCount || 0) === 1 ? "job" : "jobs"}`,
-                        `${agent.taskCount || 0} ${(agent.taskCount || 0) === 1 ? "task" : "tasks"}`,
-                        heartbeatLabel,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ");
                       return (
                         <button
                           key={agent.scopedId || agent.slug}
@@ -479,7 +472,8 @@ export function TreeView() {
                               type: "agent",
                               mode: "cabinet",
                               slug: agent.slug,
-                              cabinetPath: agent.cabinetPath || activeCabinet?.path,
+                              cabinetPath:
+                                agent.cabinetPath || activeCabinet?.path,
                               agentScopedId:
                                 agent.scopedId ||
                                 `${agent.cabinetPath || activeCabinet?.path}::agent::${agent.slug}`,
@@ -493,26 +487,25 @@ export function TreeView() {
                               "bg-accent text-accent-foreground"
                           )}
                           style={pad(1)}
-                          title={tooltipMeta}
                         >
                           <span
                             className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
-                            style={{ backgroundColor: color.bg, color: color.text }}
+                            style={{
+                              backgroundColor: color.bg,
+                              color: color.text,
+                            }}
                           >
                             <Icon className="h-3 w-3" />
                           </span>
-                          <span className="truncate text-[12px] text-foreground/75">{agent.name}</span>
-                          {heartbeatLabel && (
-                            <span className="ml-auto flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground/70">
-                              <HeartPulse className="h-3 w-3" />
-                              {heartbeatLabel}
-                            </span>
-                          )}
+                          <span className="truncate text-[12px] text-foreground/75">
+                            {agent.name}
+                          </span>
                           <span
                             className={cn(
-                              "h-1.5 w-1.5 shrink-0 rounded-full",
-                              heartbeatLabel ? "ml-1" : "ml-auto",
-                              agent.active ? "bg-green-500" : "bg-muted-foreground/30"
+                              "ml-auto h-1.5 w-1.5 shrink-0 rounded-full",
+                              agent.active
+                                ? "bg-green-500"
+                                : "bg-muted-foreground/30"
                             )}
                           />
                         </button>
@@ -601,38 +594,63 @@ export function TreeView() {
             <div className="mx-3 my-1.5 border-t border-border" />
 
             {/* ── Tasks ───────────────────────────────────── */}
-            <button
-              onClick={() => {
-                if (activeCabinet) {
-                  setSection({
-                    type: "tasks",
-                    mode: "cabinet",
-                    cabinetPath: activeCabinet.path,
-                  });
-                  return;
-                }
-                setSection({ type: "tasks", mode: "ops" });
-              }}
-              className={cn(
-                "text-[11px] font-semibold uppercase tracking-wide px-3 pt-2 pb-1 w-full text-left flex items-center gap-2 transition-colors",
-                section.type === "tasks" &&
-                  ((activeCabinet && section.cabinetPath === activeCabinet.path) ||
-                    (!activeCabinet && section.mode === "ops"))
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground/80"
-              )}
+            <div
+              className="group flex items-center gap-1.5 px-3 pt-2 pb-1 w-full"
               style={pad(0)}
             >
               <ChevronRight className="h-3 w-3 shrink-0 invisible" />
-              <SquareKanban className="h-3.5 w-3.5 shrink-0" />
-              Tasks
-            </button>
+              <button
+                onClick={() => {
+                  if (activeCabinet) {
+                    setSection({
+                      type: "tasks",
+                      mode: "cabinet",
+                      cabinetPath: activeCabinet.path,
+                    });
+                    return;
+                  }
+                  setSection({ type: "tasks", mode: "ops" });
+                }}
+                className={cn(
+                  "text-[11px] font-semibold uppercase tracking-wide text-left flex items-center gap-2 transition-colors",
+                  section.type === "tasks" &&
+                    ((activeCabinet && section.cabinetPath === activeCabinet.path) ||
+                      (!activeCabinet && section.mode === "ops"))
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground/80"
+                )}
+              >
+                <SquareKanban className="h-3.5 w-3.5 shrink-0" />
+                Tasks
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (activeCabinet) {
+                    setSection({
+                      type: "tasks",
+                      mode: "cabinet",
+                      cabinetPath: activeCabinet.path,
+                    });
+                  } else {
+                    setSection({ type: "tasks", mode: "ops" });
+                  }
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent("cabinet:open-create-task"));
+                  }, 100);
+                }}
+                className="ml-auto opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-200 text-muted-foreground hover:text-foreground"
+                title="Add task"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
 
             {/* ── Divider ──────────────────────────────────── */}
             <div className="mx-3 my-1.5 border-t border-border" />
 
             {/* ── Knowledge Base label ──────────────────────── */}
-            <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 w-full" style={pad(0)}>
+            <div className="group flex items-center gap-1.5 px-3 pt-2 pb-1 w-full" style={pad(0)}>
               <button
                 onClick={() => setKbExpanded(!kbExpanded)}
                 className="shrink-0 text-muted-foreground/50 hover:text-foreground/80 transition-colors"
@@ -690,6 +708,23 @@ export function TreeView() {
                 </ContextMenuItem>
               </ContextMenuContent>
               </ContextMenu>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (activeCabinet) {
+                    setKbSubPageOpen(true);
+                  } else {
+                    const btn = document.querySelector<HTMLButtonElement>(
+                      "[data-new-page-trigger]"
+                    );
+                    btn?.click();
+                  }
+                }}
+                className="ml-auto opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-200 text-muted-foreground hover:text-foreground"
+                title="Add page"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
 
             {kbExpanded && (

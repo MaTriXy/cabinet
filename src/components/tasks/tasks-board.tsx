@@ -828,6 +828,12 @@ export function TasksBoard({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setCreateDialogOpen(true);
+    window.addEventListener("cabinet:open-create-task", handler);
+    return () => window.removeEventListener("cabinet:open-create-task", handler);
+  }, []);
   const [assignDraftId, setAssignDraftId] = useState<string | null>(null);
   const [assignBusyAction, setAssignBusyAction] = useState<"save" | "start" | null>(null);
   const [busyDraftId, setBusyDraftId] = useState<string | null>(null);
