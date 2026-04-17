@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createTask, listTaskMetas } from "@/lib/agents/task-store";
 import { runTaskTurn } from "@/lib/agents/task-runner";
+import { defaultAdapterTypeForProvider } from "@/lib/agents/adapters/registry";
 import type { TaskStatus, TaskTrigger } from "@/types/tasks";
+
+const DEFAULT_PROVIDER_ID = "claude-code";
+const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_EFFORT = "medium";
 
 const VALID_STATUSES: ReadonlySet<TaskStatus> = new Set([
   "idle",
@@ -59,18 +64,36 @@ export async function POST(req: NextRequest) {
     const triggerValue = typeof body.trigger === "string" ? body.trigger : "manual";
     const trigger = pickTrigger(triggerValue) ?? "manual";
 
+    const providedProviderId =
+      typeof body.providerId === "string" && body.providerId.trim()
+        ? body.providerId.trim()
+        : undefined;
+    const providerId = providedProviderId ?? DEFAULT_PROVIDER_ID;
+    const providedAdapterType =
+      typeof body.adapterType === "string" && body.adapterType.trim()
+        ? body.adapterType.trim()
+        : undefined;
+    const adapterType = providedAdapterType ?? defaultAdapterTypeForProvider(providerId);
+
+    const providedAdapterConfig =
+      body.adapterConfig && typeof body.adapterConfig === "object"
+        ? (body.adapterConfig as Record<string, unknown>)
+        : {};
+    const adapterConfig: Record<string, unknown> = {
+      model: DEFAULT_MODEL,
+      effort: DEFAULT_EFFORT,
+      ...providedAdapterConfig,
+    };
+
     const task = await createTask({
       title,
       initialPrompt,
       trigger,
       agentSlug: typeof body.agentSlug === "string" ? body.agentSlug : undefined,
       cabinetPath: typeof body.cabinetPath === "string" ? body.cabinetPath : undefined,
-      providerId: typeof body.providerId === "string" ? body.providerId : undefined,
-      adapterType: typeof body.adapterType === "string" ? body.adapterType : undefined,
-      adapterConfig:
-        body.adapterConfig && typeof body.adapterConfig === "object"
-          ? (body.adapterConfig as Record<string, unknown>)
-          : undefined,
+      providerId,
+      adapterType,
+      adapterConfig,
       runtime:
         body.runtime && typeof body.runtime === "object"
           ? (body.runtime as { contextWindow?: number })

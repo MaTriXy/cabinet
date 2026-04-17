@@ -1,0 +1,35 @@
+import Link from "next/link";
+import { ArrowLeft, Plus } from "lucide-react";
+import { listTaskMetas } from "@/lib/agents/task-store";
+import { TaskList } from "@/components/tasks/conversation/task-list";
+
+export const dynamic = "force-dynamic";
+
+export default async function TasksIndexPage() {
+  const tasks = await listTaskMetas({ limit: 500 });
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="flex items-center gap-3 border-b border-border/70 px-6 py-3">
+        <Link
+          href="/"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+        </Link>
+        <h1 className="flex-1 text-[14px] font-semibold tracking-tight">Tasks</h1>
+        <Link
+          href="/tasks/new"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-[12px] font-medium text-background transition-colors hover:bg-foreground/90"
+        >
+          <Plus className="size-3.5" />
+          New task
+        </Link>
+      </header>
+
+      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">
+        <TaskList tasks={tasks} />
+      </main>
+    </div>
+  );
+}
