@@ -16,6 +16,7 @@ import { EmbedExtension } from "./extensions/embed-extension";
 import { colorAndStyleExtensions } from "./extensions/color-highlight";
 import { DragHandle } from "./extensions/drag-handle";
 import { CabinetMath } from "./extensions/math-extension";
+import { IconExtension } from "./extensions/icon-extension";
 
 const lowlight = createLowlight(common);
 
@@ -75,6 +76,7 @@ export const editorExtensions = [
   EmbedExtension,
   DragHandle,
   CabinetMath,
+  IconExtension,
   WikiLink,
   CalloutExtension,
 ];

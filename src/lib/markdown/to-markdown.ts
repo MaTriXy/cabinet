@@ -58,6 +58,20 @@ turndown.addRule("styledSpan", {
   },
 });
 
+// Lucide icon node — serialize as a clean `<span data-lucide="…" data-color="…">`
+// stub. The editor's IconExtension rebuilds the colored SVG on load.
+turndown.addRule("lucideIcon", {
+  filter: (node) =>
+    node.nodeName === "SPAN" &&
+    (node as HTMLElement).hasAttribute("data-lucide"),
+  replacement: (_content, node) => {
+    const el = node as HTMLElement;
+    const name = el.getAttribute("data-lucide") ?? "file";
+    const color = el.getAttribute("data-color") ?? "gray";
+    return `<span data-lucide="${name}" data-color="${color}">&nbsp;</span>`;
+  },
+});
+
 // Preserve <mark> with any attributes (highlight extension writes data-color + style).
 turndown.addRule("mark", {
   filter: "mark" as never,
