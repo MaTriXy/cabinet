@@ -339,7 +339,7 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
 
   if (loadError && !task) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex h-full items-center justify-center bg-background text-foreground">
         <div className="max-w-sm rounded-2xl border border-border/70 bg-card px-6 py-5 text-center">
           <p className="text-[13px] font-medium">Couldn&rsquo;t load task</p>
           <p className="mt-1 text-[12px] text-muted-foreground">{loadError}</p>
@@ -356,14 +356,14 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
 
   if (!task) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
+      <div className="flex h-full items-center justify-center bg-background text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="flex h-full flex-col bg-background text-foreground">
       {/* Top bar */}
       <header className="flex items-center gap-3 border-b border-border/70 px-6 py-3">
         <Link

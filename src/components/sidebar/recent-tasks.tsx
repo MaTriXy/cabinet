@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
 import type { TaskMeta, TaskStatus } from "@/types/tasks";
 
 const STATUS_DOT: Record<TaskStatus, string> = {
@@ -27,7 +27,10 @@ export function RecentTasks({
   itemClass: (active: boolean) => string;
   cabinetPath?: string;
 }) {
-  const router = useRouter();
+  const setSection = useAppStore((s) => s.setSection);
+  const activeTaskId = useAppStore((s) =>
+    s.section.type === "task" ? s.section.taskId : undefined
+  );
   const [tasks, setTasks] = useState<TaskMeta[] | null>(null);
 
   useEffect(() => {
@@ -78,8 +81,15 @@ export function RecentTasks({
       {tasks.map((task) => (
         <button
           key={task.id}
-          onClick={() => router.push(`/tasks/${encodeURIComponent(task.id)}`)}
-          className={itemClass(false)}
+          onClick={() =>
+            setSection({
+              type: "task",
+              taskId: task.id,
+              mode: task.cabinetPath ? "cabinet" : "ops",
+              cabinetPath: task.cabinetPath,
+            })
+          }
+          className={itemClass(activeTaskId === task.id)}
           style={padStyle}
           title={task.title}
         >

@@ -16,6 +16,7 @@ import { HomeScreen } from "@/components/home/home-screen";
 import { AgentsWorkspace } from "@/components/agents/agents-workspace";
 import { JobsManager } from "@/components/jobs/jobs-manager";
 import { TasksBoard } from "@/components/tasks/tasks-board";
+import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { TerminalTabs } from "@/components/terminal/terminal-tabs";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
@@ -26,6 +27,7 @@ import { StatusBar } from "@/components/layout/status-bar";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { UpdateDialog } from "@/components/layout/update-dialog";
 import { NotificationToasts } from "@/components/layout/notification-toasts";
+import { SystemToasts } from "@/components/layout/system-toasts";
 import { CabinetView } from "@/components/cabinets/cabinet-view";
 import { RegistryBrowser } from "@/components/registry/registry-browser";
 import { findNodeByPath } from "@/lib/cabinets/tree";
@@ -211,6 +213,9 @@ export function AppShell() {
         />
       );
     }
+    if (section.type === "task" && section.taskId) {
+      return <TaskConversationPage taskId={section.taskId} />;
+    }
     if (section.type === "jobs") {
       return (
         <JobsManager
@@ -351,6 +356,7 @@ export function AppShell() {
         onLater={handleUpdateLater}
       />
       <NotificationToasts />
+      <SystemToasts />
     </div>
   );
 }

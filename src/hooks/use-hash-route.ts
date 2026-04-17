@@ -63,6 +63,12 @@ function buildHash(section: SectionState, pagePath: string | null): string {
   if (section.type === "agents" && section.mode === "cabinet" && section.cabinetPath) {
     return `#/cabinet/${encodePathSegment(section.cabinetPath)}/agents`;
   }
+  if (section.type === "task" && section.mode === "cabinet" && section.cabinetPath && section.taskId) {
+    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/tasks/${encodePathSegment(section.taskId)}`;
+  }
+  if (section.type === "task" && section.taskId) {
+    return `#/ops/tasks/${encodePathSegment(section.taskId)}`;
+  }
   if (section.type === "tasks" && section.mode === "cabinet" && section.cabinetPath) {
     return `#/cabinet/${encodePathSegment(section.cabinetPath)}/tasks`;
   }
@@ -121,6 +127,13 @@ function parseHash(hash: string): RouteState {
       };
     }
 
+    if (parts[1] === "tasks" && parts[2]) {
+      return {
+        section: { type: "task", mode: "ops", taskId: decodePathSegment(parts[2]) },
+        pagePath: null,
+      };
+    }
+
     if (parts[1] === "tasks") {
       return {
         section: { type: "tasks", mode: "ops" },
@@ -157,6 +170,18 @@ function parseHash(hash: string): RouteState {
     if (leaf === "agents") {
       return {
         section: { type: "agents", mode: "cabinet", cabinetPath },
+        pagePath: null,
+      };
+    }
+
+    if (leaf === "tasks" && parts[3]) {
+      return {
+        section: {
+          type: "task",
+          mode: "cabinet",
+          cabinetPath,
+          taskId: decodePathSegment(parts[3]),
+        },
         pagePath: null,
       };
     }

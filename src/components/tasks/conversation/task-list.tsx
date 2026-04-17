@@ -14,6 +14,13 @@ import {
 import { cn } from "@/lib/utils";
 import type { TaskMeta, TaskStatus } from "@/types/tasks";
 
+function taskHref(task: TaskMeta): string {
+  if (task.cabinetPath) {
+    return `/#/cabinet/${encodeURIComponent(task.cabinetPath)}/tasks/${encodeURIComponent(task.id)}`;
+  }
+  return `/#/ops/tasks/${encodeURIComponent(task.id)}`;
+}
+
 const STATUS_META: Record<
   TaskStatus,
   { label: string; tone: string; icon: React.ComponentType<{ className?: string }> }
@@ -159,7 +166,7 @@ export function TaskList({ tasks }: { tasks: TaskMeta[] }) {
             return (
               <li key={task.id}>
                 <Link
-                  href={`/tasks/${encodeURIComponent(task.id)}`}
+                  href={taskHref(task)}
                   className="flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-muted/40"
                 >
                   <div className="mt-0.5">

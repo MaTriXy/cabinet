@@ -10,6 +10,7 @@ export type SectionType =
   | "agents"
   | "agent"
   | "tasks"
+  | "task"
   | "jobs"
   | "settings"
   | "registry";
@@ -24,6 +25,7 @@ export interface SelectedSection {
   cabinetPath?: string; // cabinet scope for cabinet/page/agent/agents/jobs sections
   agentScopedId?: string;
   conversationId?: string; // auto-select this conversation on mount
+  taskId?: string; // task id when type === "task"
 }
 
 interface TerminalTab {

@@ -24,7 +24,10 @@ export default function NewTaskPage() {
         title: title.trim(),
         initialPrompt: prompt.trim(),
       });
-      router.push(`/tasks/${encodeURIComponent(task.meta.id)}`);
+      const hash = task.meta.cabinetPath
+        ? `#/cabinet/${encodeURIComponent(task.meta.cabinetPath)}/tasks/${encodeURIComponent(task.meta.id)}`
+        : `#/ops/tasks/${encodeURIComponent(task.meta.id)}`;
+      router.push(`/${hash}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create task");
       setBusy(false);
