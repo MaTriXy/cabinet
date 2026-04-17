@@ -25,7 +25,7 @@ export function TaskComposerPanel({
   return (
     <div
       className={cn(
-        "border-t border-border/70 bg-background px-6 py-4",
+        "bg-background px-6 py-4",
         awaitingInput && "bg-amber-500/[0.04]"
       )}
     >

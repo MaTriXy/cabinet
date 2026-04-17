@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Turn, TurnArtifact as Artifact } from "@/types/tasks";
+import { Markdown } from "./markdown";
 
 function computeRelative(iso: string): string {
   const delta = Date.now() - new Date(iso).getTime();
@@ -194,9 +195,10 @@ export function TurnBlock({ turn }: { turn: Turn }) {
           ) : null}
         </div>
 
-        <div className="whitespace-pre-wrap text-[14.5px] leading-[1.65] tracking-[-0.005em] text-foreground/95">
-          {turn.content}
-        </div>
+        <Markdown
+          content={turn.content}
+          className="text-[14.5px] leading-[1.65] tracking-[-0.005em] text-foreground/95"
+        />
 
         {turn.artifacts && turn.artifacts.length > 0 ? (
           <div className="mt-3.5 space-y-1.5 rounded-xl border border-border/60 bg-muted/40 p-2 dark:bg-muted/20">

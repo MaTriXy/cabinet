@@ -21,7 +21,6 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { TurnBlock } from "./turn-block";
 import { ArtifactsList } from "./artifacts-list";
 import { TaskComposerPanel } from "./task-composer-panel";
@@ -489,8 +488,11 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
           </TabsList>
         </div>
 
-        <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="flex-1">
+        <TabsContent
+          value="chat"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="mx-auto max-w-3xl divide-y divide-border/40">
               {task.turns.map((turn) => (
                 <TurnBlock key={turn.id} turn={turn} />
@@ -502,31 +504,48 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
                 onDismiss={() => setWrapUpDismissed(true)}
               />
             ) : null}
-          </ScrollArea>
-          <div className="mx-auto w-full max-w-3xl">
-            <TaskComposerPanel
-              runtimeLabel={runtimeLabel}
-              awaitingInput={task.meta.status === "awaiting-input"}
-              onSend={handleSend}
-            />
+          </div>
+          <div className="shrink-0 border-t border-border/70 bg-background">
+            <div className="mx-auto w-full max-w-3xl">
+              <TaskComposerPanel
+                runtimeLabel={runtimeLabel}
+                awaitingInput={task.meta.status === "awaiting-input"}
+                onSend={handleSend}
+              />
+            </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="artifacts" className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-3xl">
-            <ArtifactsList turns={task.turns} />
+        <TabsContent
+          value="artifacts"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="mx-auto max-w-3xl">
+              <ArtifactsList turns={task.turns} />
+            </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="diff" className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-3xl px-6 py-12 text-center text-sm text-muted-foreground">
-            Diff view — placeholder. Will show a unified diff of all file changes across the task.
+        <TabsContent
+          value="diff"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="mx-auto max-w-3xl px-6 py-12 text-center text-sm text-muted-foreground">
+              Diff view — placeholder. Will show a unified diff of all file changes across the task.
+            </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="logs" className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-3xl px-6 py-12 text-center text-sm text-muted-foreground">
-            Logs view — placeholder. Will show raw adapter stdout/stderr per turn.
+        <TabsContent
+          value="logs"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="mx-auto max-w-3xl px-6 py-12 text-center text-sm text-muted-foreground">
+              Logs view — placeholder. Will show raw adapter stdout/stderr per turn.
+            </div>
           </div>
         </TabsContent>
       </Tabs>
