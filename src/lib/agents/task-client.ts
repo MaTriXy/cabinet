@@ -7,6 +7,7 @@ import type {
 import type {
   ConversationDetail,
   ConversationMeta,
+  ConversationRuntimeOverride,
   ConversationTurn,
   SessionHandle,
 } from "@/types/conversations";
@@ -118,10 +119,12 @@ export async function createTaskRequest(input: {
   initialPrompt: string;
   cabinetPath?: string;
   agentSlug?: string;
+  runtime?: ConversationRuntimeOverride;
 }): Promise<Task> {
   // /api/agents/conversations expects { userMessage, agentSlug?, source,
-  // cabinetPath? }. Reuse it. The existing endpoint builds the full
-  // Cabinet persona + epilogue prompt for us.
+  // cabinetPath?, providerId?, adapterType?, model?, effort? }. The existing
+  // endpoint builds the full Cabinet persona + epilogue prompt for us.
+  const runtime = input.runtime ?? {};
   const res = await fetch("/api/agents/conversations", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -130,6 +133,10 @@ export async function createTaskRequest(input: {
       userMessage: input.initialPrompt,
       agentSlug: input.agentSlug ?? "general",
       cabinetPath: input.cabinetPath,
+      providerId: runtime.providerId,
+      adapterType: runtime.adapterType,
+      model: runtime.model,
+      effort: runtime.effort,
     }),
   });
   const data = await jsonOrThrow<{ ok: boolean; conversation: ConversationMeta }>(res);

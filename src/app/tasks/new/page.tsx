@@ -6,12 +6,17 @@ import Link from "next/link";
 import { ArrowLeft, ArrowUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  TaskRuntimePicker,
+  type TaskRuntimeSelection,
+} from "@/components/composer/task-runtime-picker";
 import { createTaskRequest } from "@/lib/agents/task-client";
 
 export default function NewTaskPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [runtime, setRuntime] = useState<TaskRuntimeSelection>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,6 +28,7 @@ export default function NewTaskPage() {
       const task = await createTaskRequest({
         title: title.trim(),
         initialPrompt: prompt.trim(),
+        runtime,
       });
       const hash = task.meta.cabinetPath
         ? `#/cabinet/${encodeURIComponent(task.meta.cabinetPath)}/tasks/${encodeURIComponent(task.meta.id)}`
@@ -84,10 +90,11 @@ export default function NewTaskPage() {
           </p>
         ) : null}
 
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] text-muted-foreground">
-            ⌘↵ to create · the agent runtime is wired in a later phase
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">⌘↵ to create</span>
+            <TaskRuntimePicker value={runtime} onChange={setRuntime} />
+          </div>
           <Button
             onClick={submit}
             disabled={busy || !title.trim() || !prompt.trim()}
