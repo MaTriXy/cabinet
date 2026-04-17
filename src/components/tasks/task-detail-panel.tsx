@@ -1,17 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { BrainCircuit, X } from "lucide-react";
+import { ArrowUpRight, BrainCircuit, X } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { ConversationSessionView } from "@/components/agents/conversation-session-view";
+import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
 import { Button } from "@/components/ui/button";
 import { formatEffortName } from "@/lib/agents/runtime-options";
 import type {
-  ConversationDetail,
   ConversationMeta,
   ConversationStatus,
 } from "@/types/conversations";
-import { openArtifactPath } from "@/lib/navigation/open-artifact-path";
 
 function StatusDot({ status }: { status: ConversationStatus }) {
   if (status === "running") {
@@ -97,26 +94,35 @@ function buildRuntimeLabel(
 export function TaskDetailPanel() {
   const conversation = useAppStore((s) => s.taskPanelConversation);
   const setTaskPanelConversation = useAppStore((s) => s.setTaskPanelConversation);
-  const [detail, setDetail] = useState<ConversationDetail | null>(null);
+  const setSection = useAppStore((s) => s.setSection);
 
   if (!conversation) return null;
-  const activeConversation = detail?.meta.id === conversation.id ? detail.meta : conversation;
-  const runtimeLabel = buildRuntimeLabel(activeConversation);
+  const runtimeLabel = buildRuntimeLabel(conversation);
+
+  const openFullPage = () => {
+    setTaskPanelConversation(null);
+    setSection({
+      type: "task",
+      taskId: conversation.id,
+      mode: conversation.cabinetPath ? "cabinet" : "ops",
+      cabinetPath: conversation.cabinetPath,
+    });
+  };
 
   return (
     <div className="flex h-full w-[420px] shrink-0 flex-col border-l border-border/70 bg-background">
       <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <StatusDot status={activeConversation.status} />
+            <StatusDot status={conversation.status} />
             <p className="truncate text-[13px] font-medium text-foreground">
-              {activeConversation.title}
+              {conversation.title}
             </p>
           </div>
           <p className="mt-0.5 truncate pl-4 text-[11px] text-muted-foreground">
-            {startCase(activeConversation.agentSlug)}
+            {startCase(conversation.agentSlug)}
             {" · "}
-            {formatRelative(activeConversation.startedAt)}
+            {formatRelative(conversation.startedAt)}
           </p>
           {runtimeLabel ? (
             <div className="mt-1 flex items-center gap-1.5 pl-4 text-[11px] text-muted-foreground">
@@ -128,6 +134,15 @@ export function TaskDetailPanel() {
         <Button
           variant="ghost"
           size="sm"
+          className="h-7 gap-1 shrink-0 px-2 text-[11px] text-muted-foreground"
+          onClick={openFullPage}
+          title="Open full task viewer"
+        >
+          <ArrowUpRight className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           className="h-7 w-7 shrink-0 p-0"
           onClick={() => setTaskPanelConversation(null)}
         >
@@ -136,13 +151,7 @@ export function TaskDetailPanel() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <ConversationSessionView
-          conversation={conversation}
-          onDetailChange={setDetail}
-          onOpenArtifact={(artifactPath) => {
-            void openArtifactPath(artifactPath, { type: "page" });
-          }}
-        />
+        <TaskConversationPage taskId={conversation.id} variant="compact" />
       </div>
     </div>
   );

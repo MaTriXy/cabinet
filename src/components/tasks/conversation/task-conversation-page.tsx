@@ -154,8 +154,19 @@ function buildRuntimeLabel(task: Task): string {
 
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 
-export function TaskConversationPage({ taskId }: { taskId: string }) {
+export interface TaskConversationPageProps {
+  taskId: string;
+  variant?: "full" | "compact";
+  readOnly?: boolean;
+}
+
+export function TaskConversationPage({
+  taskId,
+  variant = "full",
+  readOnly = false,
+}: TaskConversationPageProps) {
   const isDemo = taskId === "demo";
+  const isCompact = variant === "compact";
   const [task, setTask] = useState<Task | null>(isDemo ? MOCK_TASK : null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingSummary, setEditingSummary] = useState(false);
@@ -364,7 +375,8 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
-      {/* Top bar */}
+      {/* Top bar (hidden in compact variant) */}
+      {!isCompact ? (
       <header className="flex items-center gap-3 border-b border-border/70 px-6 py-3">
         <Link
           href="/"
@@ -414,6 +426,7 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
           </Button>
         </div>
       </header>
+      ) : null}
 
       {/* Summary */}
       <div className="border-b border-border/70 bg-muted/20 px-6 py-3">
@@ -498,22 +511,24 @@ export function TaskConversationPage({ taskId }: { taskId: string }) {
                 <TurnBlock key={turn.id} turn={turn} />
               ))}
             </div>
-            {showWrapUp ? (
+            {showWrapUp && !readOnly ? (
               <WrapUpCard
                 onMarkDone={handleMarkDone}
                 onDismiss={() => setWrapUpDismissed(true)}
               />
             ) : null}
           </div>
-          <div className="shrink-0 border-t border-border/70 bg-background">
-            <div className="mx-auto w-full max-w-3xl">
-              <TaskComposerPanel
-                runtimeLabel={runtimeLabel}
-                awaitingInput={task.meta.status === "awaiting-input"}
-                onSend={handleSend}
-              />
+          {!readOnly ? (
+            <div className="shrink-0 border-t border-border/70 bg-background">
+              <div className="mx-auto w-full max-w-3xl">
+                <TaskComposerPanel
+                  runtimeLabel={runtimeLabel}
+                  awaitingInput={task.meta.status === "awaiting-input"}
+                  onSend={handleSend}
+                />
+              </div>
             </div>
-          </div>
+          ) : null}
         </TabsContent>
 
         <TabsContent

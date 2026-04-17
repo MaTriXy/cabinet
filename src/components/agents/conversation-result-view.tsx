@@ -67,16 +67,32 @@ export function ConversationResultView({
               <FileText className="h-4 w-4 text-muted-foreground" />
               <h4 className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Prompt</h4>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 text-xs"
-              onClick={() => window.open(transcriptUrl, "_blank", "noopener,noreferrer")}
-            >
-              <Files className="h-3.5 w-3.5" />
-              Open transcript
-              <ExternalLink className="h-3 w-3" />
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => {
+                  const hash =
+                    detail.meta.cabinetPath && detail.meta.cabinetPath !== "."
+                      ? `#/cabinet/${encodeURIComponent(detail.meta.cabinetPath)}/tasks/${encodeURIComponent(detail.meta.id)}`
+                      : `#/ops/tasks/${encodeURIComponent(detail.meta.id)}`;
+                  window.location.hash = hash;
+                }}
+              >
+                Open in task viewer
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => window.open(transcriptUrl, "_blank", "noopener,noreferrer")}
+              >
+                <Files className="h-3.5 w-3.5" />
+                Open transcript
+                <ExternalLink className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
           {promptHtml ? (
             <div
