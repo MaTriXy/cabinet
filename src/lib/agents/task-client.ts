@@ -114,6 +114,18 @@ export async function patchTask(
   return { meta: conversationMetaToTaskMeta(data.meta) };
 }
 
+export async function compactTask(
+  id: string,
+  cabinetPath?: string
+): Promise<void> {
+  const query = buildQuery({ cabinetPath });
+  const res = await fetch(
+    `/api/agents/conversations/${encodeURIComponent(id)}/compact${query}`,
+    { method: "POST" }
+  );
+  await jsonOrThrow(res);
+}
+
 export async function createTaskRequest(input: {
   title: string;
   initialPrompt: string;

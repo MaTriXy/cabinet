@@ -26,7 +26,7 @@ import { ArtifactsList } from "./artifacts-list";
 import { TaskComposerPanel } from "./task-composer-panel";
 import { MOCK_TASK } from "./mock-data";
 import type { Task, TaskEvent, TaskStatus } from "@/types/tasks";
-import { fetchTask, patchTask, postTurn } from "@/lib/agents/task-client";
+import { compactTask, fetchTask, patchTask, postTurn } from "@/lib/agents/task-client";
 
 const STATUS_META: Record<
   TaskStatus,
@@ -323,6 +323,21 @@ export function TaskConversationPage({
     }
   }, [task, isDemo, taskId]);
 
+  const handleCompact = useCallback(async () => {
+    if (!task || isDemo) return;
+    setBusy(true);
+    try {
+      await compactTask(taskId, task.meta.cabinetPath);
+      // Fresh fetch; SSE will deliver further updates as the digest streams.
+      const fresh = await fetchTask(taskId, task.meta.cabinetPath);
+      setTask(fresh);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Failed to compact");
+    } finally {
+      setBusy(false);
+    }
+  }, [task, isDemo, taskId]);
+
   const handleSummarySave = useCallback(async () => {
     if (!task) return;
     const next = summaryDraft.trim();
@@ -403,7 +418,14 @@ export function TaskConversationPage({
             <GitBranch className="size-3.5" />
             main
           </Button>
-          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-[11px]">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1.5 text-[11px]"
+            disabled={busy || isDemo || task.turns.length < 2}
+            onClick={handleCompact}
+            title="Collapse prior turns into a digest to free context window"
+          >
             <RefreshCw className="size-3.5" />
             Compact
           </Button>

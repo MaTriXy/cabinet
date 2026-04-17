@@ -716,3 +716,131 @@ export async function continueConversationRun(
 
   return readConversationMeta(conversationId, cp);
 }
+
+// ---------------------------------------------------------------------------
+// Compact
+//
+// Collapses prior turns into a single digest turn and kills the adapter
+// session handle so the next continue starts a fresh session with only the
+// digest for context. Freeing up context window without losing task state.
+// ---------------------------------------------------------------------------
+
+export interface CompactConversationInput {
+  cabinetPath?: string;
+  timeoutMs?: number;
+}
+
+export async function compactConversation(
+  conversationId: string,
+  input: CompactConversationInput = {}
+): Promise<ConversationMeta | null> {
+  const meta = await readConversationMeta(conversationId, input.cabinetPath);
+  if (!meta) return null;
+  const cp = meta.cabinetPath || input.cabinetPath;
+
+  const turns = await readConversationTurns(conversationId, cp);
+  if (turns.length === 0) return meta;
+
+  const adapterType = meta.adapterType || defaultAdapterTypeForProvider(meta.providerId);
+  const adapter = agentAdapterRegistry.get(adapterType);
+
+  if (!adapter || !adapter.execute) {
+    return meta;
+  }
+
+  // Build the compact prompt: full history + instruction to produce a digest.
+  const history = serializeTurnHistory(
+    turns.map((t) => ({ role: t.role, content: t.content, pending: t.pending }))
+  );
+  const compactPrompt = [
+    "You are compacting a long task conversation into a concise digest.",
+    "Produce ONE agent turn that captures:",
+    "- the original user goal in one sentence",
+    "- what has been done so far (bullet list, ≤8 items)",
+    "- open questions or decisions still pending",
+    "- relevant KB paths that were created/updated",
+    "",
+    "Keep it under 200 words. Do NOT restate the full content of prior turns.",
+    "End with a short ```cabinet block (SUMMARY only).",
+    "",
+    "Prior conversation:",
+    history,
+  ].join("\n");
+
+  const baseCwd = cp ? path.join(DATA_DIR, cp) : DATA_DIR;
+
+  // Append a pending compaction turn so the UI shows progress.
+  const pending = await appendAgentTurn(
+    conversationId,
+    { content: "Compacting…", pending: true },
+    cp
+  );
+  if (!pending) return meta;
+
+  const logChunks: string[] = [];
+  const ctx: AdapterExecutionContext = {
+    runId: randomUUID(),
+    adapterType: adapter.type,
+    config: meta.adapterConfig || {},
+    prompt: compactPrompt,
+    cwd: baseCwd,
+    timeoutMs: input.timeoutMs ?? 3 * 60 * 1000,
+    sessionId: null,
+    onLog: async (stream, chunk) => {
+      if (stream === "stdout") logChunks.push(chunk);
+    },
+  };
+
+  try {
+    const result = await adapter.execute(ctx);
+    const rawOutput =
+      (result.output && result.output.trim()) || logChunks.join("").trim() || "";
+    const digest = rawOutput
+      ? extractAgentTurnContent(rawOutput) || rawOutput
+      : "Compaction produced no digest.";
+
+    await updateAgentTurn(
+      conversationId,
+      pending.turn,
+      {
+        content: `**Compacted digest**\n\n${digest}`,
+        pending: false,
+        tokens: result.usage
+          ? {
+              input: result.usage.inputTokens,
+              output: result.usage.outputTokens,
+              cache: result.usage.cachedInputTokens,
+            }
+          : undefined,
+      },
+      cp
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown compact error";
+    await updateAgentTurn(
+      conversationId,
+      pending.turn,
+      {
+        content: `_Compaction failed: ${message}_`,
+        pending: false,
+        exitCode: 1,
+        error: message,
+      },
+      cp
+    );
+    return readConversationMeta(conversationId, cp);
+  }
+
+  // Kill the session so the next continue replays from the digest only.
+  await writeSession(
+    conversationId,
+    {
+      kind: adapter.type,
+      alive: false,
+      lastUsedAt: new Date().toISOString(),
+    },
+    cp
+  );
+
+  return readConversationMeta(conversationId, cp);
+}
