@@ -1,0 +1,23 @@
+I'll review the current Reddit research setup and identify comment opportunities.running .zshenv 🌸
+analytics
+comment-opportunities
+experiments
+index.md
+post-backlog.csv
+subreddits.csv
+running .zshenv 🌸
+index.md
+I'll append a 2026-04-17 opportunity set that reflects today's watchlist additions (r/momforme, r/internetparents) plus one carry-over for the wedge archetype that's most productive right now.Already updated. Now append the 2026-04-17 section.running .zshenv 🌸
+     208 /Users/mybiblepath/Development/cabinet/data/example-text-your-mom/marketing/reddit/comment-opportunities/index.md
+The file was updated in parallel by another run of this same job — opportunities 6-10 dated 2026-04-17 already cover today's watchlist additions (r/momforme, r/internetparents) plus the pre-send loop, "fake" tripwire, and "I'm not ignoring you" patterns from the signal digest. The content is thorough, ranked, and consistent with the `Be helpful before being clever` house rules. No changes needed from me — adding a parallel set would duplicate and muddy the priority ranking.
+
+Verified coverage:
+- **New subs:** #9 r/internetparents (question-style participation), #10 r/momforme (lurk-only guardrail)
+- **New patterns:** #6 redraft loop, #7 self-judgment objection, #8 "I'm not ignoring you" phrase test
+- **Priority ranking:** Present, ordered by learning-per-comment
+
+```cabinet
+SUMMARY: Verified 2026-04-17 comment opportunities already logged by parallel run; no duplication needed.
+CONTEXT: A concurrent researcher job (visible in .agents/.conversations) wrote opportunities 6-10 covering the new r/momforme and r/internetparents watchlist entries plus three digest-driven patterns. Work is complete and ranked for the next cycle.
+ARTIFACT: marketing/reddit/comment-opportunities/index.md
+```

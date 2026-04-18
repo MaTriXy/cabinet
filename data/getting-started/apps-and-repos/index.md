@@ -1,21 +1,20 @@
 ---
 title: Apps and Repos
 created: '2026-04-12T00:00:00.000Z'
-modified: '2026-04-12T00:00:00.000Z'
+modified: '2026-04-17T14:02:43.840Z'
 tags:
   - guide
   - apps
   - repos
 order: 1
 ---
-
 # Apps and Repos
 
 Cabinet goes beyond markdown pages. You can embed full web applications, link external Git repositories, and create interactive tools that live right alongside your documentation.
 
 ## Embedded Apps
 
-Any directory that contains an `index.html` file **and no `index.md`** is treated as an embedded app. Cabinet renders it in an iframe.
+Any directory that contains an `index.html` file **and no** `index.md` is treated as an embedded app. Cabinet renders it in an iframe.
 
 ### Standard Embedded App
 
@@ -27,6 +26,7 @@ data/
     index.html     ← the app (renders as iframe with sidebar)
     app.js
     style.css
+
 ```
 
 ### Full-Screen App (`.app` marker)
@@ -39,6 +39,7 @@ data/
     index.html     ← the app
     .app           ← marker: full-screen mode
     other-files/
+
 ```
 
 Both types appear in the sidebar automatically — no build step, no deployment.
@@ -54,34 +55,23 @@ remote: https://github.com/org/repo.git
 source: both
 branch: main
 description: What this repo contains (helps agents understand context)
+
 ```
 
 **Fields:**
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Human-readable project name |
-| `local` | Yes | Absolute path to local clone |
-| `remote` | No | GitHub URL — used for links, issues, PR suggestions |
-| `source` | No | `local`, `remote`, or `both` (default: `both`) |
-| `branch` | No | Default branch (default: `main`) |
-| `description` | No | Free-text description for agent context |
+<table class="border-collapse w-full" style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>Field</p></th><th colspan="1" rowspan="1"><p>Required</p></th><th colspan="1" rowspan="1"><p>Description</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>name</code></p></td><td colspan="1" rowspan="1"><p>Yes</p></td><td colspan="1" rowspan="1"><p>Human-readable project name</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>local</code></p></td><td colspan="1" rowspan="1"><p>Yes</p></td><td colspan="1" rowspan="1"><p>Absolute path to local clone</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>remote</code></p></td><td colspan="1" rowspan="1"><p>No</p></td><td colspan="1" rowspan="1"><p>GitHub URL — used for links, issues, PR suggestions</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>source</code></p></td><td colspan="1" rowspan="1"><p>No</p></td><td colspan="1" rowspan="1"><p><code>local</code>, <code>remote</code>, or <code>both</code> (default: <code>both</code>)</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>branch</code></p></td><td colspan="1" rowspan="1"><p>No</p></td><td colspan="1" rowspan="1"><p>Default branch (default: <code>main</code>)</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>description</code></p></td><td colspan="1" rowspan="1"><p>No</p></td><td colspan="1" rowspan="1"><p>Free-text description for agent context</p></td></tr></tbody></table>
 
 When an agent works on a KB page that has a `.repo.yaml` in the same directory or any parent, it will:
-1. Read the `.repo.yaml` to find the linked repo
-2. Use `local` path to read source code and understand architecture
-3. Use `remote` URL when creating links or suggesting PRs
+
+1.  Read the `.repo.yaml` to find the linked repo
+    
+2.  Use `local` path to read source code and understand architecture
+    
+3.  Use `remote` URL when creating links or suggesting PRs
+    
 
 The sidebar shows these directories with an orange **GitBranch** icon.
-
-## Sidebar Icon Reference
-
-| Icon | Color | Trigger |
-|------|-------|---------|
-| AppWindow | Green | Directory has `index.html` + `.app` (no `index.md`) |
-| Globe | Blue | Directory has `index.html`, no `.app`, no `index.md` |
-| GitBranch | Orange | Directory has `.repo.yaml` |
-| Link2 | Blue | Symlinked directory without `.repo.yaml` |
 
 ---
 

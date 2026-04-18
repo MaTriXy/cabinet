@@ -1,0 +1,21 @@
+I'll review the Reddit research cabinet and identify the best opportunities for helpful participation.running .zshenv 🌸
+analytics
+comment-opportunities
+experiments
+index.md
+post-backlog.csv
+subreddits.csv
+running .zshenv 🌸
+index.md
+---
+index.md
+signals-2026-04-17.md
+---
+index.md
+I'll append a fresh April 17 opportunity set grounded in the new signal digest — covering the two new watchlist subreddits and the pre-send/fake-tripwire patterns not yet represented.Added five new dated opportunities (#6–#10) grounded in the April 17 signal digest, covering the pre-send redraft loop, the "fake" tripwire, the copy-ready phrase "I'm not ignoring you," and the two new Watch subreddits — with r/momforme explicitly marked as listen-only.
+
+```cabinet
+SUMMARY: Added April 17 comment opportunity set extending into pre-send anxiety, fake-tripwire objection, and the two new Watch subreddits (r/internetparents, r/momforme)
+CONTEXT: April 12 opportunity set covered reply guilt, staying in touch, bad-kid reframe, reminder-app critique, and worst-texter confession. April 17 additions extend to patterns 4 and 5 from the latest signal digest and to the two newly added subreddits, with r/momforme flagged as defensive listening only. Priority ranking added for next cycle.
+ARTIFACT: comment-opportunities/index.md
+```

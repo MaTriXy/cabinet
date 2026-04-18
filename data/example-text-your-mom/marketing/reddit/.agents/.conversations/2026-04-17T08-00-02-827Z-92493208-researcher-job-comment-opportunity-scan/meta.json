@@ -1,0 +1,23 @@
+{
+  "id": "2026-04-17T08-00-02-827Z-92493208-researcher-job-comment-opportunity-scan",
+  "agentSlug": "researcher",
+  "cabinetPath": "example-text-your-mom/marketing/reddit",
+  "title": "Comment Opportunity Scan",
+  "trigger": "job",
+  "status": "completed",
+  "startedAt": "2026-04-17T08:00:02.827Z",
+  "jobId": "comment-opportunity-scan",
+  "jobName": "Comment Opportunity Scan",
+  "providerId": "claude-code",
+  "adapterType": "claude_local",
+  "promptPath": "example-text-your-mom/marketing/reddit/.agents/.conversations/2026-04-17T08-00-02-827Z-92493208-researcher-job-comment-opportunity-scan/prompt.md",
+  "transcriptPath": "example-text-your-mom/marketing/reddit/.agents/.conversations/2026-04-17T08-00-02-827Z-92493208-researcher-job-comment-opportunity-scan/transcript.txt",
+  "mentionedPaths": [],
+  "artifactPaths": [
+    "marketing/reddit/comment-opportunities/index.md"
+  ],
+  "completedAt": "2026-04-17T08:01:49.392Z",
+  "exitCode": 0,
+  "summary": "Verified 2026-04-17 comment opportunities already logged by parallel run; no duplication needed.",
+  "contextSummary": "A concurrent researcher job (visible in .agents/.conversations) wrote opportunities 6-10 covering the new r/momforme and r/internetparents watchlist entries plus three digest-driven patterns. Work is complete and ranked for the next cycle."
+}

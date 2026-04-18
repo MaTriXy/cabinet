@@ -1,7 +1,7 @@
 ---
 title: Comment Opportunities
 created: '2026-04-11T00:00:00Z'
-modified: '2026-04-16T00:00:00Z'
+modified: '2026-04-17T00:00:00Z'
 tags:
   - reddit
   - comments
@@ -128,3 +128,81 @@ These are clean, post-ready versions distilled from the strategy above. No produ
 > The worst part is it compounds. The longer you wait, the bigger the reply has to feel, so you wait longer. The only way out is a terrible two-word text that you send anyway. "hey sorry" has saved more relationships than any long apology ever written.
 
 **Testing:** Does "terrible two-word text" read as permission-giving? Does "hey sorry" feel real or dismissive?
+
+---
+
+## New Opportunities — 2026-04-17
+
+Derived from the April 17 signal digest. These extend the opportunity set into patterns and subreddits the April 12 list did not cover: the pre-send anxiety loop, the "fake" tripwire, and the two new Watch-status subreddits (r/momforme, r/internetparents). Each uses phrasing already confirmed in multiple unrelated threads, so we are re-surfacing community language, not injecting ours.
+
+---
+
+### 6. The Pre-Send Redraft Loop
+**Subreddits:** r/Anxiety, r/Adulting
+**Thread archetype:** Someone describing staring at a text to a parent or close friend, rewriting it three or four times, and either sending something stiff or nothing at all
+
+**Why it matters:** Pattern 4 in the signal digest — the "first message after a gap" problem — is currently underrepresented in our opportunity set. It is also the wedge for the product: re-entry, not ongoing assistance. A comment that names the redraft loop gives us a clean read on whether people want *a prompt* vs. *a drafted message* (the digest says strongly: prompt, not draft).
+
+**Approach:** Describe the loop, then offer a tiny reframe — *not* a tool. Test the phrase: *"the first message back is the hard one. Everything after it is normal texting again."* That sentence isolates the actual value proposition in plain language and lets the community confirm or push back.
+
+**Message test:** Do people agree that only the *first* message is hard? If yes, onboarding should center that moment and nothing else. If they describe ongoing difficulty, the wedge is broader than assumed.
+
+---
+
+### 7. "Something's Wrong With Me If I Need an App For This"
+**Subreddits:** r/selfimprovement, r/Anxiety
+**Thread archetype:** Self-critical posts where someone admits they've considered an app or a system for staying in touch and feels ashamed of needing one
+
+**Why it matters:** This is the "fake" tripwire (Pattern 5) surfacing as self-judgment *before* anyone else judges them. It is the single most important objection to neutralize pre-launch, because it is already living rent-free in the prospect's head. A comment that separates *needing scaffolding* from *being broken* directly tests whether our "invisible help behind a human message" positioning lands.
+
+**Approach:** Zero product mention. Short. Test: *"Needing a nudge to remember the people you love isn't a character flaw — it's just what a phone full of notifications does to a brain. The weird part would be if it didn't happen."* Watch for replies that say "I needed this" vs. replies that double down on the shame.
+
+**Message test:** If this reframe gets traction, the core brand promise is defensible. If it reads as excusing, we need to harden the "scaffolding, not outsourcing" distinction in copy before launch.
+
+---
+
+### 8. "I'm Not Ignoring You, I Just Can't Right Now"
+**Subreddits:** r/Adulting, r/Anxiety
+**Thread archetype:** Threads about explaining reply silence — to oneself or to the other person — during a burnout, grief, or overwhelm stretch
+
+**Why it matters:** The digest flagged *"I'm not ignoring you"* as verbatim language appearing across multiple threads, used to explain the gap *to oneself*, not the recipient. Surfacing this phrase back to the community is a direct test of whether it belongs in onboarding or first-run copy. The signal digest explicitly recommends testing this phrase as native copy — this is where that test happens in the wild first.
+
+**Approach:** Validate the phrase without editorializing. *"'I'm not ignoring you, I just can't' is the most honest thing most of us never actually send. The people who love us would rather get that text than nothing."* Short. No product. Measure whether the exact phrase gets quoted back in replies.
+
+**Message test:** If the phrase gets echoed in replies, it earns its place as a direct onboarding line. If it reads as oversharing or melodramatic, we soften to "I meant to reply" framing.
+
+---
+
+### 9. r/internetparents — "What Would You Have Wanted Your Kid to Text?"
+**Subreddits:** r/internetparents (new Watch addition)
+**Thread archetype:** Parents answering questions about their own kids, or describing what they wish their kids did to stay in touch
+
+**Why it matters:** r/internetparents is the inverse audience — parents describing, unprompted, what kinds of messages feel meaningful from their own children. This is the purest possible source of "what does a mom actually want" language, which we currently approximate from the kid-side only. A carefully framed question-style participation here could generate a library of parent-side phrasing we cannot get any other way.
+
+**Approach:** Do not post a thread. Respond to existing threads with a single observation-style question: *"Something I've wondered — do you actually want a long catch-up text, or would a random 'thinking of you, nothing to report' be better?"* That frames the "tiny message" hypothesis as a sincere question and lets parents answer in their own words. Harvest phrasing for future copy.
+
+**Message test:** Do parents confirm that low-content check-ins feel meaningful? If yes, this validates the entire "bad text beats no text" positioning from the parent side. If they push back, our copy is skewed toward the kid's relief and needs to also promise *the parent* something real.
+
+---
+
+### 10. r/momforme — Handle With Extreme Care
+**Subreddits:** r/momforme (new Watch addition)
+**Thread archetype:** Posts from people whose mothers are absent, estranged, deceased, or abusive — seeking maternal presence they did not receive
+
+**Why it matters:** This audience is emotionally raw and almost certainly *not* a direct user segment. But lurking here protects us from catastrophic tone failures in mass-audience copy. If a phrase like "text your mom" would hurt someone here, it will also quietly hurt some fraction of our actual audience who share parts of this experience. This is a listening post, not a participation opportunity.
+
+**Approach:** **Do not comment.** The value here is defensive: read enough threads to understand which phrasings land as exclusionary, then feed those findings back to Copywriter. Any participation here that even gestures at the product is disqualifying — the rule "if it sounds like growth hacking, it is wrong" applies maximally.
+
+**Message test:** None directly. Output is a list of phrases that need softening or qualifying in our broader marketing (e.g. whether landing copy should ever assume the mom-relationship is available at all, or whether we need a "or whoever's your person" fallback in primary onboarding).
+
+---
+
+## Priority for Next Cycle
+
+Ranked by expected learning-per-comment, not traffic:
+
+1. **#8 "I'm not ignoring you"** — validates a specific phrase the digest already flagged as copy-ready. Highest-leverage single test.
+2. **#6 Pre-Send Redraft Loop** — confirms or corrects the core wedge (re-entry, first-message-back).
+3. **#7 "Something's wrong with me"** — pre-tests the biggest positioning objection before it costs us a launch.
+4. **#9 r/internetparents question** — only source of parent-side language; worth the slow burn.
+5. **#10 r/momforme listening** — protective, not generative. Assign to one reader, not the whole team.

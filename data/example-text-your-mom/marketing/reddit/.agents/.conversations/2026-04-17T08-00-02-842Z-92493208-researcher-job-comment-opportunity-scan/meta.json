@@ -1,0 +1,23 @@
+{
+  "id": "2026-04-17T08-00-02-842Z-92493208-researcher-job-comment-opportunity-scan",
+  "agentSlug": "researcher",
+  "cabinetPath": "example-text-your-mom/marketing/reddit",
+  "title": "Comment Opportunity Scan",
+  "trigger": "job",
+  "status": "completed",
+  "startedAt": "2026-04-17T08:00:02.842Z",
+  "jobId": "comment-opportunity-scan",
+  "jobName": "Comment Opportunity Scan",
+  "providerId": "claude-code",
+  "adapterType": "claude_local",
+  "promptPath": "example-text-your-mom/marketing/reddit/.agents/.conversations/2026-04-17T08-00-02-842Z-92493208-researcher-job-comment-opportunity-scan/prompt.md",
+  "transcriptPath": "example-text-your-mom/marketing/reddit/.agents/.conversations/2026-04-17T08-00-02-842Z-92493208-researcher-job-comment-opportunity-scan/transcript.txt",
+  "mentionedPaths": [],
+  "artifactPaths": [
+    "comment-opportunities/index.md"
+  ],
+  "completedAt": "2026-04-17T08:01:29.270Z",
+  "exitCode": 0,
+  "summary": "Added April 17 comment opportunity set extending into pre-send anxiety, fake-tripwire objection, and the two new Watch subreddits (r/internetparents, r/momforme)",
+  "contextSummary": "April 12 opportunity set covered reply guilt, staying in touch, bad-kid reframe, reminder-app critique, and worst-texter confession. April 17 additions extend to patterns 4 and 5 from the latest signal digest and to the two newly added subreddits, with r/momforme flagged as defensive listening only. Priority ranking added for next cycle."
+}
