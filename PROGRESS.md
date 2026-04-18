@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-18] Post-import "cabinet created" screen now shows a `Home › Room` breadcrumb above the tree so the user can see where the new cabinet lives (e.g., `🏠 Maya's Home › 💼 The Office`). Uses Lucide House + the room's configured icon. `homeName` and `roomType` are threaded from `TeamBuildStep` down into `CabinetCreatedScreen`.
+
 [2026-04-18] Tightened line-height on the post-import "cabinet created" tree diagram. `leading-relaxed` (1.625) left visible vertical gaps between box-drawing `│` connectors; switched to `lineHeight: 1.25` so the tree renders as a continuous structure.
 
 [2026-04-18] Fixed broken registry import during onboarding. The `RegistryBrowser` detail view was hardcoded to `window.location.reload()` on successful import, which in the onboarding overlay restarted the wizard from scratch (workspace.json isn't written until launch) and left the first import stranded — the retry then hit "Directory already exists". Added an optional `onImported(template, name)` callback to `RegistryBrowser` / `DetailView`; when provided it replaces the reload. Onboarding now hands that callback through and jumps straight to the success screen. Also hardened the import path: `downloadRegistryTemplate` and the `/api/registry/import` route now rm the partial `targetDir` on any mid-flight failure so retries aren't blocked by leftover dirs.

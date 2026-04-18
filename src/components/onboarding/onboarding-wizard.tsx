@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Copy,
   ExternalLink,
+  House,
   Loader2,
   Rocket,
   ChevronDown,
@@ -540,12 +541,18 @@ function IntroStep({ onNext }: { onNext: () => void }) {
 function CabinetCreatedScreen({
   cabinetName,
   template,
+  homeName,
+  roomType,
   onContinue,
 }: {
   cabinetName: string;
   template: RegistryTemplate;
+  homeName: string;
+  roomType: RoomType;
   onContinue: () => void;
 }) {
+  const roomConfig = ROOMS[roomType];
+  const RoomIcon = roomConfig.icon;
   const [visibleLines, setVisibleLines] = useState(0);
   const [showButton, setShowButton] = useState(false);
 
@@ -593,6 +600,22 @@ function CabinetCreatedScreen({
         <p className="text-sm" style={{ color: WEB.textSecondary }}>
           Everything is set up and ready to go.
         </p>
+      </div>
+
+      {/* Home › Room breadcrumb */}
+      <div
+        className="flex items-center gap-2 text-[13px] animate-in fade-in slide-in-from-bottom-1 duration-500"
+        style={{ color: WEB.textSecondary }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <House className="size-3.5" style={{ color: WEB.accent }} />
+          <span style={{ color: WEB.text, fontWeight: 500 }}>{homeName}</span>
+        </span>
+        <ChevronRight className="size-3.5" style={{ color: WEB.textTertiary }} />
+        <span className="inline-flex items-center gap-1.5">
+          <RoomIcon className="size-3.5" style={{ color: WEB.accent }} />
+          <span style={{ color: WEB.text, fontWeight: 500 }}>{roomConfig.label}</span>
+        </span>
       </div>
 
       {/* Animated tree */}
@@ -719,6 +742,7 @@ function TeamBuildStep({
   maxAgents,
   toggleAgent,
   roomType,
+  homeName,
   mandatoryAgents,
   onBack,
   onNext,
@@ -731,6 +755,7 @@ function TeamBuildStep({
   maxAgents: number;
   toggleAgent: (slug: string) => void;
   roomType: RoomType;
+  homeName: string;
   mandatoryAgents: Set<string>;
   onBack: () => void;
   onNext: () => void;
@@ -806,6 +831,8 @@ function TeamBuildStep({
       <CabinetCreatedScreen
         cabinetName={importedCabinet.name}
         template={importedCabinet.template}
+        homeName={homeName}
+        roomType={roomType}
         onContinue={onNext}
       />
     );
@@ -2137,6 +2164,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
               maxAgents={MAX_AGENTS}
               toggleAgent={toggleAgent}
               roomType={answers.roomType}
+              homeName={answers.homeName || (answers.name ? `${answers.name}'s Home` : "Home")}
               mandatoryAgents={mandatoryAgents}
               onBack={() => setStep(STEP_ROOM_SETUP)}
               onNext={() => setStep(STEP_PROVIDER)}
