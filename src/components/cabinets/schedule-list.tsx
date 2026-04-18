@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import { Clock3, HeartPulse, MessageSquare } from "lucide-react";
 import { cronToHuman } from "@/lib/agents/cron-utils";
 import { cn } from "@/lib/utils";
-import { getAgentColor } from "@/lib/agents/cron-compute";
 import type { CabinetAgentSummary, CabinetJobSummary } from "@/types/cabinets";
 import type { ConversationMeta } from "@/types/conversations";
 
@@ -22,8 +21,10 @@ interface ListItem {
   type: "job" | "heartbeat" | "manual";
   id: string;
   name: string;
-  /** Cron expression, or the formatted start time for manual runs. */
+  /** Short secondary line — cron phrase or formatted start time. */
   schedule: string;
+  /** Optional third-line description (summary of a manual conversation). */
+  summary?: string;
   enabled: boolean;
   agentEmoji: string;
   agentName: string;
@@ -112,6 +113,8 @@ export function ScheduleList({
                   minute: "2-digit",
                 })}`
               : "manual run",
+          summary:
+            convo.summary && convo.summary !== label ? convo.summary : undefined,
           enabled: convo.status !== "cancelled" && convo.status !== "failed",
           agentEmoji: owner?.emoji || "💬",
           agentName: owner?.name || convo.agentSlug || "Manual",
@@ -137,9 +140,29 @@ export function ScheduleList({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+    <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-background">
       {items.map((item) => {
-        const color = getAgentColor(item.agentSlug);
+        const secondary =
+          item.type === "manual" ? item.schedule : cronToHuman(item.schedule);
+        const statusLabel =
+          item.type === "manual"
+            ? item.conversationRef?.status ?? "ran"
+            : item.enabled
+              ? "On"
+              : "Off";
+        const statusTone =
+          item.type === "manual"
+            ? item.conversationRef?.status === "failed"
+              ? "bg-destructive/15 text-destructive"
+              : item.conversationRef?.status === "running"
+                ? "bg-sky-500/15 text-sky-600 dark:text-sky-400"
+                : item.conversationRef?.status === "completed"
+                  ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-500"
+                  : "bg-muted text-muted-foreground"
+            : item.enabled
+              ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-500"
+              : "bg-muted text-muted-foreground";
+
         return (
           <button
             key={item.id}
@@ -159,54 +182,52 @@ export function ScheduleList({
               }
             }}
             className={cn(
-              "flex items-center gap-3 rounded-xl border bg-background px-4 py-3 text-left transition-all",
-              "hover:shadow-sm hover:bg-muted/30",
-              !item.enabled && "opacity-50"
+              "flex w-full items-center gap-3 px-4 py-2 text-left transition-colors",
+              "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              !item.enabled && item.type !== "manual" && "opacity-50"
             )}
-            style={{ borderColor: color.bg }}
           >
-            <span className="text-lg leading-none shrink-0">{item.agentEmoji}</span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                {item.type === "job" ? (
-                  <Clock3 className="h-3 w-3 shrink-0 text-emerald-500/70" />
-                ) : item.type === "heartbeat" ? (
-                  <HeartPulse className="h-3 w-3 shrink-0 text-pink-500/70" />
-                ) : (
-                  <MessageSquare className="h-3 w-3 shrink-0 text-sky-500/70" />
-                )}
-                <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
-              </div>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {item.agentName} ·{" "}
-                {item.type === "manual" ? item.schedule : cronToHuman(item.schedule)}
-              </p>
-            </div>
-            {item.type === "manual" ? (
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                  item.conversationRef?.status === "failed"
-                    ? "bg-destructive/15 text-destructive"
-                    : item.conversationRef?.status === "running"
-                      ? "bg-sky-500/12 text-sky-500"
-                      : "bg-muted text-muted-foreground"
-                )}
-              >
-                {item.conversationRef?.status ?? "ran"}
-              </span>
-            ) : (
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                  item.enabled
-                    ? "bg-emerald-500/12 text-emerald-500"
-                    : "bg-muted text-muted-foreground"
-                )}
-              >
-                {item.enabled ? "On" : "Off"}
-              </span>
-            )}
+            {/* Type icon — sets the per-row category tone */}
+            <span className="flex size-5 shrink-0 items-center justify-center">
+              {item.type === "job" ? (
+                <Clock3 className="h-3.5 w-3.5 text-emerald-500/80" />
+              ) : item.type === "heartbeat" ? (
+                <HeartPulse className="h-3.5 w-3.5 text-pink-500/80" />
+              ) : (
+                <MessageSquare className="h-3.5 w-3.5 text-sky-500/80" />
+              )}
+            </span>
+
+            {/* Agent emoji */}
+            <span className="text-sm leading-none shrink-0" aria-hidden="true">
+              {item.agentEmoji}
+            </span>
+
+            {/* Title + summary on the same line */}
+            <p className="min-w-0 flex-1 truncate text-[13px] leading-5">
+              <span className="font-medium text-foreground">{item.name}</span>
+              {item.summary ? (
+                <span className="text-muted-foreground/90">
+                  {" · "}
+                  {item.summary}
+                </span>
+              ) : null}
+            </p>
+
+            {/* Secondary meta — agent + schedule/timestamp */}
+            <span className="hidden shrink-0 text-[11px] text-muted-foreground md:inline">
+              {item.agentName} · {secondary}
+            </span>
+
+            {/* Status chip */}
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                statusTone
+              )}
+            >
+              {statusLabel}
+            </span>
           </button>
         );
       })}
