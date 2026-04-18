@@ -45,14 +45,28 @@ export async function deletePageApi(path: string): Promise<void> {
 
 export async function movePageApi(
   fromPath: string,
-  toParent: string
+  toParent: string,
+  neighbors: { prevName?: string | null; nextName?: string | null } = {}
 ): Promise<string> {
   const res = await fetch(`/api/pages/${fromPath}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ toParent }),
+    body: JSON.stringify({
+      toParent,
+      prevName: neighbors.prevName ?? null,
+      nextName: neighbors.nextName ?? null,
+    }),
   });
-  if (!res.ok) throw new Error(`Failed to move page: ${fromPath}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body?.error ? `: ${body.error}` : "";
+    } catch {
+      // ignore
+    }
+    throw new Error(`Failed to move page${detail}`);
+  }
   const data = await res.json();
   return data.newPath;
 }

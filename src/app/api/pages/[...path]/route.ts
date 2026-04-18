@@ -55,7 +55,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       const newPath = await renamePage(virtualPath, body.rename);
       return NextResponse.json({ ok: true, newPath });
     }
-    const newPath = await movePage(virtualPath, body.toParent || "");
+    const fromParent = virtualPath.split("/").slice(0, -1).join("/");
+    const toParent =
+      typeof body.toParent === "string" ? body.toParent : fromParent;
+    const newPath = await movePage(virtualPath, toParent, {
+      prevName: body.prevName ?? undefined,
+      nextName: body.nextName ?? undefined,
+    });
     return NextResponse.json({ ok: true, newPath });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
