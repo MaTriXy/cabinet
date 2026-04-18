@@ -2,6 +2,10 @@ import { openCodeProvider } from "../providers/opencode";
 import { resolveCliCommand } from "../provider-cli";
 import { providerStatusToEnvironmentTest } from "./environment";
 import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
+import {
   consumeOpenCodeJsonStream,
   createOpenCodeStreamAccumulator,
   flushOpenCodeJsonStream,
@@ -170,6 +174,15 @@ export const openCodeLocalAdapter: AgentExecutionAdapter = {
   models: openCodeProvider.models,
   effortLevels: openCodeProvider.effortLevels,
   sessionCodec: openCodeSessionCodec,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "OpenCode",
+          cliCommand: "opencode",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "opencode_local",

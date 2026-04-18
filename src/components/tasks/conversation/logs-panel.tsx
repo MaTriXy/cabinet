@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleAlert, RefreshCw, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ConversationDetail, ConversationMeta } from "@/types/conversations";
 
 interface EventLine {
   ts?: string;
@@ -19,16 +20,22 @@ export function LogsPanel({
 }) {
   const [events, setEvents] = useState<EventLine[] | null>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
+  const [meta, setMeta] = useState<ConversationMeta | null>(null);
+  const [session, setSession] = useState<ConversationDetail["session"] | null>(null);
   const [eventsOpen, setEventsOpen] = useState(true);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [errorOpen, setErrorOpen] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const query = new URLSearchParams();
     if (cabinetPath) query.set("cabinetPath", cabinetPath);
-    const qs = query.size ? `?${query}` : "";
+    query.set("withTurns", "1");
+    const qs = `?${query}`;
 
-    fetch(`/api/agents/conversations/${encodeURIComponent(taskId)}/events-log${qs}`, {
+    fetch(`/api/agents/conversations/${encodeURIComponent(taskId)}/events-log${
+      cabinetPath ? `?cabinetPath=${encodeURIComponent(cabinetPath)}` : ""
+    }`, {
       cache: "no-store",
     })
       .then((r) => r.json())
@@ -43,9 +50,18 @@ export function LogsPanel({
       cache: "no-store",
     })
       .then((r) => r.json())
-      .then((data: { rawTranscript?: string }) => {
-        if (!cancelled) setTranscript(data.rawTranscript ?? "");
-      })
+      .then(
+        (data: {
+          rawTranscript?: string;
+          meta?: ConversationMeta;
+          session?: ConversationDetail["session"];
+        }) => {
+          if (cancelled) return;
+          setTranscript(data.rawTranscript ?? "");
+          setMeta(data.meta ?? null);
+          setSession(data.session ?? null);
+        }
+      )
       .catch(() => {
         if (!cancelled) setTranscript("");
       });
@@ -57,6 +73,68 @@ export function LogsPanel({
 
   return (
     <div className="space-y-4 px-6 py-6">
+      {/* Classified error (when present) */}
+      {meta?.errorKind ? (
+        <section className="rounded-xl border border-destructive/30 bg-destructive/[0.04]">
+          <button
+            type="button"
+            onClick={() => setErrorOpen((v) => !v)}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12px] font-medium transition-colors hover:bg-destructive/5"
+          >
+            {errorOpen ? (
+              <ChevronDown className="size-3.5 text-destructive" />
+            ) : (
+              <ChevronRight className="size-3.5 text-destructive" />
+            )}
+            <CircleAlert className="size-3.5 text-destructive" />
+            <span className="text-destructive">Classified error</span>
+            <span className="ml-1 rounded-sm bg-destructive/15 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-destructive">
+              {meta.errorKind.replace(/_/g, " ")}
+            </span>
+          </button>
+          {errorOpen ? (
+            <div className="space-y-2 border-t border-destructive/20 px-4 py-3 text-[12px]">
+              {meta.errorHint ? (
+                <p className="leading-relaxed text-destructive/90">{meta.errorHint}</p>
+              ) : null}
+              {meta.errorRetryAfterSec ? (
+                <p className="text-[11px] text-destructive/80">
+                  Suggested retry after {meta.errorRetryAfterSec}s.
+                </p>
+              ) : null}
+              {meta.lastResumeAttempt ? (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Last attempt: <span className="font-medium">{meta.lastResumeAttempt.result}</span>
+                  {meta.lastResumeAttempt.reason ? ` — ${meta.lastResumeAttempt.reason}` : ""}
+                  {" ("}
+                  {new Date(meta.lastResumeAttempt.at).toLocaleTimeString()}
+                  {")"}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* Session handle */}
+      {session ? (
+        <section className="rounded-xl border border-border/70 bg-card">
+          <div className="flex items-center gap-2 px-4 py-2 text-[12px]">
+            <RefreshCw className="size-3.5 text-muted-foreground" />
+            <span className="font-medium">Session</span>
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {session.alive ? "alive" : "dead"}
+              {session.displayId ? ` · ${session.displayId}` : ""}
+              {session.resumeId && !session.displayId
+                ? ` · ${session.resumeId.slice(0, 10)}`
+                : ""}
+              {" · "}
+              {session.kind}
+            </span>
+          </div>
+        </section>
+      ) : null}
+
       {/* Events log */}
       <section className="rounded-xl border border-border/70 bg-card">
         <button

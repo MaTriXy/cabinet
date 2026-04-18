@@ -46,6 +46,10 @@ export function conversationMetaToTaskMeta(meta: ConversationMeta): TaskMeta {
     mentionedPaths: meta.mentionedPaths,
     titlePinned: meta.titlePinned,
     summaryEditedAt: meta.summaryEditedAt,
+    errorKind: meta.errorKind,
+    errorHint: meta.errorHint,
+    errorRetryAfterSec: meta.errorRetryAfterSec,
+    lastResumeAttempt: meta.lastResumeAttempt,
   };
 }
 

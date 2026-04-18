@@ -5,6 +5,10 @@ import { piProvider } from "../providers/pi";
 import { resolveCliCommand } from "../provider-cli";
 import { providerStatusToEnvironmentTest } from "./environment";
 import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
+import {
   consumePiJsonStream,
   createPiStreamAccumulator,
   flushPiJsonStream,
@@ -132,6 +136,15 @@ export const piLocalAdapter: AgentExecutionAdapter = {
   models: piProvider.models,
   effortLevels: piProvider.effortLevels,
   sessionCodec: piSessionCodec,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Pi",
+          cliCommand: "pi",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "pi_local",

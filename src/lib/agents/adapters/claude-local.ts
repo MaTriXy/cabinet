@@ -6,8 +6,35 @@ import {
   consumeClaudeStreamJson,
   flushClaudeStreamJson,
 } from "./claude-stream";
-import type { AgentExecutionAdapter } from "./types";
+import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
+import type { AdapterSessionCodec, AgentExecutionAdapter } from "./types";
 import { ADAPTER_RUNTIME_PATH, runChildProcess } from "./utils";
+
+const claudeSessionCodec: AdapterSessionCodec = {
+  deserialize(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const record = raw as Record<string, unknown>;
+    const resumeId =
+      typeof record.resumeId === "string" && record.resumeId.trim()
+        ? record.resumeId.trim()
+        : null;
+    if (!resumeId) return null;
+    return { resumeId };
+  },
+  serialize(params) {
+    if (!params || typeof params.resumeId !== "string" || !params.resumeId.trim()) {
+      return null;
+    }
+    return { resumeId: params.resumeId };
+  },
+  getDisplayId(params) {
+    const id = params?.resumeId;
+    return typeof id === "string" ? `Claude · ${id.slice(0, 8)}` : null;
+  },
+};
 
 function readStringConfig(
   config: Record<string, unknown>,
@@ -82,6 +109,16 @@ export const claudeLocalAdapter: AgentExecutionAdapter = {
   supportsSessionResume: true,
   models: claudeCodeProvider.models,
   effortLevels: claudeCodeProvider.effortLevels,
+  sessionCodec: claudeSessionCodec,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Claude Code",
+          cliCommand: "claude",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "claude_local",
@@ -139,6 +176,12 @@ export const claudeLocalAdapter: AgentExecutionAdapter = {
           : result.stderr.trim() || output || "Claude local execution failed.",
       usage: accumulator.usage,
       sessionId: accumulator.sessionId,
+      sessionParams: accumulator.sessionId
+        ? { resumeId: accumulator.sessionId }
+        : null,
+      sessionDisplayId: accumulator.sessionId
+        ? `Claude · ${accumulator.sessionId.slice(0, 8)}`
+        : null,
       provider: claudeCodeProvider.id,
       model: accumulator.model,
       billingType: accumulator.billingType || "subscription",

@@ -59,7 +59,10 @@ export async function fetchTask(id: string, cabinetPath?: string): Promise<Task>
 
 export async function postTurn(
   id: string,
-  input: AppendTurnInput,
+  input: AppendTurnInput & {
+    mentionedPaths?: string[];
+    runtime?: ConversationRuntimeOverride;
+  },
   cabinetPath?: string
 ): Promise<{ turn: Task["turns"][number]; task: Task }> {
   // We only support user-role turns from the client; agent turns come
@@ -67,6 +70,7 @@ export async function postTurn(
   if (input.role !== "user") {
     throw new Error(`postTurn only supports role=user, got ${input.role}`);
   }
+  const runtime = input.runtime ?? {};
   const res = await fetch(
     `/api/agents/conversations/${encodeURIComponent(id)}/continue`,
     {
@@ -75,6 +79,11 @@ export async function postTurn(
       body: JSON.stringify({
         userMessage: input.content,
         cabinetPath,
+        mentionedPaths: input.mentionedPaths,
+        providerId: runtime.providerId,
+        adapterType: runtime.adapterType,
+        model: runtime.model,
+        effort: runtime.effort,
       }),
     }
   );

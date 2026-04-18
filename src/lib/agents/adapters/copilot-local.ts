@@ -1,6 +1,10 @@
 import { copilotCliProvider } from "../providers/copilot-cli";
 import { resolveCliCommand } from "../provider-cli";
 import { providerStatusToEnvironmentTest } from "./environment";
+import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
 import type { AgentExecutionAdapter } from "./types";
 import { ADAPTER_RUNTIME_PATH, runChildProcess } from "./utils";
 
@@ -57,6 +61,15 @@ export const copilotLocalAdapter: AgentExecutionAdapter = {
   supportsSessionResume: false,
   models: copilotCliProvider.models,
   effortLevels: copilotCliProvider.effortLevels,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Copilot CLI",
+          cliCommand: "copilot",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "copilot_local",

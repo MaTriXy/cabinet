@@ -124,6 +124,14 @@ export interface TaskMeta {
   mentionedPaths?: string[];
   titlePinned?: boolean;
   summaryEditedAt?: string;
+  errorKind?: string;
+  errorHint?: string;
+  errorRetryAfterSec?: number;
+  lastResumeAttempt?: {
+    at: string;
+    result: "resumed" | "replayed" | "failed";
+    reason?: string;
+  };
 }
 
 export interface ArtifactsIndex {

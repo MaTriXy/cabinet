@@ -9,6 +9,33 @@ export type ConversationStatus =
 
 export type TurnRole = "user" | "agent";
 
+/**
+ * Canonical error taxonomy for a failed conversation turn. Each adapter's
+ * classifyError() maps stderr + exit code into one of these kinds so the UI
+ * can offer targeted remediation without knowing which provider was used.
+ */
+export type ConversationErrorKind =
+  | "cli_not_found"
+  | "auth_expired"
+  | "rate_limited"
+  | "session_expired"
+  | "context_exceeded"
+  | "transport"
+  | "timeout"
+  | "unknown";
+
+export interface ConversationErrorClassification {
+  kind: ConversationErrorKind;
+  hint?: string;
+  retryAfterSec?: number;
+}
+
+export interface ConversationResumeAttempt {
+  at: string;
+  result: "resumed" | "replayed" | "failed";
+  reason?: string;
+}
+
 export interface ConversationArtifact {
   path: string;
   label?: string;
@@ -42,6 +69,15 @@ export interface SessionHandle {
   threadId?: string;
   alive: boolean;
   lastUsedAt?: string;
+  /**
+   * Adapter-agnostic blob produced by `adapter.sessionCodec.serialize(result.sessionParams)`.
+   * Rehydrated by `adapter.sessionCodec.deserialize(codecBlob)` on the next continue
+   * and passed to `ctx.sessionParams`. Only populated for adapters that declare
+   * a `sessionCodec`.
+   */
+  codecBlob?: Record<string, unknown> | null;
+  /** Optional user-facing display id produced by `sessionCodec.getDisplayId`. */
+  displayId?: string;
 }
 
 export interface ConversationTokens {
@@ -86,6 +122,15 @@ export interface ConversationMeta {
   awaitingInput?: boolean;
   titlePinned?: boolean;
   summaryEditedAt?: string;
+
+  /** Classified failure kind from the last failed run. Cleared on success. */
+  errorKind?: ConversationErrorKind;
+  /** Human-facing remediation hint for `errorKind`. */
+  errorHint?: string;
+  /** Seconds to wait before retry when `errorKind === "rate_limited"`. */
+  errorRetryAfterSec?: number;
+  /** Most recent resume/replay outcome. Written by the runner every turn. */
+  lastResumeAttempt?: ConversationResumeAttempt;
 }
 
 export interface ConversationDetail {

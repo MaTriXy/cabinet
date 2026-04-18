@@ -13,6 +13,11 @@ export interface ConversationEvent {
   taskId: string; // conversation id
   cabinetPath?: string;
   ts: string;
+  /**
+   * Monotonic per-conversation sequence number, matching the seq written to
+   * events.log. Used by SSE clients as `Last-Event-ID` for reconnect replay.
+   */
+  seq?: number;
   payload?: Record<string, unknown>;
 }
 

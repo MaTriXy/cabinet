@@ -9,8 +9,35 @@ import {
   flushCodexJsonStream,
   flushCodexStderr,
 } from "./codex-stream";
-import type { AgentExecutionAdapter } from "./types";
+import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
+import type { AdapterSessionCodec, AgentExecutionAdapter } from "./types";
 import { ADAPTER_RUNTIME_PATH, runChildProcess } from "./utils";
+
+const codexSessionCodec: AdapterSessionCodec = {
+  deserialize(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const record = raw as Record<string, unknown>;
+    const threadId =
+      typeof record.threadId === "string" && record.threadId.trim()
+        ? record.threadId.trim()
+        : null;
+    if (!threadId) return null;
+    return { threadId };
+  },
+  serialize(params) {
+    if (!params || typeof params.threadId !== "string" || !params.threadId.trim()) {
+      return null;
+    }
+    return { threadId: params.threadId };
+  },
+  getDisplayId(params) {
+    const id = params?.threadId;
+    return typeof id === "string" ? `Codex · ${id.slice(0, 8)}` : null;
+  },
+};
 
 function readStringConfig(
   config: Record<string, unknown>,
@@ -75,6 +102,16 @@ export const codexLocalAdapter: AgentExecutionAdapter = {
   supportsDetachedRuns: true,
   supportsSessionResume: false,
   models: codexCliProvider.models,
+  sessionCodec: codexSessionCodec,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Codex CLI",
+          cliCommand: "codex",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "codex_local",
@@ -141,6 +178,12 @@ export const codexLocalAdapter: AgentExecutionAdapter = {
           : filteredStderr || result.stderr.trim() || output || "Codex local execution failed.",
       usage: stdoutAccumulator.usage,
       sessionId: stdoutAccumulator.threadId,
+      sessionParams: stdoutAccumulator.threadId
+        ? { threadId: stdoutAccumulator.threadId }
+        : null,
+      sessionDisplayId: stdoutAccumulator.threadId
+        ? `Codex · ${stdoutAccumulator.threadId.slice(0, 8)}`
+        : null,
       provider: codexCliProvider.id,
       model: readStringConfig(ctx.config, "model") || null,
       billingType: "unknown",

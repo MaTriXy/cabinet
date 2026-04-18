@@ -4,6 +4,8 @@ import { ArrowUpRight, BrainCircuit, X } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
 import { Button } from "@/components/ui/button";
+import { ProviderGlyph } from "@/components/agents/provider-glyph";
+import { useProviderIcon } from "@/hooks/use-provider-icons";
 import { formatEffortName } from "@/lib/agents/runtime-options";
 import type {
   ConversationMeta,
@@ -95,9 +97,11 @@ export function TaskDetailPanel() {
   const conversation = useAppStore((s) => s.taskPanelConversation);
   const setTaskPanelConversation = useAppStore((s) => s.setTaskPanelConversation);
   const setSection = useAppStore((s) => s.setSection);
+  const providerIcon = useProviderIcon(conversation?.providerId);
 
   if (!conversation) return null;
   const runtimeLabel = buildRuntimeLabel(conversation);
+  const errorKind = conversation.errorKind;
 
   const openFullPage = () => {
     setTaskPanelConversation(null);
@@ -115,6 +119,18 @@ export function TaskDetailPanel() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <StatusDot status={conversation.status} />
+            {providerIcon ? (
+              <div
+                className="flex size-4 shrink-0 items-center justify-center rounded border border-border/60 bg-muted/30"
+                title={providerIcon.name}
+              >
+                <ProviderGlyph
+                  icon={providerIcon.icon}
+                  asset={providerIcon.iconAsset}
+                  className="h-2.5 w-2.5"
+                />
+              </div>
+            ) : null}
             <p className="truncate text-[13px] font-medium text-foreground">
               {conversation.title}
             </p>
@@ -123,6 +139,11 @@ export function TaskDetailPanel() {
             {startCase(conversation.agentSlug)}
             {" · "}
             {formatRelative(conversation.startedAt)}
+            {errorKind ? (
+              <span className="ml-1.5 rounded-sm bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-destructive">
+                {errorKind.replace(/_/g, " ")}
+              </span>
+            ) : null}
           </p>
           {runtimeLabel ? (
             <div className="mt-1 flex items-center gap-1.5 pl-4 text-[11px] text-muted-foreground">

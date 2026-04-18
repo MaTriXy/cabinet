@@ -154,6 +154,18 @@ function buildRuntimeLabel(task: Task): string {
   return parts.length ? parts.join(" · ") : "default runtime";
 }
 
+function readRuntimeModel(config?: Record<string, unknown>): string | undefined {
+  if (!config) return undefined;
+  const value = config.model;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readRuntimeEffort(config?: Record<string, unknown>): string | undefined {
+  if (!config) return undefined;
+  const value = config.effort ?? config.reasoningEffort;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export interface TaskConversationPageProps {
@@ -241,7 +253,16 @@ export function TaskConversationPage({
     !lastTurn.pending;
 
   const handleSend = useCallback(
-    async (text: string) => {
+    async (payload: {
+      text: string;
+      mentionedPaths: string[];
+      runtime: {
+        providerId?: string;
+        adapterType?: string;
+        model?: string;
+        effort?: string;
+      };
+    }) => {
       if (!task) return;
       setWrapUpDismissed(false);
 
@@ -252,7 +273,7 @@ export function TaskConversationPage({
           turn: nextTurn,
           role: "user" as const,
           ts: new Date().toISOString(),
-          content: text,
+          content: payload.text,
         };
         const pendingId = `t${nextTurn + 1}a`;
         const pendingTurn = {
@@ -300,7 +321,16 @@ export function TaskConversationPage({
 
       setBusy(true);
       try {
-        const result = await postTurn(taskId, { role: "user", content: text });
+        const result = await postTurn(
+          taskId,
+          {
+            role: "user",
+            content: payload.text,
+            mentionedPaths: payload.mentionedPaths,
+            runtime: payload.runtime,
+          },
+          task.meta.cabinetPath
+        );
         setTask(result.task);
       } catch (e) {
         setLoadError(e instanceof Error ? e.message : "Failed to send");
@@ -416,7 +446,24 @@ export function TaskConversationPage({
             <span>{runtimeLabel}</span>
             <span>·</span>
             <TokenBar used={task.meta.tokens?.total ?? 0} window={contextWindow} />
+            {task.meta.errorKind ? (
+              <>
+                <span>·</span>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive"
+                  title={task.meta.errorHint || undefined}
+                >
+                  <CircleAlert className="size-3" />
+                  {task.meta.errorKind.replace(/_/g, " ")}
+                </span>
+              </>
+            ) : null}
           </div>
+          {task.meta.errorKind && task.meta.errorHint ? (
+            <div className="mt-1 text-[11px] leading-4 text-destructive/90">
+              {task.meta.errorHint}
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-[11px]">
@@ -583,9 +630,14 @@ export function TaskConversationPage({
             <div className="shrink-0 border-t border-border/70 bg-background">
               <div className="mx-auto w-full max-w-3xl">
                 <TaskComposerPanel
-                  runtimeLabel={runtimeLabel}
                   awaitingInput={task.meta.status === "awaiting-input"}
                   onSend={handleSend}
+                  initialRuntime={{
+                    providerId: task.meta.providerId,
+                    adapterType: task.meta.adapterType,
+                    model: readRuntimeModel(task.meta.adapterConfig),
+                    effort: readRuntimeEffort(task.meta.adapterConfig),
+                  }}
                 />
               </div>
             </div>

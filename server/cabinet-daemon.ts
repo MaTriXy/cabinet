@@ -167,12 +167,37 @@ interface StructuredSession extends BaseSession {
   startedAt?: string;
   /** Claude-side (or adapter-side) resume session id extracted from result. */
   adapterSessionId?: string | null;
+  /**
+   * Adapter-specific session params (raw, pre-codec). The client-side runner
+   * runs `adapter.sessionCodec.serialize` against these to produce the
+   * `codecBlob` that lands in `session.json`.
+   */
+  adapterSessionParams?: Record<string, unknown> | null;
   /** Token usage reported by the adapter. */
   adapterUsage?: {
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens?: number;
   } | null;
+  /**
+   * Classified error from the last failed run, written by the daemon so both
+   * the poll path and `finalizeSessionConversation` can attach it to
+   * `ConversationMeta`.
+   */
+  adapterErrorKind?:
+    | "cli_not_found"
+    | "auth_expired"
+    | "rate_limited"
+    | "session_expired"
+    | "context_exceeded"
+    | "transport"
+    | "timeout"
+    | "unknown"
+    | null;
+  adapterErrorHint?: string | null;
+  adapterErrorRetryAfterSec?: number | null;
+  /** Buffered stderr, used by classifyError on completion. */
+  stderrBuffer?: string;
 }
 
 type ActiveSession = PtySession | StructuredSession;
@@ -392,10 +417,30 @@ async function finalizeSessionConversation(session: ActiveSession): Promise<void
     completedOutput.set(session.id, { output: plain, completedAt: Date.now() });
     return;
   }
+  const adapterUsage =
+    session.kind === "structured" ? session.adapterUsage ?? null : null;
+  const adapterErrorKind =
+    session.kind === "structured" ? session.adapterErrorKind ?? null : null;
+  const adapterErrorHint =
+    session.kind === "structured" ? session.adapterErrorHint ?? null : null;
+  const adapterErrorRetryAfterSec =
+    session.kind === "structured" ? session.adapterErrorRetryAfterSec ?? null : null;
+
   await finalizeConversation(session.id, {
     status: session.resolvedStatus || (session.exitCode === 0 ? "completed" : "failed"),
     exitCode: session.resolvedStatus === "completed" ? 0 : session.exitCode,
     output: plain,
+    tokens: adapterUsage
+      ? {
+          input: adapterUsage.inputTokens,
+          output: adapterUsage.outputTokens,
+          cache: adapterUsage.cachedInputTokens,
+          total: adapterUsage.inputTokens + adapterUsage.outputTokens,
+        }
+      : undefined,
+    errorKind: adapterErrorKind ?? undefined,
+    errorHint: adapterErrorHint ?? undefined,
+    errorRetryAfterSec: adapterErrorRetryAfterSec ?? undefined,
   }, meta.cabinetPath);
 }
 
@@ -720,6 +765,12 @@ function createStructuredSession(input: {
   timeoutSeconds?: number;
   onData?: (chunk: string) => void;
   adapterSessionId?: string | null;
+  /**
+   * Pre-rehydrated adapter session params (codec-deserialized blob). Passed
+   * straight through as `ctx.sessionParams` so the adapter can resume in its
+   * native shape (e.g. Cursor sessionId + cwd, Codex threadId).
+   */
+  adapterSessionParams?: Record<string, unknown> | null;
 }): StructuredSession {
   const adapter = agentAdapterRegistry.get(input.adapterType);
   if (!adapter) {
@@ -768,8 +819,15 @@ function createStructuredSession(input: {
             ? input.timeoutSeconds * 1000
             : undefined,
         sessionId: input.adapterSessionId ?? null,
-        sessionParams: null,
-        onLog: async (_stream, chunk) => {
+        sessionParams: input.adapterSessionParams ?? null,
+        onLog: async (stream, chunk) => {
+          if (stream === "stderr") {
+            session.stderrBuffer = (session.stderrBuffer ?? "") + chunk;
+            // Cap stderr buffer at 64 KB so a chatty adapter doesn't OOM us.
+            if (session.stderrBuffer.length > 65_536) {
+              session.stderrBuffer = session.stderrBuffer.slice(-65_536);
+            }
+          }
           emitSessionOutput(session, chunk, input.onData);
         },
         onSpawn: async (meta) => {
@@ -784,7 +842,27 @@ function createStructuredSession(input: {
       session.resolvedStatus =
         result.exitCode === 0 && !result.timedOut ? "completed" : "failed";
       session.adapterSessionId = result.sessionId ?? null;
+      session.adapterSessionParams = result.sessionParams ?? null;
       session.adapterUsage = result.usage ?? null;
+
+      // Classify failures so the UI can surface an actionable hint.
+      if (session.resolvedStatus === "failed" && adapter.classifyError) {
+        try {
+          const classified = adapter.classifyError(
+            session.stderrBuffer ?? "",
+            result.exitCode
+          );
+          session.adapterErrorKind = classified.kind;
+          session.adapterErrorHint = classified.hint ?? null;
+          session.adapterErrorRetryAfterSec = classified.retryAfterSec ?? null;
+        } catch {
+          session.adapterErrorKind = "unknown";
+        }
+      } else if (session.resolvedStatus === "completed") {
+        session.adapterErrorKind = null;
+        session.adapterErrorHint = null;
+        session.adapterErrorRetryAfterSec = null;
+      }
       clearSessionStopFallbackTimer(session);
 
       if (!session.output.length && result.output) {
@@ -795,23 +873,38 @@ function createStructuredSession(input: {
       completedOutput.set(input.sessionId, { output: plain, completedAt: Date.now() });
       await finalizeSessionConversation(session).catch(() => {});
 
-      // Persist the adapter's resume handle to the conversation directory
-      // so future continues can use --resume. This only works when the
+      // Persist the adapter's resume handle + codec blob to the conversation
+      // directory so future continues can resume. This only works when the
       // daemon session id IS the conversation id (startConversationRun's
-      // path). Continue-via-daemon uses a synthetic runId and handles this
-      // client-side from the /session/:id/output response.
-      if (
-        result.sessionId &&
+      // path). Continue-via-daemon uses a synthetic runId and handles codec
+      // serialization client-side from the /session/:id/output response.
+      const hasResumeSignal =
+        (result.sessionId || result.sessionParams) &&
         result.exitCode === 0 &&
-        !result.timedOut
-      ) {
+        !result.timedOut;
+      if (hasResumeSignal) {
+        let codecBlob: Record<string, unknown> | null = null;
+        let displayId: string | undefined;
+        try {
+          codecBlob =
+            adapter.sessionCodec && result.sessionParams
+              ? adapter.sessionCodec.serialize(result.sessionParams)
+              : null;
+          displayId =
+            adapter.sessionCodec?.getDisplayId?.(result.sessionParams ?? {}) ||
+            (result.sessionDisplayId ?? undefined);
+        } catch {
+          codecBlob = null;
+        }
         await writeSession(
           input.sessionId,
           {
             kind: input.adapterType,
-            resumeId: result.sessionId,
+            resumeId: result.sessionId ?? undefined,
             alive: !result.clearSession,
             lastUsedAt: new Date().toISOString(),
+            codecBlob,
+            displayId,
           }
         ).catch(() => {});
       }
@@ -823,9 +916,22 @@ function createStructuredSession(input: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       emitSessionOutput(session, `${message}\n`, input.onData);
+      session.stderrBuffer = (session.stderrBuffer ?? "") + message;
       session.exited = true;
       session.exitCode = 1;
       session.resolvedStatus = "failed";
+      // Run classifyError on the spawn-time failure too — ENOENT etc. should
+      // surface as `cli_not_found` so the UI can offer an Install CTA.
+      if (adapter.classifyError) {
+        try {
+          const classified = adapter.classifyError(session.stderrBuffer, 1);
+          session.adapterErrorKind = classified.kind;
+          session.adapterErrorHint = classified.hint ?? null;
+          session.adapterErrorRetryAfterSec = classified.retryAfterSec ?? null;
+        } catch {
+          session.adapterErrorKind = "unknown";
+        }
+      }
       clearSessionStopFallbackTimer(session);
       const plain = stripAnsi(session.output.join(""));
       completedOutput.set(input.sessionId, { output: plain, completedAt: Date.now() });
@@ -852,6 +958,7 @@ function createSession(input: {
   onData?: (chunk: string) => void;
   launchMode?: "session" | "one-shot";
   adapterSessionId?: string | null;
+  adapterSessionParams?: Record<string, unknown> | null;
 }): ActiveSession {
   const adapter = input.adapterType
     ? agentAdapterRegistry.get(input.adapterType)
@@ -872,6 +979,7 @@ function createSession(input: {
       timeoutSeconds: input.timeoutSeconds,
       onData: input.onData,
       adapterSessionId: input.adapterSessionId ?? null,
+      adapterSessionParams: input.adapterSessionParams ?? null,
     });
   }
 
@@ -1187,8 +1295,20 @@ const server = http.createServer(async (req, res) => {
           output: plain,
           adapterSessionId:
             active.kind === "structured" ? active.adapterSessionId ?? null : null,
+          adapterSessionParams:
+            active.kind === "structured"
+              ? active.adapterSessionParams ?? null
+              : null,
           adapterUsage:
             active.kind === "structured" ? active.adapterUsage ?? null : null,
+          adapterErrorKind:
+            active.kind === "structured" ? active.adapterErrorKind ?? null : null,
+          adapterErrorHint:
+            active.kind === "structured" ? active.adapterErrorHint ?? null : null,
+          adapterErrorRetryAfterSec:
+            active.kind === "structured"
+              ? active.adapterErrorRetryAfterSec ?? null
+              : null,
         })
       );
       return;
@@ -1262,6 +1382,7 @@ const server = http.createServer(async (req, res) => {
           cwd,
           timeoutSeconds,
           adapterSessionId,
+          adapterSessionParams,
         } = JSON.parse(body) as {
           id: string;
           providerId?: string;
@@ -1271,6 +1392,7 @@ const server = http.createServer(async (req, res) => {
           cwd?: string;
           timeoutSeconds?: number;
           adapterSessionId?: string | null;
+          adapterSessionParams?: Record<string, unknown> | null;
         };
         const sessionId = id || `session-${Date.now()}`;
 
@@ -1306,6 +1428,7 @@ const server = http.createServer(async (req, res) => {
             timeoutSeconds,
             launchMode,
             adapterSessionId: adapterSessionId ?? null,
+            adapterSessionParams: adapterSessionParams ?? null,
           });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);

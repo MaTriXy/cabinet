@@ -1,45 +1,160 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, AtSign, BrainCircuit, Paperclip } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ComposerInput } from "@/components/composer/composer-input";
+import {
+  TaskRuntimePicker,
+  type TaskRuntimeSelection,
+} from "@/components/composer/task-runtime-picker";
+import { useComposer, type MentionableItem } from "@/hooks/use-composer";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import type { ConversationRuntimeOverride } from "@/types/conversations";
 
-const MIN_ROWS = 1;
-const MAX_HEIGHT_PX = 240;
+interface PageTreeNode {
+  path?: string;
+  name?: string;
+  children?: PageTreeNode[];
+  type?: string;
+  frontmatter?: { title?: string };
+}
+
+function flattenTreeToMentions(
+  nodes: PageTreeNode[] | undefined
+): MentionableItem[] {
+  if (!nodes || nodes.length === 0) return [];
+  const out: MentionableItem[] = [];
+  const walk = (children: PageTreeNode[]) => {
+    for (const node of children) {
+      if (node.path && node.type !== "folder") {
+        out.push({
+          type: "page",
+          id: node.path,
+          label: node.frontmatter?.title || node.name || node.path,
+          sublabel: node.path,
+        });
+      }
+      if (node.children?.length) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+export interface TaskComposerPanelProps {
+  awaitingInput: boolean;
+  /**
+   * Initial runtime selection — defaults to the conversation's current
+   * adapterType/model/effort so the chip reflects what produced the last turn.
+   */
+  initialRuntime?: TaskRuntimeSelection;
+  onSend: (payload: {
+    text: string;
+    mentionedPaths: string[];
+    runtime: ConversationRuntimeOverride;
+  }) => void | Promise<void>;
+  /**
+   * Pre-built mentionable list (e.g. the AI Panel passes a known set).
+   * Omitted → the composer lazy-loads the cabinet tree on demand.
+   */
+  mentionableItems?: MentionableItem[];
+  /** When true, lazy-load the tree from /api/tree and convert to mentions. */
+  autoLoadMentions?: boolean;
+  /** Optional className for outer wrapper. */
+  className?: string;
+  disabled?: boolean;
+}
 
 export function TaskComposerPanel({
-  runtimeLabel,
   awaitingInput,
+  initialRuntime,
   onSend,
-}: {
-  runtimeLabel: string;
-  awaitingInput: boolean;
-  onSend: (text: string) => void;
-}) {
-  const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  mentionableItems,
+  autoLoadMentions = true,
+  className,
+  disabled,
+}: TaskComposerPanelProps) {
+  // We don't seed with initialRuntime directly — that way, when the parent
+  // re-renders with fresh meta (SSE → fetchTask), the displayed runtime
+  // stays in sync until the user explicitly picks one. When they pick, that
+  // choice sticks through the send and is cleared again after submit.
+  const [userPickedRuntime, setUserPickedRuntime] =
+    useState<TaskRuntimeSelection | null>(null);
+  const [loadedMentions, setLoadedMentions] = useState<MentionableItem[] | null>(
+    null
+  );
 
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    const next = Math.min(el.scrollHeight, MAX_HEIGHT_PX);
-    el.style.height = `${next}px`;
-    el.style.overflowY = el.scrollHeight > MAX_HEIGHT_PX ? "auto" : "hidden";
-  }, [value]);
+  const effectiveRuntime: TaskRuntimeSelection = useMemo(
+    () => userPickedRuntime ?? initialRuntime ?? {},
+    [userPickedRuntime, initialRuntime]
+  );
 
-  const submit = () => {
-    if (!value.trim()) return;
-    onSend(value);
-    setValue("");
-  };
+  const handleRuntimeChange = useCallback((value: TaskRuntimeSelection) => {
+    setUserPickedRuntime(value);
+  }, []);
+
+  // Lazy-load mentions from the tree when the caller doesn't pre-supply them.
+  useEffect(() => {
+    if (mentionableItems || !autoLoadMentions || loadedMentions) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/tree", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { tree?: PageTreeNode[] };
+        if (!cancelled) {
+          setLoadedMentions(flattenTreeToMentions(data.tree));
+        }
+      } catch {
+        if (!cancelled) setLoadedMentions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionableItems, autoLoadMentions, loadedMentions]);
+
+  const items = useMemo(
+    () => mentionableItems ?? loadedMentions ?? [],
+    [mentionableItems, loadedMentions]
+  );
+
+  const handleSubmit = useCallback(
+    async ({
+      message,
+      mentionedPaths,
+    }: {
+      message: string;
+      mentionedPaths: string[];
+    }) => {
+      await onSend({
+        text: message,
+        mentionedPaths,
+        runtime: {
+          providerId: effectiveRuntime.providerId,
+          adapterType: effectiveRuntime.adapterType,
+          model: effectiveRuntime.model,
+          effort: effectiveRuntime.effort,
+        },
+      });
+      // Reset the user's explicit pick after send so the composer snaps
+      // back to whatever runtime the next turn settles on.
+      setUserPickedRuntime(null);
+    },
+    [onSend, effectiveRuntime]
+  );
+
+  const composer = useComposer({
+    items,
+    onSubmit: handleSubmit,
+    disabled,
+  });
 
   return (
     <div
       className={cn(
-        "bg-background px-6 py-4",
-        awaitingInput && "bg-amber-500/[0.04]"
+        "bg-background px-4 py-3",
+        awaitingInput && "bg-amber-500/[0.04]",
+        className
       )}
     >
       {awaitingInput ? (
@@ -52,59 +167,29 @@ export function TaskComposerPanel({
         </div>
       ) : null}
 
-      <div
-        className={cn(
-          "rounded-2xl border bg-background shadow-sm transition-colors",
-          "focus-within:border-foreground/30 focus-within:shadow",
-          awaitingInput ? "border-amber-500/40" : "border-border"
-        )}
-      >
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          autoFocus={awaitingInput}
-          placeholder={awaitingInput ? "Reply to the agent…" : "Continue the conversation…"}
-          rows={MIN_ROWS}
-          className="block w-full resize-none bg-transparent px-4 pt-2.5 pb-1.5 text-[14px] leading-relaxed outline-none placeholder:text-muted-foreground/60"
-          style={{ minHeight: "2.25rem", maxHeight: `${MAX_HEIGHT_PX}px` }}
-        />
+      <ComposerInput
+        composer={composer}
+        items={items}
+        placeholder={
+          awaitingInput ? "Reply to the agent…" : "Continue the conversation…"
+        }
+        autoFocus={awaitingInput}
+        showKeyHint={false}
+        minHeight="52px"
+        maxHeight="240px"
+        className={awaitingInput ? "[&>div:first-child]:border-amber-500/40" : undefined}
+        actionsStart={
+          <TaskRuntimePicker
+            value={effectiveRuntime}
+            onChange={handleRuntimeChange}
+            align="start"
+          />
+        }
+      />
 
-        <div className="flex items-center gap-1 border-t border-border/60 px-2 py-1.5">
-          <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground">
-            <AtSign className="size-3.5" />
-            Mention
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground">
-            <Paperclip className="size-3.5" />
-            Attach
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-              <BrainCircuit className="size-3.5" />
-              {runtimeLabel}
-            </span>
-            <Button
-              size="sm"
-              className="h-7 gap-1 px-2.5 text-[11px]"
-              disabled={!value.trim()}
-              onClick={submit}
-            >
-              Send
-              <ArrowUp className="size-3" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <p className="mt-2 px-1 text-[10px] text-muted-foreground">
-        ⌘↵ to send · session continues across turns
+      <p className="mt-1.5 px-1 text-[10px] text-muted-foreground">
+        ⌘↵ to send · @ to mention · this turn&rsquo;s runtime:{" "}
+        {effectiveRuntime.model || effectiveRuntime.providerId || "default"}
       </p>
     </div>
   );

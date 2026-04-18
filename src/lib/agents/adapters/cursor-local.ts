@@ -7,6 +7,10 @@ import {
   flushCursorJsonStream,
   isCursorUnknownSessionError,
 } from "./cursor-stream";
+import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
 import type {
   AdapterExecutionContext,
   AdapterSessionCodec,
@@ -136,6 +140,15 @@ export const cursorLocalAdapter: AgentExecutionAdapter = {
   models: cursorCliProvider.models,
   effortLevels: cursorCliProvider.effortLevels,
   sessionCodec: cursorSessionCodec,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Cursor CLI",
+          cliCommand: "cursor-agent",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "cursor_local",

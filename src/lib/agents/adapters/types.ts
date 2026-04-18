@@ -140,4 +140,14 @@ export interface AgentExecutionAdapter {
     ctx?: AdapterEnvironmentTestContext
   ): Promise<AdapterEnvironmentTestResult>;
   execute?(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult>;
+  /**
+   * Map a failed run's stderr + exit code into the canonical
+   * `ConversationErrorKind` taxonomy so the UI can offer targeted remediation
+   * (install / re-auth / retry / compact) without branching on providerId.
+   * Called by the runner on any failed `execute` result.
+   */
+  classifyError?(
+    stderr: string,
+    exitCode: number | null
+  ): import("../../../types/conversations").ConversationErrorClassification;
 }

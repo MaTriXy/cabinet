@@ -21,6 +21,7 @@ import {
   readConversationTurns,
   readSession,
   updateAgentTurn,
+  writeConversationMeta,
   writeSession,
 } from "./conversation-store";
 import {
@@ -336,6 +337,18 @@ export async function waitForConversationCompletion(
               status: normalizedStatus,
               output: data.output,
               exitCode: normalizedStatus === "completed" ? 0 : 1,
+              tokens: data.adapterUsage
+                ? {
+                    input: data.adapterUsage.inputTokens,
+                    output: data.adapterUsage.outputTokens,
+                    cache: data.adapterUsage.cachedInputTokens,
+                    total:
+                      data.adapterUsage.inputTokens + data.adapterUsage.outputTokens,
+                  }
+                : undefined,
+              errorKind: data.adapterErrorKind ?? undefined,
+              errorHint: data.adapterErrorHint ?? undefined,
+              errorRetryAfterSec: data.adapterErrorRetryAfterSec ?? undefined,
             })
           : currentMeta;
 
@@ -508,17 +521,23 @@ export interface ContinueConversationInput {
   mentionedPaths?: string[];
   cabinetPath?: string;
   timeoutMs?: number;
+  /** Per-turn runtime override. Applied only to this follow-up. */
+  providerId?: string;
+  adapterType?: string;
+  model?: string;
+  effort?: string;
 }
 
 async function runContinueInProcess(input: {
   adapter: import("./adapters/types").AgentExecutionAdapter;
   conversationId: string;
   pendingTurnNumber: number;
-  meta: ConversationMeta;
   cp: string | undefined;
   cwd: string;
   canResume: boolean;
   sessionResumeId: string | null;
+  sessionParams: Record<string, unknown> | null;
+  adapterConfig: Record<string, unknown>;
   prompt: string;
   replayPrompt: string;
   timeoutMs: number;
@@ -528,11 +547,12 @@ async function runContinueInProcess(input: {
     adapter,
     conversationId,
     pendingTurnNumber,
-    meta,
     cp,
     cwd,
     canResume,
     sessionResumeId,
+    sessionParams,
+    adapterConfig,
     prompt,
     replayPrompt,
     timeoutMs,
@@ -564,21 +584,28 @@ async function runContinueInProcess(input: {
     await flushInFlight;
   };
 
+  const stderrChunks: string[] = [];
   const executeWithPrompt = async (
     effectivePrompt: string,
-    effectiveSessionId: string | null
+    effectiveSessionId: string | null,
+    effectiveSessionParams: Record<string, unknown> | null
   ) => {
     logChunks.length = 0;
+    stderrChunks.length = 0;
     const execCtx: AdapterExecutionContext = {
       runId: randomUUID(),
       adapterType: adapter.type,
-      config: meta.adapterConfig || {},
+      config: adapterConfig,
       prompt: effectivePrompt,
       cwd,
       timeoutMs,
       sessionId: effectiveSessionId,
+      sessionParams: effectiveSessionParams,
       onLog: async (stream, chunk) => {
-        if (stream !== "stdout") return;
+        if (stream === "stderr") {
+          stderrChunks.push(chunk);
+          return;
+        }
         logChunks.push(chunk);
         void flushStreamedContent();
       },
@@ -586,10 +613,16 @@ async function runContinueInProcess(input: {
     return adapter.execute!(execCtx);
   };
 
+  let resumeOutcome: "resumed" | "replayed" | "failed" = canResume
+    ? "resumed"
+    : "replayed";
+  let resumeReason: string | undefined;
+
   try {
     let result = await executeWithPrompt(
       prompt,
-      canResume ? sessionResumeId : null
+      canResume ? sessionResumeId : null,
+      canResume ? sessionParams : null
     );
 
     if (
@@ -608,7 +641,9 @@ async function runContinueInProcess(input: {
         { content: "Session expired, retrying with full context…", pending: true },
         cp
       );
-      result = await executeWithPrompt(replayPrompt, null);
+      resumeOutcome = "replayed";
+      resumeReason = "session expired — replayed with full history";
+      result = await executeWithPrompt(replayPrompt, null, null);
     }
 
     const rawOutput =
@@ -619,6 +654,26 @@ async function runContinueInProcess(input: {
     const failed =
       result.exitCode !== 0 || !!result.errorMessage || result.timedOut;
     const awaitingInput = !failed && looksLikeAwaitingInput(finalText);
+
+    if (failed) {
+      resumeOutcome = "failed";
+    }
+
+    // Classify failure via the adapter. Falls back to "unknown" if the
+    // adapter doesn't implement classifyError (shouldn't happen post-G10).
+    let classified:
+      | import("../../types/conversations").ConversationErrorClassification
+      | null = null;
+    if (failed && adapter.classifyError) {
+      try {
+        classified = adapter.classifyError(
+          stderrChunks.join("") || result.errorMessage || "",
+          result.exitCode ?? null
+        );
+      } catch {
+        classified = { kind: "unknown" };
+      }
+    }
 
     await updateAgentTurn(
       conversationId,
@@ -643,14 +698,31 @@ async function runContinueInProcess(input: {
       cp
     );
 
-    if (result.sessionId) {
+    // Persist session codec blob + resume id. G8: this is what unlocks
+    // resume for providers whose session state isn't just a single string.
+    if (!failed && (result.sessionId || result.sessionParams)) {
+      let codecBlob: Record<string, unknown> | null = null;
+      let displayId: string | undefined;
+      try {
+        codecBlob =
+          adapter.sessionCodec && result.sessionParams
+            ? adapter.sessionCodec.serialize(result.sessionParams)
+            : null;
+        displayId =
+          adapter.sessionCodec?.getDisplayId?.(result.sessionParams ?? {}) ||
+          (result.sessionDisplayId ?? undefined);
+      } catch {
+        codecBlob = null;
+      }
       await writeSession(
         conversationId,
         {
           kind: adapter.type,
-          resumeId: result.sessionId,
+          resumeId: result.sessionId ?? undefined,
           alive: !result.clearSession,
           lastUsedAt: new Date().toISOString(),
+          codecBlob,
+          displayId,
         },
         cp
       );
@@ -660,6 +732,32 @@ async function runContinueInProcess(input: {
         { kind: adapter.type, alive: false, lastUsedAt: new Date().toISOString() },
         cp
       );
+    }
+
+    // Write classified error + resume attempt to meta.
+    const metaNow = await readConversationMeta(conversationId, cp);
+    if (metaNow) {
+      const next: ConversationMeta = {
+        ...metaNow,
+        adapterType: adapter.type,
+        providerId: adapter.providerId ?? metaNow.providerId,
+        adapterConfig,
+        lastResumeAttempt: {
+          at: new Date().toISOString(),
+          result: resumeOutcome,
+          reason: resumeReason,
+        },
+      };
+      if (failed && classified) {
+        next.errorKind = classified.kind;
+        next.errorHint = classified.hint;
+        next.errorRetryAfterSec = classified.retryAfterSec;
+      } else if (!failed) {
+        next.errorKind = undefined;
+        next.errorHint = undefined;
+        next.errorRetryAfterSec = undefined;
+      }
+      await writeConversationMeta(next);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown adapter error";
@@ -748,8 +846,27 @@ export async function continueConversationRun(
     cp
   );
 
-  // 2. Resolve adapter
-  const adapterType = meta.adapterType || defaultAdapterTypeForProvider(meta.providerId);
+  // 2. Resolve adapter, honoring per-turn runtime override (§9 of PRD).
+  //    When the user switches runtime mid-conversation, the new adapter takes
+  //    over for this turn; session resume is only valid when we stay on the
+  //    same adapter, so a switch forces replay mode.
+  const turnOverride: {
+    providerId?: string;
+    adapterType?: string;
+    model?: string;
+    effort?: string;
+  } = {
+    providerId: input.providerId,
+    adapterType: input.adapterType,
+    model: input.model,
+    effort: input.effort,
+  };
+  const runtimeSwitched =
+    !!turnOverride.adapterType && turnOverride.adapterType !== meta.adapterType;
+  const adapterType =
+    turnOverride.adapterType ||
+    meta.adapterType ||
+    defaultAdapterTypeForProvider(meta.providerId);
   const adapter = agentAdapterRegistry.get(adapterType);
 
   if (!adapter || !adapter.execute) {
@@ -765,10 +882,26 @@ export async function continueConversationRun(
     return readConversationMeta(conversationId, cp);
   }
 
-  // 3. Session handle + mode selection
+  // Per-turn adapterConfig: merge base meta.adapterConfig with any override.
+  const turnAdapterConfig: Record<string, unknown> = {
+    ...(runtimeSwitched ? {} : meta.adapterConfig || {}),
+  };
+  if (turnOverride.model) turnAdapterConfig.model = turnOverride.model;
+  if (turnOverride.effort) turnAdapterConfig.effort = turnOverride.effort;
+
+  // 3. Session handle + mode selection. Rehydrate codec blob into
+  //    `sessionParams` so adapters like Cursor/OpenCode/Pi can resume in
+  //    their native shape (G8).
   const session = await readSession(conversationId, cp);
+  const rehydratedSessionParams =
+    !runtimeSwitched && session && adapter.sessionCodec && session.codecBlob
+      ? adapter.sessionCodec.deserialize(session.codecBlob)
+      : null;
   const canResume =
-    !!adapter.supportsSessionResume && !!session?.alive && !!session.resumeId;
+    !runtimeSwitched &&
+    !!adapter.supportsSessionResume &&
+    !!session?.alive &&
+    (!!session?.resumeId || !!rehydratedSessionParams);
 
   // 4. Rebuild persona context for replay mode
   const persona =
@@ -840,11 +973,12 @@ export async function continueConversationRun(
       adapter,
       conversationId,
       pendingTurnNumber,
-      meta,
       cp,
       cwd,
       canResume,
       sessionResumeId: session?.resumeId ?? null,
+      sessionParams: rehydratedSessionParams,
+      adapterConfig: turnAdapterConfig,
       prompt,
       replayPrompt,
       timeoutMs: input.timeoutMs ?? 10 * 60 * 1000,
@@ -857,32 +991,40 @@ export async function continueConversationRun(
   //    and stream the accumulated text into the pending turn.
   const executeViaDaemon = async (
     effectivePrompt: string,
-    effectiveSessionId: string | null
+    effectiveSessionId: string | null,
+    effectiveSessionParams: Record<string, unknown> | null
   ): Promise<{
     status: "completed" | "failed";
     output: string;
     errorMessage?: string;
     adapterSessionId?: string | null;
+    adapterSessionParams?: Record<string, unknown> | null;
     adapterUsage?: {
       inputTokens: number;
       outputTokens: number;
       cachedInputTokens?: number;
     } | null;
+    adapterErrorKind?:
+      | import("../../types/conversations").ConversationErrorKind
+      | null;
+    adapterErrorHint?: string | null;
+    adapterErrorRetryAfterSec?: number | null;
   }> => {
     const runId = `${conversationId}::t${pendingTurnNumber}::${randomUUID()}`;
     try {
       await createDaemonSession({
         id: runId,
         prompt: effectivePrompt,
-        providerId: meta.providerId,
+        providerId: adapter.providerId ?? meta.providerId,
         adapterType: adapter.type,
-        adapterConfig: meta.adapterConfig,
+        adapterConfig: turnAdapterConfig,
         cwd,
         timeoutSeconds: Math.max(
           60,
           Math.ceil((input.timeoutMs ?? 10 * 60 * 1000) / 1000)
         ),
         adapterSessionId: effectiveSessionId,
+        adapterSessionParams: effectiveSessionParams,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -911,7 +1053,11 @@ export async function continueConversationRun(
         output: result.output,
         errorMessage: status === "failed" ? result.output || "Adapter failed." : undefined,
         adapterSessionId: result.adapterSessionId,
+        adapterSessionParams: result.adapterSessionParams,
         adapterUsage: result.adapterUsage,
+        adapterErrorKind: result.adapterErrorKind,
+        adapterErrorHint: result.adapterErrorHint,
+        adapterErrorRetryAfterSec: result.adapterErrorRetryAfterSec,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -919,10 +1065,18 @@ export async function continueConversationRun(
     }
   };
 
+  let resumeOutcome: "resumed" | "replayed" | "failed" = canResume
+    ? "resumed"
+    : "replayed";
+  let resumeReason: string | undefined = runtimeSwitched
+    ? `switched runtime to ${adapter.type} — replayed with full history`
+    : undefined;
+
   try {
     let result = await executeViaDaemon(
       prompt,
-      canResume ? session!.resumeId! : null
+      canResume ? session!.resumeId! : null,
+      canResume ? rehydratedSessionParams : null
     );
 
     // Fallback: session expired (Claude --resume failed). Retry in replay
@@ -947,7 +1101,9 @@ export async function continueConversationRun(
         { content: "Session expired, retrying with full context…", pending: true },
         cp
       );
-      result = await executeViaDaemon(replayPrompt, null);
+      resumeOutcome = "replayed";
+      resumeReason = "session expired — replayed with full history";
+      result = await executeViaDaemon(replayPrompt, null, null);
     }
 
     const rawOutput = (result.output || "").trim();
@@ -956,6 +1112,10 @@ export async function continueConversationRun(
       : "(no response)";
     const failed = result.status !== "completed";
     const awaitingInput = !failed && looksLikeAwaitingInput(finalText);
+
+    if (failed) {
+      resumeOutcome = "failed";
+    }
 
     // Re-finalize the conversation via finalizeConversation so we pick up
     // the daemon-side transcript + parsed cabinet block + artifacts +
@@ -966,6 +1126,18 @@ export async function continueConversationRun(
         status: failed ? "failed" : "completed",
         exitCode: failed ? 1 : 0,
         output: rawOutput,
+        tokens: result.adapterUsage
+          ? {
+              input: result.adapterUsage.inputTokens,
+              output: result.adapterUsage.outputTokens,
+              cache: result.adapterUsage.cachedInputTokens,
+              total:
+                result.adapterUsage.inputTokens + result.adapterUsage.outputTokens,
+            }
+          : undefined,
+        errorKind: result.adapterErrorKind ?? undefined,
+        errorHint: result.adapterErrorHint ?? undefined,
+        errorRetryAfterSec: result.adapterErrorRetryAfterSec ?? undefined,
       },
       cp
     );
@@ -995,17 +1167,50 @@ export async function continueConversationRun(
       cp
     );
 
-    if (!failed && result.adapterSessionId) {
+    // Persist codec blob + resume handle (G8).
+    if (!failed && (result.adapterSessionId || result.adapterSessionParams)) {
+      let codecBlob: Record<string, unknown> | null = null;
+      let displayId: string | undefined;
+      try {
+        codecBlob =
+          adapter.sessionCodec && result.adapterSessionParams
+            ? adapter.sessionCodec.serialize(result.adapterSessionParams)
+            : null;
+        displayId = adapter.sessionCodec?.getDisplayId?.(
+          result.adapterSessionParams ?? {}
+        ) || undefined;
+      } catch {
+        codecBlob = null;
+      }
       await writeSession(
         conversationId,
         {
           kind: adapter.type,
-          resumeId: result.adapterSessionId,
+          resumeId: result.adapterSessionId ?? undefined,
           alive: true,
           lastUsedAt: new Date().toISOString(),
+          codecBlob,
+          displayId,
         },
         cp
       );
+    }
+
+    // Record resume/replay outcome + persist the per-turn runtime snapshot.
+    const metaNow = await readConversationMeta(conversationId, cp);
+    if (metaNow) {
+      const next: ConversationMeta = {
+        ...metaNow,
+        adapterType: adapter.type,
+        providerId: adapter.providerId ?? metaNow.providerId,
+        adapterConfig: turnAdapterConfig,
+        lastResumeAttempt: {
+          at: new Date().toISOString(),
+          result: resumeOutcome,
+          reason: resumeReason,
+        },
+      };
+      await writeConversationMeta(next);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown adapter error";

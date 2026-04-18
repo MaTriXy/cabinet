@@ -4,6 +4,7 @@ import path from "path";
 import type {
   ConversationArtifact,
   ConversationDetail,
+  ConversationErrorKind,
   ConversationMeta,
   ConversationStatus,
   ConversationTokens,
@@ -796,6 +797,11 @@ export async function finalizeConversation(
     status: ConversationStatus;
     exitCode?: number | null;
     output?: string;
+    /** Token usage for this first-turn run, written to `meta.tokens`. */
+    tokens?: ConversationTokens;
+    errorKind?: ConversationErrorKind | null;
+    errorHint?: string | null;
+    errorRetryAfterSec?: number | null;
   },
   cabinetPath?: string
 ): Promise<ConversationMeta | null> {
@@ -824,6 +830,35 @@ export async function finalizeConversation(
   meta.summary = parsed.summary || makeSummaryFromOutput(cleanedOutput);
   meta.contextSummary = parsed.contextSummary;
   meta.artifactPaths = artifacts.map((artifact) => artifact.path);
+
+  // First-turn tokens — G7. Only write when the caller provided a reading and
+  // we don't already have one (continue-turns handle aggregation via
+  // aggregateTokens in appendAgentTurn/updateAgentTurn).
+  if (input.tokens) {
+    const existing = meta.tokens;
+    // Prefer the larger reading: if the continue path already aggregated, we
+    // won't clobber with a potentially smaller first-turn number.
+    if (!existing || (existing.total ?? 0) < input.tokens.total) {
+      meta.tokens = input.tokens;
+    }
+  }
+
+  if (input.status === "completed") {
+    // Clear any stale error classification on success.
+    meta.errorKind = undefined;
+    meta.errorHint = undefined;
+    meta.errorRetryAfterSec = undefined;
+  } else if (input.status === "failed") {
+    if (input.errorKind) {
+      meta.errorKind = input.errorKind;
+    }
+    if (input.errorHint !== undefined) {
+      meta.errorHint = input.errorHint ?? undefined;
+    }
+    if (input.errorRetryAfterSec !== undefined) {
+      meta.errorRetryAfterSec = input.errorRetryAfterSec ?? undefined;
+    }
+  }
 
   await Promise.all([
     writeConversationMeta(meta),
@@ -1151,18 +1186,92 @@ export async function writeSession(
   await writeFileContent(sessionFsPath(dir), JSON.stringify(handle, null, 2));
 }
 
+// In-memory per-conversation seq counter. Initialized from the existing
+// events.log line count on first use so restarts pick up where they left off.
+const eventSeqByConversation = new Map<string, number>();
+
+async function nextEventSeq(
+  id: string,
+  dirPath: string
+): Promise<number> {
+  const cached = eventSeqByConversation.get(id);
+  if (typeof cached === "number") {
+    const next = cached + 1;
+    eventSeqByConversation.set(id, next);
+    return next;
+  }
+  // Cold start: count existing lines in events.log.
+  const logPath = eventsLogFsPath(dirPath);
+  let initial = 0;
+  try {
+    const raw = await readFileContent(logPath);
+    initial = raw.split("\n").filter((line) => line.trim().length > 0).length;
+  } catch {
+    initial = 0;
+  }
+  const next = initial + 1;
+  eventSeqByConversation.set(id, next);
+  return next;
+}
+
 export async function appendEventLog(
   id: string,
   event: Record<string, unknown>,
   cabinetPath?: string
-): Promise<void> {
+): Promise<number | null> {
   const meta = await readConversationMeta(id, cabinetPath);
-  if (!meta) return;
+  if (!meta) return null;
   const cp = meta.cabinetPath || cabinetPath;
   const dir = conversationDir(id, cp);
   await ensureDirectory(dir);
-  const payload = JSON.stringify({ ts: new Date().toISOString(), ...event });
+  const seq = await nextEventSeq(id, dir);
+  const payload = JSON.stringify({
+    seq,
+    ts: new Date().toISOString(),
+    ...event,
+  });
   await fs.appendFile(eventsLogFsPath(dir), `${payload}\n`, "utf-8");
+  return seq;
+}
+
+/**
+ * Read the events.log for a conversation, optionally filtered to events with
+ * `seq > fromSeq` (for SSE reconnect replay). Returns [] if the log is
+ * missing or unparseable.
+ */
+export async function readEventLog(
+  id: string,
+  options: { cabinetPath?: string; fromSeq?: number } = {}
+): Promise<Array<Record<string, unknown>>> {
+  const meta = await readConversationMeta(id, options.cabinetPath);
+  if (!meta) return [];
+  const cp = meta.cabinetPath || options.cabinetPath;
+  const dir = conversationDir(id, cp);
+  const logPath = eventsLogFsPath(dir);
+  if (!(await fileExists(logPath))) return [];
+  try {
+    const raw = await readFileContent(logPath);
+    const events = raw
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is Record<string, unknown> => !!e);
+    if (typeof options.fromSeq === "number") {
+      return events.filter((e) => {
+        const seq = e.seq;
+        return typeof seq === "number" && seq > options.fromSeq!;
+      });
+    }
+    return events;
+  } catch {
+    return [];
+  }
 }
 
 function aggregateTokens(turns: ConversationTurn[]): ConversationTokens {
@@ -1266,7 +1375,7 @@ export async function appendUserTurn(
   };
   await writeConversationMeta(updatedMeta);
 
-  await appendEventLog(
+  const seq = await appendEventLog(
     id,
     { type: "turn.appended", turn: turnNumber, role: "user" },
     cp
@@ -1275,6 +1384,7 @@ export async function appendUserTurn(
     type: "turn.appended",
     taskId: id,
     cabinetPath: cp,
+    seq: seq ?? undefined,
     payload: { turn: turnNumber, role: "user" },
   });
 
@@ -1370,7 +1480,7 @@ export async function appendAgentTurn(
   };
   await writeConversationMeta(updatedMeta);
 
-  await appendEventLog(
+  const seq = await appendEventLog(
     id,
     { type: "turn.appended", turn: turnNumber, role: "agent", pending: !!input.pending },
     cp
@@ -1379,6 +1489,7 @@ export async function appendAgentTurn(
     type: "turn.appended",
     taskId: id,
     cabinetPath: cp,
+    seq: seq ?? undefined,
     payload: { turn: turnNumber, role: "agent", pending: !!input.pending },
   });
 
@@ -1460,7 +1571,7 @@ export async function updateAgentTurn(
   };
   await writeConversationMeta(updatedMeta);
 
-  await appendEventLog(
+  const seq = await appendEventLog(
     id,
     { type: "turn.updated", turn: turnNumber, role: "agent" },
     cp
@@ -1469,6 +1580,7 @@ export async function updateAgentTurn(
     type: "turn.updated",
     taskId: id,
     cabinetPath: cp,
+    seq: seq ?? undefined,
     payload: { turn: turnNumber, role: "agent" },
   });
 

@@ -1,3 +1,4 @@
+import type { ConversationErrorKind } from "@/types/conversations";
 import { getDaemonUrl, getOrCreateDaemonToken } from "./daemon-auth";
 
 interface CreateDaemonSessionInput {
@@ -13,6 +14,27 @@ interface CreateDaemonSessionInput {
    * from the daemon's session/run id (`id`). Null for fresh runs.
    */
   adapterSessionId?: string | null;
+  /**
+   * Pre-rehydrated adapter session params (i.e. codec-deserialized blob).
+   * The daemon passes this through as `ctx.sessionParams` so the adapter
+   * resumes in its native shape without knowing about the session.json layout.
+   */
+  adapterSessionParams?: Record<string, unknown> | null;
+}
+
+interface DaemonSessionOutput {
+  status: string;
+  output: string;
+  adapterSessionId?: string | null;
+  adapterSessionParams?: Record<string, unknown> | null;
+  adapterUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+  } | null;
+  adapterErrorKind?: ConversationErrorKind | null;
+  adapterErrorHint?: string | null;
+  adapterErrorRetryAfterSec?: number | null;
 }
 
 async function daemonFetch(path: string, init?: RequestInit): Promise<Response> {
@@ -45,7 +67,8 @@ export async function createDaemonSession(
  * with the accumulated stdout on each poll cycle (when it changed), so the
  * caller can stream partial content into a task turn.
  *
- * Returns the final output + status. Throws on explicit error paths; does
+ * Returns the final output + status + adapter-reported usage, session params,
+ * and (if failed) the classified error. Throws on explicit error paths; does
  * NOT throw on transient 404s (daemon briefly returns 404 while cleaning
  * up), retrying up to the deadline.
  */
@@ -56,16 +79,7 @@ export async function pollDaemonSessionUntilDone(
     intervalMs?: number;
     deadlineMs?: number;
   } = {}
-): Promise<{
-  status: string;
-  output: string;
-  adapterSessionId?: string | null;
-  adapterUsage?: {
-    inputTokens: number;
-    outputTokens: number;
-    cachedInputTokens?: number;
-  } | null;
-}> {
+): Promise<DaemonSessionOutput> {
   const interval = options.intervalMs ?? 700;
   const deadline = Date.now() + (options.deadlineMs ?? 15 * 60 * 1000);
   let lastOutput = "";
@@ -83,7 +97,7 @@ export async function pollDaemonSessionUntilDone(
         }
       }
       if (data.status !== "running") {
-        return { status: data.status, output: data.output };
+        return data;
       }
     } catch {
       // transient; try again until deadline
@@ -93,30 +107,12 @@ export async function pollDaemonSessionUntilDone(
   throw new Error(`Daemon session ${sessionId} timed out while polling`);
 }
 
-export async function getDaemonSessionOutput(id: string): Promise<{
-  status: string;
-  output: string;
-  adapterSessionId?: string | null;
-  adapterUsage?: {
-    inputTokens: number;
-    outputTokens: number;
-    cachedInputTokens?: number;
-  } | null;
-}> {
+export async function getDaemonSessionOutput(id: string): Promise<DaemonSessionOutput> {
   const response = await daemonFetch(`/session/${id}/output`);
   if (!response.ok) {
     throw new Error(`Failed to load daemon session output (${response.status})`);
   }
-  return response.json() as Promise<{
-    status: string;
-    output: string;
-    adapterSessionId?: string | null;
-    adapterUsage?: {
-      inputTokens: number;
-      outputTokens: number;
-      cachedInputTokens?: number;
-    } | null;
-  }>;
+  return response.json() as Promise<DaemonSessionOutput>;
 }
 
 export async function listDaemonSessions(): Promise<

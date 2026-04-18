@@ -1,6 +1,10 @@
 import { grokCliProvider } from "../providers/grok-cli";
 import { resolveCliCommand } from "../provider-cli";
 import { providerStatusToEnvironmentTest } from "./environment";
+import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
 import type { AgentExecutionAdapter } from "./types";
 import { ADAPTER_RUNTIME_PATH, runChildProcess } from "./utils";
 
@@ -57,6 +61,15 @@ export const grokLocalAdapter: AgentExecutionAdapter = {
   supportsSessionResume: false,
   models: grokCliProvider.models,
   effortLevels: grokCliProvider.effortLevels,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Grok CLI",
+          cliCommand: "grok",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "grok_local",

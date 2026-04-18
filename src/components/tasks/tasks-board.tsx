@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import { buildConversationInstanceKey } from "@/lib/agents/conversation-identity";
 import { createConversation } from "@/lib/agents/conversation-client";
+import { ProviderGlyph } from "@/components/agents/provider-glyph";
+import { useProviderIcon } from "@/hooks/use-provider-icons";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import { CABINET_VISIBILITY_OPTIONS } from "@/lib/cabinets/visibility";
 import { cn } from "@/lib/utils";
@@ -677,6 +679,8 @@ function ConversationRow({
   busy?: boolean;
 }) {
   const hasActions = onStop || onRestart || onDelete;
+  const providerIcon = useProviderIcon(conversation.providerId);
+  const errorKind = conversation.errorKind;
   return (
     <div className="group relative flex w-full items-stretch border-b border-border/70 last:border-b-0 hover:bg-accent/35 transition-colors">
       {/* Main clickable area — title + meta, no trigger icon inside */}
@@ -687,6 +691,19 @@ function ConversationRow({
         <div className="mt-0.5 shrink-0">
           <ConversationStatusIcon status={conversation.status} />
         </div>
+        {providerIcon ? (
+          <div
+            className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border border-border/60 bg-muted/30"
+            title={providerIcon.name}
+            aria-label={providerIcon.name}
+          >
+            <ProviderGlyph
+              icon={providerIcon.icon}
+              asset={providerIcon.iconAsset}
+              className="h-2.5 w-2.5"
+            />
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1">
           <p className="truncate text-[11.5px] font-medium leading-[1.35] text-foreground">
             {conversation.title}
@@ -695,6 +712,11 @@ function ConversationRow({
             <p className="truncate">
               {agentLabel}
               {cabinetName ? ` · ${cabinetName}` : ""}
+              {errorKind ? (
+                <span className="ml-1.5 rounded-sm bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-destructive">
+                  {errorKind.replace(/_/g, " ")}
+                </span>
+              ) : null}
             </p>
             <span className="shrink-0">{formatRelative(conversation.startedAt)}</span>
           </div>
