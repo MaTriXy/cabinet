@@ -53,6 +53,7 @@ import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
 
 const DISMISSED_UPDATE_STORAGE_KEY = "cabinet.dismissed-update-version";
+const WIZARD_DONE_STORAGE_KEY = "cabinet.wizard-done";
 
 export function AppShell() {
   const loadTree = useTreeStore((s) => s.loadTree);
@@ -82,8 +83,17 @@ export function AppShell() {
   // Sync navigation state with URL hash + localStorage
   useHashRoute();
 
-  // Onboarding wizard state
-  const [showWizard, setShowWizard] = useState<boolean | null>(null);
+  // Onboarding wizard state. If we've completed it before (cached in
+  // localStorage), skip the blocking "null" render entirely — this was the
+  // main reason refreshes showed a blank screen for a beat.
+  const [showWizard, setShowWizard] = useState<boolean | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(WIZARD_DONE_STORAGE_KEY) === "1" ? false : null;
+    } catch {
+      return null;
+    }
+  });
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -118,16 +128,45 @@ export function AppShell() {
     return () => es?.close();
   }, [loadTree]);
 
-  // Check if company config exists (first-time setup)
+  // Check if company config exists (first-time setup). Defer to idle so it
+  // doesn't block first paint; if we already cached "wizard done" we only
+  // use this to self-correct a stale cache.
   useEffect(() => {
-    fetch("/api/agents/config")
-      .then((r) => r.json())
-      .then((data) => setShowWizard(!data.exists))
-      .catch(() => setShowWizard(false));
+    const run = () => {
+      fetch("/api/agents/config")
+        .then((r) => r.json())
+        .then((data) => {
+          const done = !!data.exists;
+          setShowWizard(!done);
+          if (done) {
+            try {
+              window.localStorage.setItem(WIZARD_DONE_STORAGE_KEY, "1");
+            } catch {
+              // ignore
+            }
+          }
+        })
+        .catch(() => setShowWizard(false));
+    };
+    const w = window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof w.requestIdleCallback === "function") {
+      const handle = w.requestIdleCallback(run, { timeout: 2000 });
+      return () => w.cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(run, 1000);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleWizardComplete = useCallback(() => {
     setShowWizard(false);
+    try {
+      window.localStorage.setItem(WIZARD_DONE_STORAGE_KEY, "1");
+    } catch {
+      // ignore
+    }
     setSection({ type: "home" });
     loadTree();
   }, [setSection, loadTree]);

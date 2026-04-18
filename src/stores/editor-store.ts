@@ -19,6 +19,36 @@ interface EditorState {
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
+const PAGE_CACHE_KEY = "kb-page-cache";
+
+interface CachedPage {
+  path: string;
+  content: string;
+  frontmatter: FrontMatter | null;
+}
+
+function loadCachedPage(path: string): CachedPage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PAGE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedPage;
+    if (parsed.path !== path) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedPage(page: CachedPage) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(PAGE_CACHE_KEY, JSON.stringify(page));
+  } catch {
+    // quota errors are non-fatal; skip caching
+  }
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   currentPath: null,
   content: "",
@@ -31,6 +61,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (saveTimer) clearTimeout(saveTimer);
     if (statusTimer) clearTimeout(statusTimer);
 
+    // Paint instantly from cache if available — covers refreshes of the
+    // last-opened page so the editor doesn't flash empty while the fetch
+    // resolves.
+    const cached = loadCachedPage(path);
+    if (cached) {
+      set({
+        currentPath: path,
+        content: cached.content,
+        frontmatter: cached.frontmatter,
+        saveStatus: "idle",
+        isDirty: false,
+      });
+    }
+
     try {
       const page = await fetchPage(path);
       set({
@@ -40,14 +84,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         saveStatus: "idle",
         isDirty: false,
       });
-    } catch {
-      set({
-        currentPath: path,
-        content: "",
-        frontmatter: null,
-        saveStatus: "error",
-        isDirty: false,
+      saveCachedPage({
+        path,
+        content: page.content,
+        frontmatter: page.frontmatter,
       });
+    } catch {
+      if (!cached) {
+        set({
+          currentPath: path,
+          content: "",
+          frontmatter: null,
+          saveStatus: "error",
+          isDirty: false,
+        });
+      }
     }
   },
 
@@ -79,6 +130,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       await savePage(currentPath, content, frontmatter || {});
       set({ saveStatus: "saved", isDirty: false });
+      saveCachedPage({
+        path: currentPath,
+        content,
+        frontmatter: frontmatter || null,
+      });
 
       if (statusTimer) clearTimeout(statusTimer);
       statusTimer = setTimeout(() => {

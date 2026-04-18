@@ -110,7 +110,18 @@ export function useCabinetUpdate(options: UseCabinetUpdateOptions = {}) {
   }, [refresh]);
 
   useEffect(() => {
-    void refresh();
+    // Defer the initial update check until the browser is idle so it
+    // doesn't compete with first paint / tree load on page refresh.
+    const w = window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof w.requestIdleCallback === "function") {
+      const handle = w.requestIdleCallback(() => void refresh(), { timeout: 2000 });
+      return () => w.cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(() => void refresh(), 1500);
+    return () => window.clearTimeout(timer);
   }, [refresh]);
 
   useEffect(() => {

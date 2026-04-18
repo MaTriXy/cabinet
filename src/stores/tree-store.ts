@@ -37,6 +37,8 @@ interface TreeState {
   toggleHiddenFiles: () => void;
 }
 
+const TREE_CACHE_KEY = "kb-tree-cache";
+
 function loadExpandedPaths(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -61,6 +63,31 @@ function saveExpandedPaths(paths: Set<string>) {
   localStorage.setItem("kb-expanded-paths", JSON.stringify([...paths]));
 }
 
+function loadCachedTree(showHidden: boolean): TreeNode[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(TREE_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { showHidden: boolean; nodes: TreeNode[] };
+    if (parsed.showHidden !== showHidden) return [];
+    return Array.isArray(parsed.nodes) ? parsed.nodes : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedTree(nodes: TreeNode[], showHidden: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      TREE_CACHE_KEY,
+      JSON.stringify({ showHidden, nodes })
+    );
+  } catch {
+    // quota errors are non-fatal; skip caching
+  }
+}
+
 export const useTreeStore = create<TreeState>((set, get) => ({
   nodes: [],
   selectedPath: null,
@@ -72,11 +99,21 @@ export const useTreeStore = create<TreeState>((set, get) => ({
   showHiddenFiles: loadShowHiddenFiles(),
 
   loadTree: async () => {
-    set({ loading: true });
+    const { showHiddenFiles, nodes: existing } = get();
+    // Paint instantly from cache on first load, then revalidate in the
+    // background. Keeps the sidebar from flashing empty on refresh.
+    if (existing.length === 0) {
+      const cached = loadCachedTree(showHiddenFiles);
+      if (cached.length > 0) {
+        set({ nodes: cached, loading: false });
+      } else {
+        set({ loading: true });
+      }
+    }
     try {
-      const { showHiddenFiles } = get();
       const nodes = await fetchTree(showHiddenFiles);
       set({ nodes, loading: false });
+      saveCachedTree(nodes, showHiddenFiles);
     } catch {
       set({ loading: false });
     }
