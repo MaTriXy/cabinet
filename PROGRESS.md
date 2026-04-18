@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-18] Registry imports now cache the full GitHub tree response in-process (10 min TTL) so multiple back-to-back imports don't burn through the 60/hr unauthenticated API budget. On 403/429 the error message now surfaces the rate limit clearly and mentions `GITHUB_TOKEN` as the fix (5000/hr when set). Documented the optional token in `.env.example`.
+
 [2026-04-18] Added a one-time "Cabinet is under breaking changes" warning dialog. Shown on first mount if the user hasn't acknowledged it — stored under localStorage key `cabinet.breaking-changes-warning-ack:v1`. Mounted in `AppShell` after the onboarding wizard resolves, so new users see it right after setup, and existing dev-branch users see it once on next load. Clearing the key re-triggers it.
 
 [2026-04-18] Moved the `getting-started/` seed template from `/data` into repo-committed `/resources/getting-started/` so it survives data-dir resets. `seedGettingStartedDir` now checks `PROJECT_ROOT/resources/getting-started/` first and falls back to the legacy `/data/getting-started/` locations for existing installs. New onboarding runs automatically copy the seed into the user's data dir as part of `scaffoldCabinet`.
