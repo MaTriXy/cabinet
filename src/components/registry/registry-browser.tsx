@@ -488,7 +488,15 @@ function ListItem({ template, onClick }: { template: RegistryTemplate; onClick: 
 /* ─────────────────────────────────────────────────────────────────────────────
    Detail view
 ───────────────────────────────────────────────────────────────────────────── */
-function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
+function DetailView({
+  slug,
+  onBack,
+  onImported,
+}: {
+  slug: string;
+  onBack: () => void;
+  onImported?: (template: RegistryTemplate, importedName: string) => void;
+}) {
   const [detail, setDetail] = useState<RegistryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -542,6 +550,20 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
       }
 
       await res.json();
+      if (onImported) {
+        const tpl: RegistryTemplate = {
+          slug: detail.slug,
+          name: detail.meta.name,
+          description: detail.meta.description,
+          domain: detail.domain,
+          agentCount: detail.stats.totalAgents,
+          jobCount: detail.stats.totalJobs,
+          childCount: detail.stats.totalCabinets > 1 ? detail.stats.totalCabinets - 1 : 0,
+        };
+        onImported(tpl, importName.trim() || detail.meta.name);
+        setImporting(false);
+        return;
+      }
       await loadTree();
       window.location.reload();
     } catch {
@@ -798,7 +820,11 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    Main RegistryBrowser
 ───────────────────────────────────────────────────────────────────────────── */
-export function RegistryBrowser() {
+export function RegistryBrowser({
+  onImported,
+}: {
+  onImported?: (template: RegistryTemplate, importedName: string) => void;
+} = {}) {
   const [templates, setTemplates] = useState<RegistryTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -839,7 +865,11 @@ export function RegistryBrowser() {
   if (selectedSlug) {
     return (
       <div className="flex flex-col h-full" style={{ backgroundColor: P.bg }}>
-        <DetailView slug={selectedSlug} onBack={() => setSelectedSlug(null)} />
+        <DetailView
+          slug={selectedSlug}
+          onBack={() => setSelectedSlug(null)}
+          onImported={onImported}
+        />
       </div>
     );
   }

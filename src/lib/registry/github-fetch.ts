@@ -52,29 +52,36 @@ export async function downloadRegistryTemplate(
     throw new Error(`Template "${slug}" not found in registry`);
   }
 
-  // 2. For each file, download from raw.githubusercontent.com and write locally
+  // 2. For each file, download from raw.githubusercontent.com and write locally.
+  //    On any failure, tear down the target directory so callers can retry
+  //    without hitting the "already exists" guard in the import route.
   await fs.mkdir(targetDir, { recursive: true });
 
-  for (const entry of files) {
-    // Relative path within the template (strip the slug/ prefix)
-    const relPath = entry.path.slice(prefix.length);
-    const localPath = path.join(targetDir, relPath);
+  try {
+    for (const entry of files) {
+      // Relative path within the template (strip the slug/ prefix)
+      const relPath = entry.path.slice(prefix.length);
+      const localPath = path.join(targetDir, relPath);
 
-    // Ensure parent directory exists
-    await fs.mkdir(path.dirname(localPath), { recursive: true });
+      // Ensure parent directory exists
+      await fs.mkdir(path.dirname(localPath), { recursive: true });
 
-    const rawUrl = `${RAW_BASE}/${encodeURIComponent(slug)}/${relPath
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`;
+      const rawUrl = `${RAW_BASE}/${encodeURIComponent(slug)}/${relPath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`;
 
-    const fileRes = await fetch(rawUrl);
-    if (!fileRes.ok) {
-      throw new Error(`Download failed (${fileRes.status}): ${entry.path}`);
+      const fileRes = await fetch(rawUrl);
+      if (!fileRes.ok) {
+        throw new Error(`Download failed (${fileRes.status}): ${entry.path}`);
+      }
+
+      // Write as buffer to handle binary files (images, etc.)
+      const buf = Buffer.from(await fileRes.arrayBuffer());
+      await fs.writeFile(localPath, buf);
     }
-
-    // Write as buffer to handle binary files (images, etc.)
-    const buf = Buffer.from(await fileRes.arrayBuffer());
-    await fs.writeFile(localPath, buf);
+  } catch (err) {
+    await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
   }
 }

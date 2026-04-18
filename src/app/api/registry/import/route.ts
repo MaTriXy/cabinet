@@ -57,25 +57,31 @@ export async function POST(req: NextRequest) {
     // Download template from GitHub
     await downloadRegistryTemplate(slug, targetDir);
 
-    // If the user gave a custom name, update the .cabinet manifest's name field
-    if (body.name && body.name.trim() !== template.name) {
-      const manifestPath = path.join(targetDir, CABINET_MANIFEST_FILE);
-      try {
-        const raw = await fs.readFile(manifestPath, "utf-8");
-        const parsed = yaml.load(raw) as Record<string, unknown>;
-        parsed.name = body.name.trim();
-        await fs.writeFile(manifestPath, yaml.dump(parsed), "utf-8");
-      } catch {
-        // Non-fatal: manifest may not exist for all templates
+    try {
+      // If the user gave a custom name, update the .cabinet manifest's name field
+      if (body.name && body.name.trim() !== template.name) {
+        const manifestPath = path.join(targetDir, CABINET_MANIFEST_FILE);
+        try {
+          const raw = await fs.readFile(manifestPath, "utf-8");
+          const parsed = yaml.load(raw) as Record<string, unknown>;
+          parsed.name = body.name.trim();
+          await fs.writeFile(manifestPath, yaml.dump(parsed), "utf-8");
+        } catch {
+          // Non-fatal: manifest may not exist for all templates
+        }
       }
+
+      // Ensure .cabinet-state exists
+      await fs
+        .mkdir(path.join(targetDir, ".cabinet-state"), { recursive: true })
+        .catch(() => {});
+
+      await seedGettingStartedDir(targetDir);
+    } catch (err) {
+      // Any post-download failure: remove the partial install so retries work.
+      await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+      throw err;
     }
-
-    // Ensure .cabinet-state exists
-    await fs
-      .mkdir(path.join(targetDir, ".cabinet-state"), { recursive: true })
-      .catch(() => {});
-
-    await seedGettingStartedDir(targetDir);
 
     return NextResponse.json(
       {

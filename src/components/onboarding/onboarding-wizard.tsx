@@ -597,8 +597,12 @@ function CabinetCreatedScreen({
 
       {/* Animated tree */}
       <div
-        className="w-full rounded-xl px-6 py-5 font-mono text-[13px] leading-relaxed"
-        style={{ background: WEB.bgCard, border: `1px solid ${WEB.border}` }}
+        className="w-full rounded-xl px-6 py-5 font-mono text-[13px]"
+        style={{
+          background: WEB.bgCard,
+          border: `1px solid ${WEB.border}`,
+          lineHeight: 1.25,
+        }}
       >
         {treeLines.map((line, i) => {
           const isVisible = i < visibleLines;
@@ -955,7 +959,13 @@ function TeamBuildStep({
             </button>
           </div>
           <div className="flex-1 overflow-auto">
-            <RegistryBrowser />
+            <RegistryBrowser
+              onImported={(template, importedName) => {
+                setImportedSlugs((prev) => new Set(prev).add(template.slug));
+                setRegistryOpen(false);
+                setImportedCabinet({ name: importedName, template });
+              }}
+            />
           </div>
         </div>
       )}
@@ -1588,23 +1598,28 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
         (p: ProviderInfo) => p.type === "cli"
       );
       setProviders(cliProviders);
-      // Auto-select first ready provider if none selected
+      // Auto-select first ready provider if none selected — functional setState
+      // keeps this independent of `selectedProvider` so user clicks don't refire
+      // the fetch via useEffect.
       const ready = cliProviders.filter((p) => p.available && p.authenticated);
-      if (ready.length > 0 && !selectedProvider) {
-        const first = ready[0];
-        const firstModelId = first.models?.[0]?.id ?? null;
-        setSelectedProvider(first.id);
-        setSelectedModel(firstModelId);
-        setSelectedEffort(
-          getSuggestedProviderEffort(first, firstModelId || undefined)?.id || null
-        );
+      if (ready.length > 0) {
+        setSelectedProvider((current) => {
+          if (current) return current;
+          const first = ready[0];
+          const firstModelId = first.models?.[0]?.id ?? null;
+          setSelectedModel(firstModelId);
+          setSelectedEffort(
+            getSuggestedProviderEffort(first, firstModelId || undefined)?.id || null
+          );
+          return first.id;
+        });
       }
     } catch {
       setProviders([]);
     } finally {
       setProvidersLoading(false);
     }
-  }, [selectedProvider]);
+  }, []);
 
   useEffect(() => {
     if (step === STEP_PROVIDER) {
