@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { defaultAdapterTypeForProvider } from "@/lib/agents/adapters";
+import {
+  defaultAdapterTypeForProvider,
+  LEGACY_ADAPTER_BY_PROVIDER_ID,
+} from "@/lib/agents/adapters";
 import {
   buildEditorConversationPrompt,
   buildManualConversationPrompt,
@@ -111,6 +114,8 @@ export async function POST(req: NextRequest) {
       typeof body.effort === "string" && body.effort.trim()
         ? body.effort.trim()
         : undefined;
+    const requestedRuntimeMode =
+      body.runtimeMode === "terminal" ? "terminal" : undefined;
 
     if (!userMessage) {
       return NextResponse.json(
@@ -150,11 +155,20 @@ export async function POST(req: NextRequest) {
       editorCabinetPath ??
       ("cabinetPath" in conversationInput ? conversationInput.cabinetPath : cabinetPath);
     const resolvedProviderId = requestedProviderId || conversationInput.providerId;
-    const resolvedAdapterType =
+    let resolvedAdapterType =
       requestedAdapterType ||
       (requestedProviderId
         ? defaultAdapterTypeForProvider(requestedProviderId)
         : conversationInput.adapterType);
+    // Terminal runtime mode — swap to the provider's legacy PTY adapter so the
+    // CLI streams live. Model/effort are intentionally ignored in this mode
+    // because PTY runs use the CLI's own defaults.
+    if (requestedRuntimeMode === "terminal" && resolvedProviderId) {
+      const legacyAdapterType = LEGACY_ADAPTER_BY_PROVIDER_ID[resolvedProviderId];
+      if (legacyAdapterType) {
+        resolvedAdapterType = legacyAdapterType;
+      }
+    }
     const adapterConfigBase =
       requestedProviderId && requestedProviderId !== conversationInput.providerId
         ? {}

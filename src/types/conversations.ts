@@ -145,11 +145,19 @@ export interface ConversationDetail {
   session?: SessionHandle | null;
 }
 
+export type ConversationRuntimeMode = "native" | "terminal";
+
 export interface ConversationRuntimeOverride {
   providerId?: string;
   adapterType?: string;
   model?: string;
   effort?: string;
+  /**
+   * "native" (default) runs through the structured adapter for the provider.
+   * "terminal" launches the provider's legacy PTY adapter so the user can
+   * watch the CLI stream live and continue the same session after it exits.
+   */
+  runtimeMode?: ConversationRuntimeMode;
 }
 
 export interface CreateConversationRequest extends ConversationRuntimeOverride {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BrainCircuit } from "lucide-react";
+import { BrainCircuit, Sparkles, Terminal } from "lucide-react";
 import { ProviderGlyph } from "@/components/agents/provider-glyph";
 import { cn } from "@/lib/utils";
 import {
@@ -481,10 +481,13 @@ function ProviderRuntimeMatrix({
   );
 }
 
+export type RuntimeMode = "native" | "terminal";
+
 export interface RuntimeMatrixValue {
   providerId?: string | null;
   model?: string | null;
   effort?: string | null;
+  runtimeMode?: RuntimeMode | null;
 }
 
 interface RuntimeSelectionBannerProps {
@@ -533,31 +536,65 @@ export function RuntimeSelectionBanner({
   const effortName =
     currentEffort?.name ||
     (value.effort ? formatEffortName(value.effort) : "Auto");
+  const isTerminal = value.runtimeMode === "terminal";
 
   return (
     <div
       className={cn(
         "flex items-center gap-2 rounded-lg px-2.5 py-2",
-        effortTone.bg,
+        isTerminal ? "bg-zinc-900 text-zinc-100" : effortTone.bg,
         className
       )}
     >
-      <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+      <span
+        className={cn(
+          "shrink-0 text-[9px] font-semibold uppercase tracking-wide",
+          isTerminal ? "text-zinc-400" : "text-muted-foreground/60"
+        )}
+      >
         {label}
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {currentProvider ? (
           <>
-            <div className="flex size-5 shrink-0 items-center justify-center rounded border border-border/70 bg-background text-muted-foreground">
-              <ProviderGlyph icon={currentProvider.icon} className="h-2.5 w-2.5" />
+            <div
+              className={cn(
+                "flex size-5 shrink-0 items-center justify-center rounded border",
+                isTerminal
+                  ? "border-zinc-700 bg-zinc-800 text-zinc-300"
+                  : "border-border/70 bg-background text-muted-foreground"
+              )}
+            >
+              {isTerminal ? (
+                <Terminal className="h-2.5 w-2.5" />
+              ) : (
+                <ProviderGlyph icon={currentProvider.icon} className="h-2.5 w-2.5" />
+              )}
             </div>
-            <span className={cn("truncate text-[11px] font-medium", effortTone.header)}>
-              {currentModel?.name || currentProvider.name}
-            </span>
-            <span className="shrink-0 text-[9px] text-muted-foreground/50">·</span>
-            <span className={cn("shrink-0 text-[9px] font-medium", effortTone.header)}>
-              {effortName}
-            </span>
+            {isTerminal ? (
+              <>
+                <span className="truncate text-[11px] font-medium text-zinc-100">
+                  Terminal
+                </span>
+                <span className="shrink-0 text-[9px] text-zinc-500">·</span>
+                <span className="shrink-0 text-[10px] font-medium text-zinc-300">
+                  {currentProvider.name}
+                </span>
+                <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
+                  PTY
+                </span>
+              </>
+            ) : (
+              <>
+                <span className={cn("truncate text-[11px] font-medium", effortTone.header)}>
+                  {currentModel?.name || currentProvider.name}
+                </span>
+                <span className="shrink-0 text-[9px] text-muted-foreground/50">·</span>
+                <span className={cn("shrink-0 text-[9px] font-medium", effortTone.header)}>
+                  {effortName}
+                </span>
+              </>
+            )}
           </>
         ) : (
           <span className="text-[10px] text-muted-foreground">No provider selected</span>
@@ -571,13 +608,25 @@ export function RuntimeSelectionBanner({
 interface RuntimeMatrixPickerProps {
   providers: ProviderInfo[];
   value: RuntimeMatrixValue;
-  onChange: (value: { providerId: string; model?: string; effort?: string }) => void;
+  onChange: (value: {
+    providerId: string;
+    model?: string;
+    effort?: string;
+    runtimeMode?: RuntimeMode;
+  }) => void;
   /**
    * When true, show all enabled providers including ones that aren't installed
    * or authenticated yet. Useful for settings surfaces where the user is
    * configuring a default.
    */
   includeUnavailable?: boolean;
+  /**
+   * When true, render the Native/Terminal toggle above the tabs. Terminal mode
+   * hides the model/effort matrix since PTY runs always use the CLI's default
+   * flags. Off by default so settings surfaces (which configure defaults) don't
+   * expose the toggle unless explicitly asked.
+   */
+  showRuntimeModeToggle?: boolean;
   className?: string;
   emptyText?: string;
 }
@@ -592,9 +641,11 @@ export function RuntimeMatrixPicker({
   value,
   onChange,
   includeUnavailable = false,
+  showRuntimeModeToggle = false,
   className,
   emptyText = "No providers available.",
 }: RuntimeMatrixPickerProps) {
+  const runtimeMode: RuntimeMode = value.runtimeMode === "terminal" ? "terminal" : "native";
   const selectableProviders = useMemo(() => {
     const base = includeUnavailable
       ? providers.filter((provider) => provider.enabled ?? true)
@@ -678,76 +729,176 @@ export function RuntimeMatrixPicker({
     );
   }
 
-  return (
-    <Tabs
-      value={activeProviderIdValue}
-      onValueChange={setActiveProviderId}
-      className={cn("gap-0", className)}
-    >
-      <div className="overflow-hidden rounded-lg border border-border/70">
-        <div className="flex px-1.5 pt-1.5 overflow-x-auto scrollbar-none">
-          <TabsList
-            variant="line"
-            aria-label="Providers"
-            className="h-auto w-max min-w-full justify-start gap-1.5 rounded-none bg-transparent p-0 !border-b-0"
-          >
-            {selectableProviders.map((provider) => {
-              const ready = readyProviderIds.has(provider.id);
-              const unreadyReason = describeProviderUnreadyReason(provider);
-              return (
-                <TabsTrigger
-                  key={provider.id}
-                  value={provider.id}
-                  disabled={!ready}
-                  aria-disabled={!ready}
-                  title={
-                    ready
-                      ? provider.name
-                      : `${provider.name} — ${unreadyReason || "Not available"}`
-                  }
-                  className={cn(
-                    "relative -mb-px h-7 flex-none gap-1.5 rounded-t-md rounded-b-none border-0 !bg-muted/60 px-2.5 py-1 text-[9px] font-medium text-muted-foreground shadow-none after:hidden data-active:z-10 data-active:!bg-background data-active:text-foreground data-active:shadow-none",
-                    ready
-                      ? "hover:text-foreground"
-                      : "cursor-not-allowed opacity-50 grayscale data-[disabled]:pointer-events-none"
-                  )}
-                >
-                  <ProviderGlyph icon={provider.icon} className="h-3 w-3" />
-                  <span>{provider.name}</span>
-                  {!ready && (
-                    <span className="ml-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-muted-foreground/80">
-                      Not ready
-                    </span>
-                  )}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </div>
+  const setRuntimeMode = (nextMode: RuntimeMode) => {
+    const targetProviderId =
+      value.providerId ||
+      activeProviderIdValue ||
+      selectableProviders[0]?.id ||
+      "";
+    if (!targetProviderId) return;
+    if (nextMode === "terminal") {
+      onChange({
+        providerId: targetProviderId,
+        runtimeMode: "terminal",
+      });
+    } else {
+      onChange({
+        providerId: targetProviderId,
+        model: value.model ?? undefined,
+        effort: value.effort ?? undefined,
+        runtimeMode: "native",
+      });
+    }
+  };
 
-        {selectableProviders.map((provider) => (
-          <TabsContent
-            key={provider.id}
-            value={provider.id}
-            className="mt-0 bg-background"
+  const isTerminal = runtimeMode === "terminal";
+
+  return (
+    <div className={cn("flex flex-col gap-2", className)}>
+      {showRuntimeModeToggle && (
+        <div
+          role="tablist"
+          aria-label="Runtime mode"
+          className="inline-flex self-start rounded-full border border-border/70 bg-muted/40 p-0.5 text-[10px] font-medium"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isTerminal}
+            onClick={() => setRuntimeMode("native")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
+              !isTerminal
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
           >
-            <ProviderRuntimeMatrix
-              provider={provider}
-              currentProviderId={currentProvider?.id}
-              currentModelId={currentModel?.id}
-              selectedEffortId={value.effort ?? undefined}
-              onSelect={(modelId, effortId) =>
-                onChange({
-                  providerId: provider.id,
-                  model: modelId,
-                  effort: effortId,
-                })
-              }
-            />
-          </TabsContent>
-        ))}
-      </div>
-    </Tabs>
+            <Sparkles className="h-3 w-3" />
+            Native
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isTerminal}
+            onClick={() => setRuntimeMode("terminal")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
+              isTerminal
+                ? "bg-zinc-900 text-zinc-100 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            title="Run the CLI in a live PTY terminal session"
+          >
+            <Terminal className="h-3 w-3" />
+            Terminal
+          </button>
+        </div>
+      )}
+
+      <Tabs
+        value={activeProviderIdValue}
+        onValueChange={(next) => {
+          setActiveProviderId(next);
+          if (isTerminal && next) {
+            onChange({ providerId: next, runtimeMode: "terminal" });
+          }
+        }}
+        className="gap-0"
+      >
+        <div
+          className={cn(
+            "overflow-hidden rounded-lg border",
+            isTerminal ? "border-zinc-800" : "border-border/70"
+          )}
+        >
+          <div
+            className={cn(
+              "flex px-1.5 pt-1.5 overflow-x-auto scrollbar-none",
+              isTerminal && "bg-zinc-900"
+            )}
+          >
+            <TabsList
+              variant="line"
+              aria-label="Providers"
+              className={cn(
+                "h-auto w-max min-w-full justify-start gap-1.5 rounded-none p-0 !border-b-0",
+                isTerminal ? "bg-zinc-900" : "bg-transparent"
+              )}
+            >
+              {selectableProviders.map((provider) => {
+                const ready = readyProviderIds.has(provider.id);
+                const unreadyReason = describeProviderUnreadyReason(provider);
+                return (
+                  <TabsTrigger
+                    key={provider.id}
+                    value={provider.id}
+                    disabled={!ready}
+                    aria-disabled={!ready}
+                    title={
+                      ready
+                        ? provider.name
+                        : `${provider.name} — ${unreadyReason || "Not available"}`
+                    }
+                    className={cn(
+                      "relative -mb-px h-7 flex-none gap-1.5 rounded-t-md rounded-b-none border-0 px-2.5 py-1 text-[9px] font-medium shadow-none after:hidden data-active:z-10 data-active:shadow-none",
+                      isTerminal
+                        ? "!bg-zinc-800 text-zinc-400 data-active:!bg-zinc-950 data-active:text-zinc-100"
+                        : "!bg-muted/60 text-muted-foreground data-active:!bg-background data-active:text-foreground",
+                      ready
+                        ? isTerminal
+                          ? "hover:text-zinc-100"
+                          : "hover:text-foreground"
+                        : "cursor-not-allowed opacity-50 grayscale data-[disabled]:pointer-events-none"
+                    )}
+                  >
+                    <ProviderGlyph icon={provider.icon} className="h-3 w-3" />
+                    <span>{provider.name}</span>
+                    {!ready && (
+                      <span className="ml-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                        Not ready
+                      </span>
+                    )}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </div>
+
+          {isTerminal ? (
+            <div className="flex items-center gap-2 bg-zinc-950 px-3 py-2.5 font-mono text-[10px] text-zinc-300">
+              <Terminal className="h-3 w-3 shrink-0 text-emerald-400" />
+              <span className="shrink-0 text-zinc-500">runtime:</span>
+              <span className="truncate text-zinc-100">
+                PTY passthrough · model &amp; effort controlled by the CLI
+              </span>
+            </div>
+          ) : (
+            selectableProviders.map((provider) => (
+              <TabsContent
+                key={provider.id}
+                value={provider.id}
+                className="mt-0 bg-background"
+              >
+                <ProviderRuntimeMatrix
+                  provider={provider}
+                  currentProviderId={currentProvider?.id}
+                  currentModelId={currentModel?.id}
+                  selectedEffortId={value.effort ?? undefined}
+                  onSelect={(modelId, effortId) =>
+                    onChange({
+                      providerId: provider.id,
+                      model: modelId,
+                      effort: effortId,
+                      runtimeMode: "native",
+                    })
+                  }
+                />
+              </TabsContent>
+            ))
+          )}
+        </div>
+      </Tabs>
+    </div>
   );
 }
 
@@ -920,22 +1071,32 @@ export function TaskRuntimePicker({
   function applySelection(
     providerId: string,
     modelId?: string,
-    effortId?: string
+    effortId?: string,
+    runtimeMode?: RuntimeMode
   ) {
-    onChange(
-      normalizeSelection(
-        {
-          providerId,
-          model: modelId,
-          effort: effortId,
-        },
-        providers,
-        defaultProviderId,
-        defaultModel,
-        defaultEffort
-      )
+    const normalized = normalizeSelection(
+      {
+        providerId,
+        model: modelId,
+        effort: effortId,
+      },
+      providers,
+      defaultProviderId,
+      defaultModel,
+      defaultEffort
     );
-    setOpen(false);
+    onChange({
+      ...normalized,
+      runtimeMode: runtimeMode ?? value.runtimeMode ?? "native",
+      // Terminal mode should not carry model/effort — PTY uses the CLI's own
+      // defaults, so clear them to keep the conversation override honest.
+      ...(runtimeMode === "terminal"
+        ? { model: undefined, effort: undefined }
+        : {}),
+    });
+    // Only close the dropdown on provider/model selection, not when toggling
+    // mode — users should see the toggle animate.
+    if (runtimeMode === undefined) setOpen(false);
   }
 
   function resetToDefault() {
@@ -1024,9 +1185,11 @@ export function TaskRuntimePicker({
               providerId: normalizedValue.providerId,
               model: normalizedValue.model,
               effort: normalizedValue.effort,
+              runtimeMode: value.runtimeMode ?? "native",
             }}
-            onChange={({ providerId, model, effort }) =>
-              applySelection(providerId, model, effort)
+            showRuntimeModeToggle
+            onChange={({ providerId, model, effort, runtimeMode }) =>
+              applySelection(providerId, model, effort, runtimeMode)
             }
           />
         </div>
