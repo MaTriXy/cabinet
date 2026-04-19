@@ -253,12 +253,12 @@ Phased work that landed on this branch (see commit trail below):
 
 ### 12.0 TL;DR — what's left
 
-**Provider track (§12.1):** 8½ of 12 items are live. 4 remaining:
+**Provider track (§12.1):** 9 of 12 items shipped (3 of those partial). 3 still fully deferred:
 
 | Deferred | Reason |
 |---|---|
-| #2 Skills injection | Needs catalog-location decision (where does Cabinet store skills?) |
-| #4 Per-provider directory refactor | Phase 1 shipped (`_shared/cli-args.ts` extracted, 8 adapters deduped). Full directory split deferred as low-ROI mechanical churn. |
+| #2 Skills injection | Partial — catalog + symlink + Claude wired; Cursor/OpenCode/Pi/Gemini/Codex/Grok/Copilot need per-CLI skill-dir flags wired |
+| #4 Per-provider directory refactor | Partial — `_shared/cli-args.ts` extracted, 8 adapters deduped. Full directory split deferred as low-ROI mechanical churn. |
 | #5 `agent-live-panel` adapter awareness | Minor; WebTerminal works fine for both paths |
 | #9 Reasoning-effort policy per provider | Product call |
 | #11 Polish placeholder glyphs | Needs licensed artwork |
@@ -269,8 +269,9 @@ T19 (distill PTY output) shipped as a deterministic summary line.
 T21 (reconnect UX) verified by audit — works correctly.
 
 **Genuinely actionable remaining:**
-1. **#2 Skills injection** — needs the catalog-location product decision first, then wiring is ~1 day of work.
-2. **#11 Glyph artwork** — if/when licensed artwork is available.
+1. **#2b Skills injection — other 6 providers** — Cursor/OpenCode/Pi/Codex each need to read `adapterConfig.skillsDir` and thread it into the CLI's own context-dir flag. Mechanical once the per-CLI flag mapping is decided.
+2. **#9 Reasoning-effort policy** — product call on per-provider effort UX.
+3. **#11 Glyph artwork** — if/when licensed artwork is available.
 
 Everything else is shipped, by-design skipped, partial with the rest deferred as low-ROI, or waiting on product/artwork input.
 
@@ -279,7 +280,7 @@ Everything else is shipped, by-design skipped, partial with the rest deferred as
 | # | Item | Status | Commit(s) |
 |---|------|--------|-----------|
 | 1 | Session codec persistence per conversation | ✅ Already shipped — `writeSession(conversationId, { codecBlob, resumeId, … })` + `deserialize(session.codecBlob)` on continuation | — |
-| 2 | Skills injection through the daemon | 🟨 Deferred — needs catalog location decision | — |
+| 2 | Skills injection — catalog at `~/.cabinet/skills/<slug>/SKILL.md`; `_shared/skills-injection.ts` exposes `readSkillCatalog` + `syncSkillsToTmpdir` (symlinks selected skills into `$TMPDIR/cabinet-skills/<sessionId>/`); persona frontmatter gains `skills: [slug, …]`; runner injects `skillsDir` into adapterConfig before spawn; Claude adapter wires it via `--add-dir`. Other 7 adapters ignore the field as no-ops until each CLI's skills contract is wired. | 🟡 Partial | `77c17af` |
 | 3 | Dynamic model discovery (OpenCode / Pi) | ✅ Done — `listModels()` hook + `GET /api/agents/providers/:id/models` w/ 60 s cache | `0587bec` |
 | 4 | Per-provider directory refactor (paperclip shape) — Phase 1: `_shared/cli-args.ts` extracted (`readStringConfig` + `readEffortConfig`), all 8 adapters consume from there instead of duplicating. Full per-provider directory split (`<provider>-local/{index,execute,parse,test,skills}.ts`) still deferred as low-ROI mechanical churn | 🟡 Partial | `98c757d` |
 | 5 | Stop rendering WebTerminal in `agent-live-panel.tsx` for structured adapters | 🟨 Deferred — minor; PTY now has its own mode | — |
