@@ -114,10 +114,18 @@ export const codexCliProvider: AgentProvider = {
     ];
   },
 
-  buildOneShotInvocation(prompt: string, workdir: string) {
+  buildOneShotInvocation(prompt: string, workdir: string, opts) {
+    const baseArgs = this.buildArgs ? this.buildArgs(prompt, workdir) : [];
+    const args = [...baseArgs];
+    if (opts?.model) {
+      args.unshift("--model", opts.model);
+    }
+    if (opts?.effort) {
+      args.unshift("-c", `model_reasoning_effort=${opts.effort}`);
+    }
     return {
       command: this.command || "codex",
-      args: this.buildArgs ? this.buildArgs(prompt, workdir) : [],
+      args,
     };
   },
 

@@ -12,6 +12,11 @@ export interface CliProviderInvocation {
   readyStrategy?: "claude";
 }
 
+export interface OneShotInvocationOptions {
+  model?: string;
+  effort?: string;
+}
+
 export interface ProviderModel {
   id: string;
   name: string;
@@ -46,7 +51,11 @@ export interface AgentProvider {
   command?: string;
   commandCandidates?: string[];
   buildArgs?(prompt: string, workdir: string): string[];
-  buildOneShotInvocation?(prompt: string, workdir: string): CliProviderInvocation;
+  buildOneShotInvocation?(
+    prompt: string,
+    workdir: string,
+    opts?: OneShotInvocationOptions
+  ): CliProviderInvocation;
   buildSessionInvocation?(prompt: string | undefined, workdir: string): CliProviderInvocation;
 
   // API providers

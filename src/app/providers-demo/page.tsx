@@ -218,10 +218,18 @@ export default function ProvidersDemoPage() {
       const startedAt = Date.now();
       setRunState((prev) => ({ ...prev, [p.id]: { phase: "running", startedAt } }));
       const resolvedPrompt = prompt.replaceAll("{{provider}}", p.name);
+      const selectedModel = modelByProvider[p.id];
+      const selectedEffort = effortByProvider[p.id];
       const res = await callApi<{ ok: boolean; output?: string | Record<string, unknown>; message?: string; error?: string }>({
         method: "POST",
         url: "/api/agents/headless",
-        body: { providerId: p.id, prompt: resolvedPrompt, captureOutput: true },
+        body: {
+          providerId: p.id,
+          prompt: resolvedPrompt,
+          captureOutput: true,
+          model: selectedModel || undefined,
+          effort: selectedEffort || undefined,
+        },
       });
       const ms = Date.now() - startedAt;
       if (res.ok && res.data && res.data.ok) {
@@ -317,9 +325,9 @@ export default function ProvidersDemoPage() {
           />
           <p className="mt-2 text-[11px] text-muted-foreground">
             <code className="rounded bg-muted px-1 py-0.5">{`{{provider}}`}</code> is replaced with the
-            provider&apos;s display name before being sent. Model / effort selectors below are displayed
-            for reference — <code className="rounded bg-muted px-1 py-0.5">/api/agents/headless</code>{" "}
-            uses each provider&apos;s default model.
+            provider&apos;s display name before being sent. Model + effort selectors are forwarded to{" "}
+            <code className="rounded bg-muted px-1 py-0.5">/api/agents/headless</code> for providers
+            that support them (Claude and Codex today); others ignore them.
           </p>
         </section>
 

@@ -63,10 +63,15 @@ export const claudeCodeProvider: AgentProvider = {
     return ["--dangerously-skip-permissions", "-p", prompt, "--output-format", "text"];
   },
 
-  buildOneShotInvocation(prompt: string, workdir: string) {
+  buildOneShotInvocation(prompt: string, workdir: string, opts) {
+    const baseArgs = this.buildArgs ? this.buildArgs(prompt, workdir) : [];
+    const args = [...baseArgs];
+    if (opts?.model) {
+      args.push("--model", opts.model);
+    }
     return {
       command: this.command || "claude",
-      args: this.buildArgs ? this.buildArgs(prompt, workdir) : [],
+      args,
     };
   },
 
