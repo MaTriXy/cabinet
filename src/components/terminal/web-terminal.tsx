@@ -218,6 +218,11 @@ export function WebTerminal({
             if (prompt && !reconnect) params.set("prompt", prompt);
             if (providerId && !reconnect) params.set("providerId", providerId);
             if (adapterType && !reconnect) params.set("adapterType", adapterType);
+            // Tell the daemon this is a reconnect-only request. It'll replay
+            // the session's stored output (live buffer → completedOutput →
+            // on-disk transcript) instead of spawning a fresh CLI when the
+            // in-memory session has been GC'd.
+            if (reconnect) params.set("reconnect", "1");
 
             const wsOrigin =
               auth.wsOrigin ||

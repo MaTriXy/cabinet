@@ -598,12 +598,64 @@ function handlePtyConnection(ws: WebSocket, req: http.IncomingMessage): void {
   const prompt = url.searchParams.get("prompt");
   const providerId = url.searchParams.get("providerId") || undefined;
   const adapterType = url.searchParams.get("adapterType") || undefined;
+  const reconnectOnly = url.searchParams.get("reconnect") === "1";
 
   // Check if this is a reconnection to an existing session
   const existing = sessions.get(sessionId);
   if (existing) {
     console.log(`Session ${sessionId} reconnected (exited=${existing.exited})`);
     attachSessionSocket(existing, ws);
+    return;
+  }
+
+  // Reconnect-only mode: the client is loading a finished terminal task and
+  // just wants to see the historical transcript. Serve it from the completed-
+  // output cache first (recent runs), then fall back to the persisted
+  // transcript on disk for older ones. If neither has content, send a small
+  // "no stored output" marker. Never spawn a fresh PTY in this mode — that
+  // was the bug where refreshing an old task silently started a new CLI.
+  if (reconnectOnly) {
+    void (async () => {
+      const cached = completedOutput.get(sessionId);
+      let replay = cached?.output || null;
+      let source: "cache" | "disk" | null = cached ? "cache" : null;
+
+      if (!replay) {
+        try {
+          const meta = await readConversationMeta(sessionId);
+          if (meta) {
+            const transcript = await readConversationTranscript(
+              sessionId,
+              meta.cabinetPath
+            );
+            if (transcript && transcript.trim()) {
+              replay = transcript;
+              source = "disk";
+            }
+          }
+        } catch (err) {
+          console.warn(
+            `Session ${sessionId} reconnect: failed to read transcript`,
+            err
+          );
+        }
+      }
+
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (replay) {
+        ws.send(replay);
+        const note =
+          source === "disk"
+            ? "\r\n\x1b[90m[Replayed from saved transcript. Session has ended.]\x1b[0m\r\n"
+            : "\r\n\x1b[90m[Session has ended. Showing cached output.]\x1b[0m\r\n";
+        ws.send(note);
+      } else {
+        ws.send(
+          "\r\n\x1b[90m[This session has ended and no stored output is available.]\x1b[0m\r\n"
+        );
+      }
+      ws.close();
+    })();
     return;
   }
 
