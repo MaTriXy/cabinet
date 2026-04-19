@@ -261,6 +261,7 @@ export function TaskConversationPage({
         adapterType?: string;
         model?: string;
         effort?: string;
+        runtimeMode?: "native" | "terminal";
       };
     }) => {
       if (!task) return;

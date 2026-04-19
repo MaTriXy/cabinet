@@ -23,7 +23,10 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { getDefaultAdapterTypeForProviderInfo } from "@/lib/agents/adapter-options";
-import type { ConversationRuntimeOverride } from "@/types/conversations";
+import type {
+  ConversationRuntimeMode,
+  ConversationRuntimeOverride,
+} from "@/types/conversations";
 import type {
   ProviderEffortLevel,
   ProviderInfo,
@@ -253,6 +256,9 @@ function normalizeSelection(
       : undefined
   );
 
+  const runtimeMode: ConversationRuntimeMode =
+    value.runtimeMode === "terminal" ? "terminal" : "native";
+  const isTerminal = runtimeMode === "terminal";
   return {
     providerId: selectedProvider?.id,
     adapterType: getDefaultAdapterTypeForProviderInfo(
@@ -260,12 +266,19 @@ function normalizeSelection(
       selectedProvider?.id,
       defaultProviderId
     ),
-    model: selectedModel?.id,
-    effort: value.effort
-      ? selectedEffort?.id
-      : allowDefaultEffortFallback
+    // Terminal mode delegates model/effort to the CLI's own defaults — drop
+    // them so they don't round-trip into the normalized selection.
+    model: isTerminal
+      ? undefined
+      : selectedModel?.id,
+    effort: isTerminal
+      ? undefined
+      : value.effort
         ? selectedEffort?.id
-        : undefined,
+        : allowDefaultEffortFallback
+          ? selectedEffort?.id
+          : undefined,
+    runtimeMode,
   };
 }
 
@@ -277,7 +290,8 @@ function sameSelection(
     (left.providerId || "") === (right.providerId || "") &&
     (left.adapterType || "") === (right.adapterType || "") &&
     (left.model || "") === (right.model || "") &&
-    (left.effort || "") === (right.effort || "")
+    (left.effort || "") === (right.effort || "") &&
+    (left.runtimeMode || "native") === (right.runtimeMode || "native")
   );
 }
 

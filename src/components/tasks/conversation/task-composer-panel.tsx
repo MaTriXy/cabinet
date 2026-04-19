@@ -134,6 +134,7 @@ export function TaskComposerPanel({
           adapterType: effectiveRuntime.adapterType,
           model: effectiveRuntime.model,
           effort: effectiveRuntime.effort,
+          runtimeMode: effectiveRuntime.runtimeMode,
         },
       });
       // Reset the user's explicit pick after send so the composer snaps
