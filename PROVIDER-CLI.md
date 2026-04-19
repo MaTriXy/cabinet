@@ -251,9 +251,9 @@ Phased work that landed on this branch (see commit trail below):
 
 ## 12. Next Steps
 
-### 12.0 TL;DR — unclosed issues
+### 12.0 TL;DR — what's actually left
 
-Consolidated list of every item that was raised across this PRD and isn't fully shipped. Grouped by what they're waiting on.
+Consolidated list of unclosed items. Everything not listed here is shipped (see detailed matrices in §12.1 / §12.2 / §12.3).
 
 #### A. Needs code — mechanical, no decisions required
 
@@ -263,39 +263,38 @@ Consolidated list of every item that was raised across this PRD and isn't fully 
 | #4 | Full per-provider directory split — `adapters/<provider>-local/{index,execute,parse,test,skills}.ts` + extract remaining shared helpers into `_shared/` (stream-json consumer, stderr-filter, session-codec, health-check) | Phase 1 shipped (`_shared/cli-args.ts`). Behavior-neutral churn; low ROI. |
 | #5 | `agent-live-panel.tsx` should not render `WebTerminal` for structured-adapter conversations | WebTerminal works fine for both today; this is cleanup, not a bug. |
 
-#### B. Needs UI work — surfaces for skills (discussed this session)
-
-| Ref | Item | Notes |
-|---|---|---|
-| UI-1 | Agent detail → "Skills" read-only section listing the agent's current `skills: […]` with `SKILL.md` heading + description | ✅ Shipped `63d3499` — superseded by UI-4 (now an editable pill row in Details) |
-| UI-2 | Settings → "Skills catalog" browser — lists everything in `~/.cabinet/skills/` as read-only reference | ✅ Shipped `40c2865` — "coming soon" preview with disabled styling |
-| UI-3 | Task viewer → "with skills: a, b, c" chip in the header when a run has skills attached | ✅ Shipped `63d3499` — violet Sparkles chip in both fullscreen terminal and regular task headers |
-| UI-4 | Agent editor → skills multiselect widget backed by the catalog (save via persona API) | ✅ Shipped `6a070fc` — toggleable violet pills per catalog entry, amber orphan pills for missing slugs, PUT `/api/agents/personas/:slug { skills }` |
-
-#### C. Needs product decision
+#### B. Needs product decision
 
 | Ref | Item | Decision needed |
 |---|---|---|
 | #9 | Reasoning-effort policy per provider | How far to push effort controls — Cursor has none, OpenCode/Pi have per-variant levels, Codex has low/medium/high, Claude/Gemini/Grok/Copilot have none. Which providers should expose effort at all in UI? |
 
-#### D. Needs external input
+#### C. Needs external input
 
 | Ref | Item | Blocked on |
 |---|---|---|
 | #11 | Polish placeholder glyphs for Cursor/OpenCode/Pi/Grok/Copilot | Licensed artwork |
-| ~~T21-QA~~ | ~~Manual QA pass of WebTerminal reconnect-after-navigate-away~~ | Replaced by `80f2a44` which actually fixed the refresh path (daemon now replays from cache/disk instead of silently spawning a new CLI). |
 
-#### E. Known limitations (out-of-scope by design)
+#### D. Known limitations (out-of-scope by design)
 
 | Ref | Item | Why out of scope |
 |---|---|---|
 | T19-full | Distill PTY output into a clean agent turn with artifact extraction + `<ask_user>` detection | Terminal mode is "I drive the CLI"; structured summary/artifacts belong to native mode. Current distillation is a 1-line deterministic summary. |
 | T20-repl | Same-process continue keeping an interactive REPL alive across turns with a persistent read-eval loop | Current impl opportunistically stdin-injects when the PTY is alive, spawns fresh otherwise. True always-alive REPL would need a launch-mode refactor and only benefits providers with REPL mode. |
 
+#### Product guarantees now in place
+
+Worth calling out since these used to be caveats:
+
+- **Terminal-mode Continue always preserves context** (shipped T25 `847c6e0` + `8ca5eb9`). Native resume via `--resume` / `--session` for Claude/Cursor/OpenCode; prompt-level replay via `buildContinuationPrompt({ mode: "replay" })` for Codex/Gemini/Grok/Copilot/Pi. No path loses the prior conversation.
+- **Refresh a finished terminal task → transcript is always shown** (shipped T21 `80f2a44`). Three-tier fallback: live session → `completedOutput` cache → on-disk transcript → empty-state marker. The old silent-new-CLI bug is gone.
+- **Skills are an end-to-end surface** (shipped §12.3 UI-1..4 + backend). Catalog at `~/.cabinet/skills/`, per-agent selection via persona frontmatter or the Details multiselect, Task-header chip shows what's attached, Settings → Skills lists the catalog, Claude adapter injects via `--add-dir`.
+
 **Snapshot:**
 - Provider track (§12.1): 9 / 12 shipped (3 partial).
-- Terminal track (§12.2): 25 / 25 resolved (T25 added for terminal-resume pipeline).
-- Skills UI (new track): 4 / 4 shipped.
+- Terminal track (§12.2): 25 / 25 resolved.
+- Skills UI (§12.3): 4 / 4 shipped.
+- Unclosed items above: **6** (3 mechanical code + 1 product call + 1 artwork + 2 by-design limitations).
 
 ### 12.1 Status matrix
 
