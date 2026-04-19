@@ -251,24 +251,54 @@ Phased work that landed on this branch (see commit trail below):
 
 ## 12. Next Steps
 
-### ✅ Resolved this round (2026-04-19)
+### 12.1 Status matrix
 
-1. ~~**Persist session codec per conversation**~~ — already wired: `conversation-runner.ts` calls `adapter.sessionCodec.serialize(result.sessionParams)` and persists via `writeSession(conversationId, { codecBlob, resumeId, … })`; continuations call `adapter.sessionCodec.deserialize(session.codecBlob)` and pass the rehydrated params back into `execute()`. Stale-session retry (`clearSession: true`) also lives in the runner.
-3. ~~**Dynamic model discovery**~~ — done: `AgentProvider.listModels()` optional hook added; OpenCode (`opencode models`) and Pi (`pi --list-models`) implement it with fallback. New `GET /api/agents/providers/:id/models` route with in-memory 60 s TTL cache exposes the list (payload: `{ models, dynamic, cached, ageMs, ttlMs }`).
-6. ~~**Label legacy PTY adapters as experimental**~~ — superseded: legacy PTY is now a first-class **terminal mode** surfaced via the Native/Terminal toggle in the runtime picker (see §6.1 / §11.20–21). Every provider ships a matching `<provider>_legacy` adapter.
-7. ~~**Integration coverage for adapter lifecycle**~~ — covered: `registry.test.ts` now asserts every registered CLI provider has a legacy PTY adapter; new `legacy-ids.test.ts` asserts the client-safe mirror stays in sync with `LEGACY_ADAPTER_BY_PROVIDER_ID`.
-10. ~~**Model-override param on `/api/agents/headless`**~~ — done: endpoint accepts optional `{ model, effort }`; `provider.buildOneShotInvocation(prompt, workdir, opts)` gained an `OneShotInvocationOptions` parameter. Claude (`--model`) and Codex (`--model` + `-c model_reasoning_effort=…`) wired today; other providers currently ignore the opts until their `buildOneShotInvocation` is extended.
+| # | Item | Status | Commit(s) |
+|---|------|--------|-----------|
+| 1 | Session codec persistence per conversation | ✅ Already shipped — `writeSession(conversationId, { codecBlob, resumeId, … })` + `deserialize(session.codecBlob)` on continuation | — |
+| 2 | Skills injection through the daemon | 🟨 Deferred — needs catalog location decision | — |
+| 3 | Dynamic model discovery (OpenCode / Pi) | ✅ Done — `listModels()` hook + `GET /api/agents/providers/:id/models` w/ 60 s cache | `0587bec` |
+| 4 | Per-provider directory refactor (paperclip shape) | 🟨 Deferred — mechanical churn, behavior-neutral | — |
+| 5 | Stop rendering WebTerminal in `agent-live-panel.tsx` for structured adapters | 🟨 Deferred — minor; PTY now has its own mode | — |
+| 6 | Label legacy PTY adapters as experimental | ✅ Superseded — promoted to first-class **terminal mode** via Native/Terminal toggle | `a767892`, `e922c63` |
+| 7 | Integration coverage for adapter lifecycle | ✅ Done — registry test covers 16 adapters + `legacy-ids.test.ts` asserts client/server sync | `656526d` |
+| 8 | Reduce "provider = PTY CLI" assumptions | 🟨 Deferred — cross-cutting audit, no API providers shipped yet | — |
+| 9 | Reasoning-effort policy per provider | 🟨 Deferred — product call | — |
+| 10 | Model + effort on `/api/agents/headless` | ✅ Done for Claude + Codex — endpoint + `OneShotInvocationOptions` | `979d87a` |
+| 10b | Model-override for the other 6 providers | 🟨 Deferred — same pattern as Claude/Codex, mechanical |  — |
+| 11 | Polish placeholder glyphs | 🟨 Deferred — needs licensed artwork | — |
+| 12 | Daemon-level PTY keep-alive (same-process continue) | 🟨 Deferred — would require holding PTY open after CLI exit + stdin injection | — |
 
-### Still deferred
+### 12.2 Terminal-streamed tasks — status matrix
 
-2. **Skills injection through the daemon** — wire `listSkills` / `syncSkills` so a curated skill set is symlinked into the per-adapter skills home (`~/.claude/skills`, `~/.cursor/skills`, etc.) before `execute()`. Requires a decision on where Cabinet stores the skill catalog.
-4. **Per-provider directory refactor** — split each flat `<provider>-local.ts` + `<provider>-stream.ts` pair into `adapters/<provider>-local/{index,execute,parse,test,skills}.ts` and extract the shared helpers into `_shared/{stream-json,cli-args,stderr-filter,session-codec,skills-injection,health-check}.ts`. Structural cleanup, not a functional gap.
-5. **Port remaining live surfaces to native view** — superseded-ish: with terminal mode as a first-class runtime, `WebTerminal` legitimately owns the PTY surface. Remaining opportunity: ensure `agent-live-panel.tsx` doesn't render `WebTerminal` for structured-adapter conversations.
-8. **Reduce "provider = PTY CLI" assumptions** — continue auditing code paths that assume a terminal-backed CLI; ensure API-only providers can slot in cleanly once we add them.
-9. **Reasoning-effort policy per provider** — decide how far to push effort controls. Cursor has none, OpenCode/Pi have per-variant levels, Codex has low/medium/high, Claude/Gemini/Grok/Copilot have none. Some providers should expose model choice with no effort at all.
-10b. **Model-override for the remaining 6 providers** — extend `buildOneShotInvocation` on Gemini / Cursor / OpenCode / Pi / Grok / Copilot to translate `opts.model` + `opts.effort` into each CLI's own flags.
-11. **Polish placeholder glyphs** — replace the monogram SVGs for `cursor`, `opencode`, `pi`, `grok`, `copilot` with official artwork where licensing allows.
-12. **Daemon-level PTY keep-alive** — currently each terminal-mode continuation spawns a fresh CLI in the same `sessionId`. The xterm scrollback is preserved on the client, but a literal "same process reused" would require holding the PTY open after CLI exit and injecting new prompts via stdin.
+Separate track covering the "user runs task in Terminal mode" experience. Audit and roadmap.
+
+| # | Item | Status | Commit(s) |
+|---|------|--------|-----------|
+| T1 | Register legacy `<provider>_legacy` PTY adapters for all 8 providers | ✅ Done | `a767892` |
+| T2 | `RuntimeMatrixValue.runtimeMode: "native" \| "terminal"` | ✅ Done | `a767892` |
+| T3 | Native/Terminal toggle in the runtime picker (dark chrome, hides model/effort) | ✅ Done | `a767892` |
+| T4 | `normalizeSelection` + `sameSelection` preserve `runtimeMode` (toggle latches) | ✅ Done | `e922c63` |
+| T5 | POST `/api/agents/conversations` translates `runtimeMode === "terminal"` → `LEGACY_ADAPTER_BY_PROVIDER_ID[providerId]` | ✅ Done | `a767892` |
+| T6 | POST `/api/agents/conversations/[id]/continue` same translation for continuations | ✅ Done | `745c655` |
+| T7 | `task-client.ts` (`postTurn`, `createTaskRequest`) forward `runtimeMode` in payload | ✅ Done | `745c655` |
+| T8 | Task viewer swaps Chat tab → `WebTerminal` when `isLegacyAdapterType(adapterType)` | ✅ Done | `c3a3f84` |
+| T9 | Fixed `TerminalPromptHeader` (prompt, copy, provider chip, PTY badge, status pill) | ✅ Done (now folded into fullscreen top strip) | `c3a3f84`, `4313979` |
+| T10 | Continue flow — composer appears when PTY exits, `runtimeMode: "terminal"` pinned | ✅ Done | `dc6aec1` |
+| T11 | Client-safe `legacy-ids.ts` module (fixes `child_process` client-bundle error) | ✅ Done | `b0230c5` |
+| T12 | Composer banner (emerald strip) when terminal mode is selected | ✅ Done | `9310067` |
+| T13 | Task card marker: left emerald rail + `PTY` chip on tasks board | ✅ Done | `5e8ac62` |
+| T14 | Task detail header: `PTY` chip next to title | ✅ Done (legacy view) | `5e8ac62` |
+| T15 | Sidebar recent tasks: trailing terminal glyph | ✅ Done | `5e8ac62` |
+| T16 | Fullscreen terminal layout (thin dark top strip + WebTerminal fills viewport) | ✅ Done | `4313979` |
+| T17 | Running-indicator "inside the terminal" — hide external status chip duplication, let CLI own activity feedback | 🟨 Not yet — current top strip still renders a `live / exited / awaiting input` chip above the terminal |
+| T18 | Pending agent-turn placeholder hygiene — runner writes a `pending: true` agent turn before PTY starts; for legacy adapters this sits forever (hidden in Chat tab but visible in Logs) | 🟨 Not yet — needs runner skip or post-exit finalize for legacy adapters |
+| T19 | Distill PTY output into a clean agent turn on exit (summary, artifact extraction, `<ask_user>` detection) | 🟨 Not yet — may be by design; confirm intent |
+| T20 | Same-process continue (keep CLI alive across turns, inject prompts via stdin) | 🟨 Not yet — same as §12 #12; providers with REPL mode (interactive Claude/Codex) could benefit |
+| T21 | WebTerminal reconnect-after-navigate-away UX | 🟨 Unverified — daemon buffers `session.output` and replays; manual QA needed |
+| T22 | Token bar / context window for terminal tasks | 🟨 Not yet — PTY output doesn't self-report usage uniformly; cosmetic; consider hiding `TokenBar` in terminal fullscreen layout |
+| T23 | Stop-PTY button in the top strip (signal SIGTERM to running process) | 🟨 Not yet — currently users have to wait for timeout |
+| T24 | Terminal-mode "experimental" advisory vs. first-class messaging | ✅ First-class — Native/Terminal is a positive product choice, not a warning |
 
 ## 13. Operational Notes
 
