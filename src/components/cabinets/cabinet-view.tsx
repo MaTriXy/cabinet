@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowUpRight,
   Clock3,
+  FolderTree,
   HeartPulse,
   Loader2,
   Network,
@@ -174,7 +174,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
     overview?.cabinet.name ||
     cabinetPath.split("/").filter(Boolean).pop()?.replace(/-/g, " ") ||
     "Cabinet";
-  const cabinetDescription = overview?.cabinet.description || "";
   const ownAgents = useMemo(
     () => (overview?.agents || []).filter((a) => a.cabinetDepth === 0),
     [overview?.agents]
@@ -389,11 +388,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
                   })
                 }
               />
-              {cabinetDescription ? (
-                <p className="mt-3 max-w-3xl text-[12px] leading-5 text-muted-foreground">
-                  {cabinetDescription}
-                </p>
-              ) : null}
             </section>
 
             {/* Activity + Next-up runs */}
@@ -419,22 +413,20 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
                     <h2 className="text-[14px] font-semibold tracking-tight text-foreground">
                       Child cabinets
                     </h2>
-                    <ul className="space-y-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {overview!.children.map((child) => (
-                        <li key={child.path}>
-                          <button
-                            type="button"
-                            onClick={() => openCabinet(child.path)}
-                            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/40"
-                          >
-                            <span className="truncate text-[12px] font-medium text-foreground">
-                              {child.name}
-                            </span>
-                            <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" />
-                          </button>
-                        </li>
+                        <button
+                          key={child.path}
+                          type="button"
+                          onClick={() => openCabinet(child.path)}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted/60"
+                          title={child.name}
+                        >
+                          <FolderTree className="size-3 shrink-0 text-muted-foreground" />
+                          <span className="max-w-[160px] truncate">{child.name}</span>
+                        </button>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
               </div>

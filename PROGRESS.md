@@ -1,5 +1,9 @@
 # Progress
 
+[2026-04-19] Added `data/have-fun/primes-under-100.md` listing all 25 primes under 100, grouped by decade with a summary table.
+
+[2026-04-19] **Cabinet page cleanup: drop awkward one-word description; mirror activity-feed list style on Next-up runs; child cabinets become pill chips.** (1) The cabinet manifest's `description` field seeded as "Develop" was rendering as a short, orphaned paragraph under the composer — dropped the `{cabinetDescription ? <p>…</p> : null}` block and the now-unused `cabinetDescription` binding. The cabinet name already sits in the header row, so the description paragraph was redundant at best and typo-looking at worst. (2) `next-up-runs.tsx` now wraps its rows in the same `divide-y rounded-xl border bg-card` card-list container as `ActivityFeed`, and each row reuses the two-tier layout: top sub-row = source icon (heartbeat/clock) + event label (left) + `in 1h` time (right); bottom sub-row = `<AgentPill size="sm" />` when `event.agentRef` is present. The source icon kept the pink/emerald tint that distinguished it before. (3) Child cabinets switched from a vertical list with `ArrowUpRight` affordance to `flex flex-wrap gap-1.5` pill chips — each chip is `rounded-full border bg-muted/30 px-2.5 py-1` with a `FolderTree` lucide icon + truncated `max-w-[160px]` name; clicking still routes via `openCabinet(child.path)`. Removed the `ArrowUpRight` import from `cabinet-view.tsx`. `tsc --noEmit` clean; `HTTP 200` on `/`; no new lint output on the touched files.
+
 [2026-04-19] Added `data/have-fun/harry-potter-poems/index.md` as a landing page for the HP poetry collection — links to existing Bellatrix and Voldemort pieces and lists candidates still to write (Snape, Luna, Dobby, Minerva, Neville).
 
 [2026-04-19] Added `data/plants/` folder with index and 5 Hebrew pages on Israeli plants (זית, חרוב, אלון התבור, רימון, תמר) — each with description, climate, and 1/2-year sapling prices.

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Clock3, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AgentPill } from "@/components/tasks/board-v2/agent-pill";
 import { getScheduleEvents, type ScheduleEvent } from "@/lib/agents/cron-compute";
 import type { CabinetAgentSummary, CabinetJobSummary } from "@/types/cabinets";
 
@@ -45,39 +46,73 @@ export function NextUpRuns({
           Set a heartbeat or job on an agent to see runs here.
         </p>
       ) : (
-        <ul className="space-y-1">
-          {events.map((event) => (
-            <li key={event.id}>
-              <button
-                type="button"
-                onClick={() => onEventClick(event)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                  "hover:bg-muted/30",
-                  !event.enabled && "opacity-60"
-                )}
-              >
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/40">
-                  {event.sourceType === "heartbeat" ? (
-                    <HeartPulse className="size-3.5 text-pink-400" />
-                  ) : (
-                    <Clock3 className="size-3.5 text-emerald-400" />
+        <ul className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card">
+          {events.map((event) => {
+            const isHeartbeat = event.sourceType === "heartbeat";
+            return (
+              <li key={event.id}>
+                <button
+                  type="button"
+                  onClick={() => onEventClick(event)}
+                  className={cn(
+                    "flex w-full flex-col gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/40",
+                    !event.enabled && "opacity-60"
                   )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[12px] font-medium leading-snug text-foreground">
-                    {event.label}
-                  </p>
-                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                    {event.agentName}
-                  </p>
-                </div>
-                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
-                  {formatWhen(event.time, now)}
-                </span>
-              </button>
-            </li>
-          ))}
+                >
+                  {isHeartbeat ? (
+                    // Heartbeat: icon + agent pill inline + time. The event
+                    // label is just the agent name, so we skip a dedicated
+                    // title row to avoid showing the name twice.
+                    <div className="flex items-center gap-2">
+                      <HeartPulse className="size-3.5 shrink-0 text-pink-400" />
+                      {event.agentRef ? (
+                        <AgentPill
+                          agent={event.agentRef}
+                          slug={event.agentSlug}
+                          size="sm"
+                        />
+                      ) : (
+                        <span className="truncate text-[12px] font-medium text-foreground">
+                          {event.agentName}
+                        </span>
+                      )}
+                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                        {formatWhen(event.time, now)}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Job/manual: [icon] label (left) + time (right), agent pill below */}
+                      <div className="flex items-start gap-3">
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
+                          <div className="pt-0.5">
+                            <Clock3 className="size-3.5 text-emerald-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[12px] font-medium leading-snug text-foreground">
+                              {event.label}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="ml-2 shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                          {formatWhen(event.time, now)}
+                        </span>
+                      </div>
+                      {event.agentRef ? (
+                        <div>
+                          <AgentPill
+                            agent={event.agentRef}
+                            slug={event.agentSlug}
+                            size="sm"
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
