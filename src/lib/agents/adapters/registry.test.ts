@@ -15,12 +15,35 @@ test("legacy adapter registry exposes the current compatibility adapters", () =>
     "claude_local",
     "codex_cli_legacy",
     "codex_local",
+    "copilot_cli_legacy",
     "copilot_local",
+    "cursor_cli_legacy",
     "cursor_local",
+    "gemini_cli_legacy",
     "gemini_local",
+    "grok_cli_legacy",
     "grok_local",
+    "opencode_legacy",
     "opencode_local",
+    "pi_legacy",
     "pi_local",
+  ]);
+
+  // Every provider has a matching legacy PTY adapter for terminal mode.
+  const legacyTypes = agentAdapterRegistry
+    .listAll()
+    .filter((a) => a.executionEngine === "legacy_pty_cli")
+    .map((a) => a.providerId)
+    .sort();
+  assert.deepEqual(legacyTypes, [
+    "claude-code",
+    "codex-cli",
+    "copilot-cli",
+    "cursor-cli",
+    "gemini-cli",
+    "grok-cli",
+    "opencode",
+    "pi",
   ]);
 
   const claudeAdapter = agentAdapterRegistry.get("claude_code_legacy");
