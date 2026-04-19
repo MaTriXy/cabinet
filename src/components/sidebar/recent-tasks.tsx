@@ -1,43 +1,65 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { conversationMetaToTaskMeta } from "@/lib/agents/conversation-to-task-view";
+import { getAgentColor, tintFromHex } from "@/lib/agents/cron-compute";
 import type { ConversationMeta } from "@/types/conversations";
-import type { TaskMeta, TaskStatus } from "@/types/tasks";
+import type { TaskMeta } from "@/types/tasks";
 
 function normalizeConversation(meta: ConversationMeta): TaskMeta {
   return conversationMetaToTaskMeta(meta);
 }
 
-const STATUS_DOT: Record<TaskStatus, string> = {
-  idle: "bg-muted-foreground/35",
-  running: "bg-sky-500 animate-pulse",
-  "awaiting-input": "bg-amber-500",
-  done: "bg-emerald-500",
-  failed: "bg-red-500",
-  archived: "bg-muted-foreground/20",
-};
-
+// "Done, recently" = idle or done whose last activity landed within this window.
+const DONE_FRESH_MS = 60 * 60 * 1000; // 1 hour
 const MAX_VISIBLE = 6;
+
+/**
+ * Minimal agent shape the sidebar passes down. We only need the slug + the
+ * optional hex color so running tasks inherit their owner's personality tint.
+ */
+interface SidebarAgentRef {
+  slug: string;
+  color?: string;
+}
+
+function isRecentlyDone(task: TaskMeta, now: number): boolean {
+  if (task.status !== "done" && task.status !== "idle") return false;
+  const last = task.lastActivityAt || task.completedAt || task.startedAt;
+  if (!last) return false;
+  return now - new Date(last).getTime() < DONE_FRESH_MS;
+}
+
+function resolveAgentColor(
+  slug: string,
+  agents: SidebarAgentRef[]
+): string {
+  const explicit = agents.find((a) => a.slug === slug)?.color;
+  if (explicit) return tintFromHex(explicit).text;
+  return getAgentColor(slug).text;
+}
 
 export function RecentTasks({
   active,
   padStyle,
   itemClass,
   cabinetPath,
+  agents = [],
 }: {
   active: boolean;
   padStyle: React.CSSProperties;
   itemClass: (active: boolean) => string;
   cabinetPath?: string;
+  agents?: SidebarAgentRef[];
 }) {
   const setSection = useAppStore((s) => s.setSection);
   const activeTaskId = useAppStore((s) =>
     s.section.type === "task" ? s.section.taskId : undefined
   );
   const [tasks, setTasks] = useState<TaskMeta[] | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!active) return;
@@ -61,7 +83,7 @@ export function RecentTasks({
 
     void loadTasks();
 
-    // Subscribe to global conversation events to auto-refresh.
+    // Auto-refresh via the global conversation SSE.
     const es = new EventSource("/api/agents/conversations/events");
     es.onmessage = (msg) => {
       try {
@@ -73,11 +95,24 @@ export function RecentTasks({
       }
     };
 
+    // Tick once a minute so "fresh done" green dots fade back to muted without
+    // waiting for the next SSE event.
+    const tick = setInterval(() => setNow(Date.now()), 60_000);
+
     return () => {
       cancelled = true;
       es.close();
+      clearInterval(tick);
     };
   }, [active, cabinetPath]);
+
+  const agentColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of agents) {
+      map.set(a.slug, resolveAgentColor(a.slug, agents));
+    }
+    return map;
+  }, [agents]);
 
   if (!active) return null;
 
@@ -105,30 +140,72 @@ export function RecentTasks({
 
   return (
     <>
-      {tasks.map((task) => (
-        <button
-          key={task.id}
-          onClick={() =>
-            setSection({
-              type: "task",
-              taskId: task.id,
-              mode: task.cabinetPath ? "cabinet" : "ops",
-              cabinetPath: task.cabinetPath,
-            })
-          }
-          className={itemClass(activeTaskId === task.id)}
-          style={padStyle}
-          title={task.title}
-        >
-          <span
-            className={cn(
-              "mt-[1px] size-1.5 shrink-0 rounded-full",
-              STATUS_DOT[task.status]
-            )}
-          />
-          <span className="truncate">{task.title}</span>
-        </button>
-      ))}
+      {tasks.map((task) => {
+        const isActive = activeTaskId === task.id;
+        const fresh = isRecentlyDone(task, now);
+        const agentTint =
+          agentColorMap.get(task.agentSlug) || resolveAgentColor(task.agentSlug, agents);
+
+        // Pick the dot variant and color. Running → agent color, pulsing.
+        // Needs reply → amber, solid. Failed → red. Done (recent) → green.
+        // Older idle/done → muted.
+        let dotClass = "bg-muted-foreground/35";
+        let dotStyle: React.CSSProperties | undefined;
+        let dotPulseColor: string | undefined;
+        let tooltip = task.title;
+
+        if (task.status === "running") {
+          dotClass = "";
+          dotStyle = { backgroundColor: agentTint };
+          dotPulseColor = agentTint;
+          tooltip = `${task.title} — running`;
+        } else if (task.status === "awaiting-input") {
+          dotClass = "bg-amber-500";
+          tooltip = `${task.title} — needs reply`;
+        } else if (task.status === "failed") {
+          dotClass = "bg-red-500";
+          tooltip = `${task.title} — failed`;
+        } else if (task.status === "archived") {
+          dotClass = "bg-muted-foreground/20";
+        } else if (fresh) {
+          dotClass = "bg-emerald-500";
+          tooltip = `${task.title} — just finished`;
+        }
+
+        return (
+          <button
+            key={task.id}
+            onClick={() =>
+              setSection({
+                type: "task",
+                taskId: task.id,
+                mode: task.cabinetPath ? "cabinet" : "ops",
+                cabinetPath: task.cabinetPath,
+              })
+            }
+            className={itemClass(isActive)}
+            style={padStyle}
+            title={tooltip}
+          >
+            <span className="relative mt-[1px] inline-flex size-1.5 shrink-0">
+              {dotPulseColor && (
+                <span
+                  className="absolute inset-0 rounded-full animate-ping opacity-70"
+                  style={{ backgroundColor: dotPulseColor }}
+                />
+              )}
+              <span
+                className={cn(
+                  "relative inline-block size-1.5 rounded-full",
+                  dotClass
+                )}
+                style={dotStyle}
+              />
+            </span>
+            <span className="truncate">{task.title}</span>
+          </button>
+        );
+      })}
     </>
   );
 }
