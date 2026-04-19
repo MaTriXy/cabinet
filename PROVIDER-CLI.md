@@ -283,7 +283,7 @@ Consolidated list of every item that was raised across this PRD and isn't fully 
 | Ref | Item | Blocked on |
 |---|---|---|
 | #11 | Polish placeholder glyphs for Cursor/OpenCode/Pi/Grok/Copilot | Licensed artwork |
-| T21-QA | Manual QA pass of WebTerminal reconnect-after-navigate-away | Audit says it works; needs human verification across browsers |
+| ~~T21-QA~~ | ~~Manual QA pass of WebTerminal reconnect-after-navigate-away~~ | Replaced by `80f2a44` which actually fixed the refresh path (daemon now replays from cache/disk instead of silently spawning a new CLI). |
 
 #### E. Known limitations (out-of-scope by design)
 
@@ -341,7 +341,7 @@ Separate track covering the "user runs task in Terminal mode" experience. Audit 
 | T18 | Legacy-adapter continuation — `continueConversationRun` reopens the PTY via `createDaemonSession` instead of bailing on the missing `adapter.execute` | ✅ Done | `a012478` |
 | T19 | Distill PTY output on exit — `finalizeSessionConversation` now emits a deterministic summary (`Terminal <provider> session <status> · N lines[ — last output: …]`) for legacy_pty_cli sessions so `meta.summary` isn't box-drawing junk. Raw transcript on disk untouched; artifact extraction + `<ask_user>` detection explicitly skipped for PTY mode (out of scope — terminal mode is "I drive the CLI") | ✅ Done | `98c757d` |
 | T20 | Same-process continue (keep CLI alive across turns, inject prompts via stdin) — daemon `POST /session/:id/input`; runner probes liveness first, writes to stdin if alive, spawns fresh PTY only on fallback | ✅ Done | `5aebc4c` |
-| T21 | WebTerminal reconnect-after-navigate-away UX | ✅ Verified by audit — `attachSessionSocket` (cabinet-daemon.ts) replays full `session.output` buffer on WS reconnect; on WS close the session is preserved (`session.ws = null`, session stays in map). PTY exit while away prepends a `[Process exited with code N]` marker on reconnect. |
+| T21 | WebTerminal reconnect-after-navigate-away UX — covers both live reconnect (in-memory session replay via `attachSessionSocket`) and refresh of an already-finished task (WebTerminal passes `reconnect=1`; daemon serves transcript from `completedOutput` cache → on-disk transcript → empty-state marker, never spawns a new PTY). Fixes the silent-new-CLI bug where refreshing a finished task re-ran the prompt. | ✅ Done | `80f2a44` |
 | T22 | Token bar / context window hidden in terminal fullscreen layout | ✅ Done — fullscreen top strip already omits `TokenBar` (PTY output doesn't self-report usage uniformly) | `4313979` |
 | T23 | Stop-PTY button in the top strip — calls `stopConversation()` → PATCH `{ action: "stop" }` → daemon SIGTERMs the PTY | ✅ Done | `a012478` |
 | T24 | Terminal-mode "experimental" advisory vs. first-class messaging | ✅ First-class — Native/Terminal is a positive product choice, not a warning |
