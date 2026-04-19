@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Circle,
   CircleAlert,
+  Copy,
   GitBranch,
   Loader2,
   MoreHorizontal,
@@ -17,7 +18,10 @@ import {
   Play,
   RefreshCw,
   Sparkles,
+  Terminal,
 } from "lucide-react";
+import { isLegacyAdapterType } from "@/lib/agents/adapters";
+import { WebTerminal } from "@/components/terminal/web-terminal";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -243,6 +247,10 @@ export function TaskConversationPage({
   const tokenPct = task?.meta.tokens
     ? Math.min(100, (task.meta.tokens.total / contextWindow) * 100)
     : 0;
+
+  const isTerminalMode = task ? isLegacyAdapterType(task.meta.adapterType) : false;
+  const firstUserTurn = task?.turns.find((t) => t.role === "user") || null;
+  const terminalPrompt = firstUserTurn?.content || task?.meta.title || "";
 
   const lastTurn = task ? task.turns[task.turns.length - 1] : null;
   const showWrapUp =
@@ -580,6 +588,46 @@ export function TaskConversationPage({
           value="chat"
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
+          {isTerminalMode ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <TerminalPromptHeader
+                prompt={terminalPrompt}
+                providerId={task.meta.providerId}
+                adapterType={task.meta.adapterType}
+                status={task.meta.status}
+              />
+              <div className="flex-1 min-h-0 bg-zinc-950">
+                <WebTerminal
+                  sessionId={task.meta.id}
+                  reconnect
+                  themeSurface="terminal"
+                  onClose={() => {
+                    /* PTY ending is handled by the daemon; status updates via SSE. */
+                  }}
+                />
+              </div>
+              {!readOnly && task.meta.status === "idle" ? (
+                <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/80 px-4 py-3">
+                  <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+                    <span className="text-[11px] text-zinc-500">
+                      Session ended. Continue keeps the PTY session alive for the next prompt.
+                    </span>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-7 gap-1.5 bg-emerald-500 text-zinc-950 hover:bg-emerald-400"
+                      disabled
+                      title="Coming in round 2"
+                    >
+                      <Play className="size-3" />
+                      Continue
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+          <>
           <div className="flex-1 min-h-0 overflow-y-auto">
             {tokenPct >= 80 && task.meta.status !== "done" && !readOnly ? (
               <div className="mx-auto mx-6 my-4 max-w-3xl">
@@ -643,6 +691,8 @@ export function TaskConversationPage({
               </div>
             </div>
           ) : null}
+          </>
+          )}
         </TabsContent>
 
         <TabsContent
@@ -690,6 +740,91 @@ export function TaskConversationPage({
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function TerminalPromptHeader({
+  prompt,
+  providerId,
+  adapterType,
+  status,
+}: {
+  prompt: string;
+  providerId?: string;
+  adapterType?: string;
+  status: TaskStatus;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    if (!prompt) return;
+    navigator.clipboard.writeText(prompt).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [prompt]);
+
+  const statusTone =
+    status === "running"
+      ? "bg-emerald-500/20 text-emerald-300"
+      : status === "awaiting-input"
+        ? "bg-amber-500/20 text-amber-300"
+        : "bg-zinc-700/50 text-zinc-300";
+  const statusLabel =
+    status === "running"
+      ? "PTY live"
+      : status === "awaiting-input"
+        ? "Awaiting input"
+        : status === "idle"
+          ? "Session ended"
+          : "Failed";
+
+  return (
+    <div className="shrink-0 border-b border-zinc-800 bg-zinc-900/90 px-4 py-3">
+      <div className="mx-auto flex max-w-3xl items-start gap-3">
+        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-zinc-800 text-emerald-400">
+          <Terminal className="size-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              Prompt
+            </span>
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                statusTone
+              )}
+            >
+              {statusLabel}
+            </span>
+            {providerId && (
+              <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[9px] font-medium text-zinc-400">
+                {providerId}
+              </span>
+            )}
+            {adapterType && (
+              <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
+                PTY
+              </span>
+            )}
+          </div>
+          <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-zinc-100">
+            {prompt || "(no prompt)"}
+          </pre>
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="shrink-0 rounded-md border border-zinc-700 bg-zinc-900 p-1.5 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+          title={copied ? "Copied" : "Copy prompt"}
+        >
+          {copied ? (
+            <Check className="size-3.5" />
+          ) : (
+            <Copy className="size-3.5" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }
