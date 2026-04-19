@@ -112,7 +112,6 @@ export function TreeNode({
       loadPage(node.path);
       setSection({
         type: "cabinet",
-        mode: "cabinet",
         cabinetPath: node.path,
       });
       return;
@@ -126,7 +125,6 @@ export function TreeNode({
       contextCabinetPath
         ? {
             type: "page",
-            mode: "cabinet",
             cabinetPath: contextCabinetPath,
           }
         : { type: "page" }
@@ -154,7 +152,6 @@ export function TreeNode({
         contextCabinetPath
           ? {
               type: "page",
-              mode: "cabinet",
               cabinetPath: contextCabinetPath,
             }
           : { type: "page" }

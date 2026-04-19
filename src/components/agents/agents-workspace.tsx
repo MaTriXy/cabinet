@@ -395,12 +395,10 @@ export function AgentsWorkspace({
   selectedAgentSlug,
   selectedScope = "all",
   cabinetPath,
-  workspaceMode,
 }: {
   selectedAgentSlug?: string | null;
   selectedScope?: "all" | "agent";
   cabinetPath?: string;
-  workspaceMode?: "ops" | "cabinet";
 }) {
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
@@ -479,16 +477,10 @@ export function AgentsWorkspace({
   const setSection = useAppStore((state) => state.setSection);
   const cabinetVisibilityModes = useAppStore((state) => state.cabinetVisibilityModes);
   const setCabinetVisibilityMode = useAppStore((state) => state.setCabinetVisibilityMode);
-  const resolvedWorkspaceMode =
-    workspaceMode || (cabinetPath ? "cabinet" : "ops");
-  const effectiveCabinetPath =
-    cabinetPath || (resolvedWorkspaceMode === "ops" ? ROOT_CABINET_PATH : undefined);
+  const effectiveCabinetPath = cabinetPath || ROOT_CABINET_PATH;
   const cabinetVisibilityMode =
-    (effectiveCabinetPath
-      ? cabinetVisibilityModes[effectiveCabinetPath]
-      : undefined) || "own";
-  const effectiveVisibilityMode: CabinetVisibilityMode =
-    resolvedWorkspaceMode === "ops" ? "all" : cabinetVisibilityMode;
+    cabinetVisibilityModes[effectiveCabinetPath] || "own";
+  const effectiveVisibilityMode: CabinetVisibilityMode = cabinetVisibilityMode;
 
   const allPages = flattenTree(treeNodes);
   const settingsAgentSlug =
@@ -884,31 +876,20 @@ export function AgentsWorkspace({
   }, [section.cabinetPath, section.conversationId, selectedAgentSlug, selectedScope]);
 
   function buildAgentSection(agentSlug: string, agentCabinetPath?: string) {
-    if (agentCabinetPath) {
-      return {
-        type: "agent" as const,
-        mode: "cabinet" as const,
-        slug: agentSlug,
-        cabinetPath: agentCabinetPath,
-        agentScopedId: `${agentCabinetPath}::agent::${agentSlug}`,
-      };
-    }
-
+    const scopedPath = agentCabinetPath || ROOT_CABINET_PATH;
     return {
       type: "agent" as const,
-      mode: "ops" as const,
       slug: agentSlug,
+      cabinetPath: scopedPath,
+      agentScopedId: `${scopedPath}::agent::${agentSlug}`,
     };
   }
 
   function buildAgentsSection(nextCabinetPath?: string) {
-    return nextCabinetPath
-      ? ({
-          type: "agents" as const,
-          mode: "cabinet" as const,
-          cabinetPath: nextCabinetPath,
-        })
-      : ({ type: "agents" as const, mode: "ops" as const });
+    return {
+      type: "agents" as const,
+      cabinetPath: nextCabinetPath || ROOT_CABINET_PATH,
+    };
   }
 
   function openAgentWorkspace(target: AgentListItem | string) {
@@ -918,8 +899,7 @@ export function AgentsWorkspace({
         : target;
     const agentSlug = typeof target === "string" ? target : target.slug;
     const agentCabinetPath =
-      targetAgent?.cabinetPath ||
-      (resolvedWorkspaceMode === "cabinet" ? effectiveCabinetPath : undefined);
+      targetAgent?.cabinetPath || effectiveCabinetPath;
 
     setActiveAgentSlug(agentSlug);
     setSelectedConversationId(null);
@@ -2397,7 +2377,6 @@ export function AgentsWorkspace({
                     effectiveCabinetPath
                       ? {
                           type: "page",
-                          mode: "cabinet",
                           cabinetPath: effectiveCabinetPath,
                         }
                       : { type: "page" }

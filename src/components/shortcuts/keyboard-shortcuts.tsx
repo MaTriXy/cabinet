@@ -5,6 +5,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useTreeStore } from "@/stores/tree-store";
+import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 
 export function KeyboardShortcuts() {
   const { toggleTerminal, section, setSection } = useAppStore();
@@ -37,26 +38,23 @@ export function KeyboardShortcuts() {
       // Cmd+M — toggle Agents view
       if (isMod && e.key === "m" && !e.shiftKey) {
         e.preventDefault();
+        const scopedPath = section.cabinetPath;
+        const inNonRootCabinet =
+          scopedPath && scopedPath !== ROOT_CABINET_PATH;
         if (section.type === "agents") {
-          if (section.mode === "cabinet" && section.cabinetPath) {
+          if (inNonRootCabinet) {
             setSection({
               type: "cabinet",
-              mode: "cabinet",
-              cabinetPath: section.cabinetPath,
+              cabinetPath: scopedPath,
             });
           } else {
             setSection({ type: "home" });
           }
         } else {
-          if (section.mode === "cabinet" && section.cabinetPath) {
-            setSection({
-              type: "agents",
-              mode: "cabinet",
-              cabinetPath: section.cabinetPath,
-            });
-          } else {
-            setSection({ type: "agents", mode: "ops" });
-          }
+          setSection({
+            type: "agents",
+            cabinetPath: scopedPath || ROOT_CABINET_PATH,
+          });
         }
       }
 

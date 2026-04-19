@@ -143,8 +143,9 @@ export function RecentTasks({
       {tasks.map((task) => {
         const isActive = activeTaskId === task.id;
         const fresh = isRecentlyDone(task, now);
+        const slugForColor = task.agentSlug || "general";
         const agentTint =
-          agentColorMap.get(task.agentSlug) || resolveAgentColor(task.agentSlug, agents);
+          agentColorMap.get(slugForColor) || resolveAgentColor(slugForColor, agents);
 
         // Pick the dot variant and color. Running → agent color, pulsing.
         // Needs reply → amber, solid. Failed → red. Done (recent) → green.
@@ -179,7 +180,6 @@ export function RecentTasks({
               setSection({
                 type: "task",
                 taskId: task.id,
-                mode: task.cabinetPath ? "cabinet" : "ops",
                 cabinetPath: task.cabinetPath,
               })
             }

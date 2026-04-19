@@ -119,10 +119,8 @@ function FilterChip({
 
 export function JobsManager({
   cabinetPath,
-  workspaceMode,
 }: {
   cabinetPath?: string;
-  workspaceMode?: "ops" | "cabinet";
 } = {}) {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [selectedAgentSlug, setSelectedAgentSlug] = useState<string | null>(null);
@@ -148,12 +146,9 @@ export function JobsManager({
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const cabinetVisibilityModes = useAppStore((state) => state.cabinetVisibilityModes);
-  const resolvedWorkspaceMode = workspaceMode || (cabinetPath ? "cabinet" : "ops");
   const effectiveCabinetPath = cabinetPath || ROOT_CABINET_PATH;
   const effectiveVisibilityMode: CabinetVisibilityMode =
-    resolvedWorkspaceMode === "ops"
-      ? "all"
-      : cabinetVisibilityModes[effectiveCabinetPath] || "own";
+    cabinetVisibilityModes[effectiveCabinetPath] || "own";
 
   async function refreshAgents() {
     setLoadingAgents(true);
@@ -641,7 +636,6 @@ export function JobsManager({
                           effectiveCabinetPath
                             ? {
                                 type: "page",
-                                mode: "cabinet",
                                 cabinetPath: effectiveCabinetPath,
                               }
                             : { type: "page" }
@@ -665,7 +659,6 @@ export function JobsManager({
                     effectiveCabinetPath
                       ? {
                           type: "page",
-                          mode: "cabinet",
                           cabinetPath: effectiveCabinetPath,
                         }
                       : { type: "page" }

@@ -262,7 +262,6 @@ export function AppShell() {
           selectedScope="all"
           selectedAgentSlug={null}
           cabinetPath={section.cabinetPath}
-          workspaceMode={section.mode}
         />
       );
     }
@@ -276,7 +275,6 @@ export function AppShell() {
             onBack={() =>
               setSection({
                 type: "agents",
-                mode: section.mode,
                 cabinetPath: section.cabinetPath,
               })
             }
@@ -284,14 +282,12 @@ export function AppShell() {
               setSection({
                 type: "task",
                 taskId: c.id,
-                mode: c.cabinetPath ? "cabinet" : "ops",
                 cabinetPath: c.cabinetPath,
               })
             }
             onSeeAllConversations={() =>
               setSection({
                 type: "tasks",
-                mode: section.mode || (section.cabinetPath ? "cabinet" : "ops"),
                 cabinetPath: section.cabinetPath,
                 agentScopedId,
               })
@@ -304,7 +300,6 @@ export function AppShell() {
           selectedScope="agent"
           selectedAgentSlug={section.slug || null}
           cabinetPath={section.cabinetPath}
-          workspaceMode={section.mode}
         />
       );
     }
@@ -312,7 +307,6 @@ export function AppShell() {
       return (
         <TasksBoard
           cabinetPath={section.cabinetPath}
-          workspaceMode={section.mode}
         />
       );
     }
@@ -323,7 +317,6 @@ export function AppShell() {
       return (
         <JobsManager
           cabinetPath={section.cabinetPath}
-          workspaceMode={section.mode}
         />
       );
     }

@@ -848,20 +848,15 @@ function formatHourLabel(hour: number): string {
 
 export function TasksBoard({
   cabinetPath,
-  workspaceMode,
 }: {
   cabinetPath?: string;
-  workspaceMode?: "ops" | "cabinet";
 } = {}) {
   const setSection = useAppStore((state) => state.setSection);
   const cabinetVisibilityModes = useAppStore((state) => state.cabinetVisibilityModes);
   const setCabinetVisibilityMode = useAppStore((state) => state.setCabinetVisibilityMode);
-  const resolvedWorkspaceMode = workspaceMode || (cabinetPath ? "cabinet" : "ops");
   const effectiveCabinetPath = cabinetPath || ROOT_CABINET_PATH;
   const effectiveVisibilityMode: CabinetVisibilityMode =
-    resolvedWorkspaceMode === "ops"
-      ? "all"
-      : cabinetVisibilityModes[effectiveCabinetPath] || "own";
+    cabinetVisibilityModes[effectiveCabinetPath] || "own";
 
   const [overview, setOverview] = useState<CabinetOverview | null>(null);
   const [drafts, setDrafts] = useState<HumanInboxDraft[]>([]);
@@ -1342,7 +1337,6 @@ export function TasksBoard({
     setSection({
       type: "task",
       taskId: conversation.id,
-      mode: conversation.cabinetPath ? "cabinet" : "ops",
       cabinetPath: conversation.cabinetPath,
     });
   }
@@ -1452,7 +1446,7 @@ export function TasksBoard({
     CABINET_VISIBILITY_OPTIONS.find((option) => option.value === effectiveVisibilityMode)?.label ||
     "Own agents only";
   const boardTitle =
-    resolvedWorkspaceMode === "cabinet" ? `${cabinetName} Task Board` : "All Cabinets Task Board";
+    effectiveCabinetPath !== ROOT_CABINET_PATH ? `${cabinetName} Task Board` : "All Cabinets Task Board";
   const runsLabel =
     triggerFilter === "all"
       ? `${filteredConversations.length} run${filteredConversations.length === 1 ? "" : "s"}`
@@ -1461,7 +1455,7 @@ export function TasksBoard({
         : `${filteredConversations.length} ${triggerFilter} run${filteredConversations.length === 1 ? "" : "s"}`;
   const boardDescription = selectedFilterAgent
     ? `${drafts.length} inbox draft${drafts.length === 1 ? "" : "s"}. ${runsLabel} for ${selectedFilterAgent.name}.`
-    : resolvedWorkspaceMode === "cabinet"
+    : effectiveCabinetPath !== ROOT_CABINET_PATH
       ? `${scopeLabel}. ${drafts.length} inbox draft${drafts.length === 1 ? "" : "s"} and ${runsLabel} across ${visibleAgents.length} visible agent${visibleAgents.length === 1 ? "" : "s"}.`
       : `${drafts.length} inbox draft${drafts.length === 1 ? "" : "s"} and ${runsLabel} across ${visibleAgents.length} visible agent${visibleAgents.length === 1 ? "" : "s"} in all cabinets.`;
 
@@ -1484,7 +1478,7 @@ export function TasksBoard({
               </h1>
               <p className="pt-2 text-sm leading-6 text-muted-foreground">
                 {jobCount} scheduled job{jobCount === 1 ? "" : "s"}, {heartbeatCount} heartbeat{heartbeatCount === 1 ? "" : "s"}, and {manualConversationsInWindow.length} manual run{manualConversationsInWindow.length === 1 ? "" : "s"}
-                {resolvedWorkspaceMode === "cabinet" ? ` in ${cabinetName}` : " across all cabinets"}.
+                {effectiveCabinetPath !== ROOT_CABINET_PATH ? ` in ${cabinetName}` : " across all cabinets"}.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
@@ -1671,7 +1665,7 @@ export function TasksBoard({
                 </SelectContent>
               </Select>
 
-              {resolvedWorkspaceMode === "cabinet" ? (
+              {effectiveCabinetPath !== ROOT_CABINET_PATH ? (
                 <Select
                   items={scopeItems}
                   value={effectiveVisibilityMode}
@@ -1928,7 +1922,7 @@ export function TasksBoard({
               </SelectContent>
             </Select>
 
-            {resolvedWorkspaceMode === "cabinet" ? (
+            {effectiveCabinetPath !== ROOT_CABINET_PATH ? (
               <Select
                 items={scopeItems}
                 value={effectiveVisibilityMode}

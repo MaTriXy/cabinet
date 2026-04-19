@@ -5,6 +5,7 @@ import { CheckCircle2, XCircle, X } from "lucide-react";
 import { dedupeConversationNotifications } from "@/lib/agents/conversation-notification-utils";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 
 interface TaskNotification {
   id: string;
@@ -115,16 +116,14 @@ export function NotificationToasts() {
           key={toast._key}
           type="button"
           onClick={() => {
-            if (toast.cabinetPath) {
+            {
+              const scopedPath = toast.cabinetPath || ROOT_CABINET_PATH;
               setSection({
                 type: "agent",
-                mode: "cabinet",
                 slug: toast.agentSlug,
-                cabinetPath: toast.cabinetPath,
-                agentScopedId: `${toast.cabinetPath}::agent::${toast.agentSlug}`,
+                cabinetPath: scopedPath,
+                agentScopedId: `${scopedPath}::agent::${toast.agentSlug}`,
               });
-            } else {
-              setSection({ type: "agent", mode: "ops", slug: toast.agentSlug });
             }
             window.dispatchEvent(
               new CustomEvent("cabinet:open-conversation", {

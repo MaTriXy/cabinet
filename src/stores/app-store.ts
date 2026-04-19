@@ -14,15 +14,13 @@ export type SectionType =
   | "jobs"
   | "settings"
   | "registry";
-export type SectionMode = "ops" | "cabinet";
 
 const CABINET_VISIBILITY_STORAGE_KEY = "cabinet.visibility.modes";
 
 export interface SelectedSection {
   type: SectionType;
   slug?: string; // agent slug when type === "agent"
-  mode?: SectionMode;
-  cabinetPath?: string; // cabinet scope for cabinet/page/agent/agents/jobs sections
+  cabinetPath?: string; // scope for cabinet/page/agent/agents/jobs/tasks/task; defaults to ROOT_CABINET_PATH
   agentScopedId?: string;
   conversationId?: string; // auto-select this conversation on mount
   taskId?: string; // task id when type === "task"

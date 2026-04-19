@@ -82,7 +82,6 @@ function NewCabinetOverlay({
       selectPage(data.path);
       setSection({
         type: "cabinet",
-        mode: "cabinet",
         cabinetPath: data.path,
       });
       onOpenChange(false);

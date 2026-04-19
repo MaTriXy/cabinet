@@ -11,18 +11,19 @@ import { useEditorStore } from "@/stores/editor-store";
  *
  * Hash format:
  *   #/home
- *   #/ops/agents
- *   #/ops/tasks
- *   #/ops/agents/{slug}
  *   #/cabinet/{cabinetPath}
  *   #/cabinet/{cabinetPath}/agents
  *   #/cabinet/{cabinetPath}/tasks
  *   #/cabinet/{cabinetPath}/agents/{slug}
+ *   #/cabinet/{cabinetPath}/tasks/{taskId}
  *   #/cabinet/{cabinetPath}/jobs
  *   #/cabinet/{cabinetPath}/data/{pagePath}
  *   #/page/{pagePath}
  *   #/settings
  *   #/settings/{slug}
+ *
+ * Scope is always a cabinet. Root uses cabinetPath = "." (ROOT_CABINET_PATH);
+ * breadth is controlled by CabinetVisibilityMode stored per-cabinet.
  */
 
 const LS_KEY = "cabinet.last-route";
@@ -48,41 +49,31 @@ function decodePathSegment(value?: string): string {
 }
 
 function buildHash(section: SectionState, pagePath: string | null): string {
-  if (section.type === "page" && section.mode === "cabinet" && section.cabinetPath && pagePath) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/data/${encodePathSegment(pagePath)}`;
-  }
+  const cabinetPath = section.cabinetPath || ROOT_CABINET_PATH;
+
   if (section.type === "page" && pagePath) {
+    if (section.cabinetPath) {
+      return `#/cabinet/${encodePathSegment(section.cabinetPath)}/data/${encodePathSegment(pagePath)}`;
+    }
     return `#/page/${encodePathSegment(pagePath)}`;
   }
-  if (section.type === "cabinet" && section.cabinetPath) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}`;
-  }
-  if (section.type === "agent" && section.mode === "cabinet" && section.cabinetPath && section.slug) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/agents/${encodePathSegment(section.slug)}`;
-  }
-  if (section.type === "agents" && section.mode === "cabinet" && section.cabinetPath) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/agents`;
-  }
-  if (section.type === "task" && section.mode === "cabinet" && section.cabinetPath && section.taskId) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/tasks/${encodePathSegment(section.taskId)}`;
-  }
-  if (section.type === "task" && section.taskId) {
-    return `#/ops/tasks/${encodePathSegment(section.taskId)}`;
-  }
-  if (section.type === "tasks" && section.mode === "cabinet" && section.cabinetPath) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/tasks`;
-  }
-  if (section.type === "jobs" && section.mode === "cabinet" && section.cabinetPath) {
-    return `#/cabinet/${encodePathSegment(section.cabinetPath)}/jobs`;
+  if (section.type === "cabinet") {
+    return `#/cabinet/${encodePathSegment(cabinetPath)}`;
   }
   if (section.type === "agent" && section.slug) {
-    return `#/ops/agents/${encodePathSegment(section.slug)}`;
+    return `#/cabinet/${encodePathSegment(cabinetPath)}/agents/${encodePathSegment(section.slug)}`;
   }
   if (section.type === "agents") {
-    return "#/ops/agents";
+    return `#/cabinet/${encodePathSegment(cabinetPath)}/agents`;
+  }
+  if (section.type === "task" && section.taskId) {
+    return `#/cabinet/${encodePathSegment(cabinetPath)}/tasks/${encodePathSegment(section.taskId)}`;
   }
   if (section.type === "tasks") {
-    return "#/ops/tasks";
+    return `#/cabinet/${encodePathSegment(cabinetPath)}/tasks`;
+  }
+  if (section.type === "jobs") {
+    return `#/cabinet/${encodePathSegment(cabinetPath)}/jobs`;
   }
   if (section.type === "settings") {
     return section.slug
@@ -108,47 +99,13 @@ function parseHash(hash: string): RouteState {
     };
   }
 
-  if (parts[0] === "ops") {
-    if (parts[1] === "agents" && parts[2]) {
-      return {
-        section: {
-          type: "agent",
-          mode: "ops",
-          slug: decodePathSegment(parts[2]),
-        },
-        pagePath: null,
-      };
-    }
-
-    if (parts[1] === "agents") {
-      return {
-        section: { type: "agents", mode: "ops" },
-        pagePath: null,
-      };
-    }
-
-    if (parts[1] === "tasks" && parts[2]) {
-      return {
-        section: { type: "task", mode: "ops", taskId: decodePathSegment(parts[2]) },
-        pagePath: null,
-      };
-    }
-
-    if (parts[1] === "tasks") {
-      return {
-        section: { type: "tasks", mode: "ops" },
-        pagePath: null,
-      };
-    }
-  }
-
   if (parts[0] === "cabinet") {
     const cabinetPath = decodePathSegment(parts[1]);
     const leaf = parts[2];
 
     if (!leaf) {
       return {
-        section: { type: "cabinet", mode: "cabinet", cabinetPath },
+        section: { type: "cabinet", cabinetPath },
         pagePath: null,
       };
     }
@@ -158,7 +115,6 @@ function parseHash(hash: string): RouteState {
       return {
         section: {
           type: "agent",
-          mode: "cabinet",
           cabinetPath,
           slug,
           agentScopedId: `${cabinetPath}::agent::${slug}`,
@@ -169,7 +125,7 @@ function parseHash(hash: string): RouteState {
 
     if (leaf === "agents") {
       return {
-        section: { type: "agents", mode: "cabinet", cabinetPath },
+        section: { type: "agents", cabinetPath },
         pagePath: null,
       };
     }
@@ -178,7 +134,6 @@ function parseHash(hash: string): RouteState {
       return {
         section: {
           type: "task",
-          mode: "cabinet",
           cabinetPath,
           taskId: decodePathSegment(parts[3]),
         },
@@ -188,14 +143,14 @@ function parseHash(hash: string): RouteState {
 
     if (leaf === "tasks") {
       return {
-        section: { type: "tasks", mode: "cabinet", cabinetPath },
+        section: { type: "tasks", cabinetPath },
         pagePath: null,
       };
     }
 
     if (leaf === "jobs") {
       return {
-        section: { type: "jobs", mode: "cabinet", cabinetPath },
+        section: { type: "jobs", cabinetPath },
         pagePath: null,
       };
     }
@@ -203,7 +158,7 @@ function parseHash(hash: string): RouteState {
     if (leaf === "data" && parts[3]) {
       const pagePath = decodePathSegment(parts.slice(3).join("/"));
       return {
-        section: { type: "page", mode: "cabinet", cabinetPath },
+        section: { type: "page", cabinetPath },
         pagePath,
       };
     }
@@ -260,7 +215,7 @@ async function applyRoute(route: RouteState) {
     return;
   }
 
-  if (route.section.mode === "cabinet" && route.section.cabinetPath) {
+  if (route.section.cabinetPath) {
     selectPage(route.section.cabinetPath);
     await loadPage(route.section.cabinetPath);
     if (route.section.cabinetPath !== ROOT_CABINET_PATH) {
@@ -307,7 +262,6 @@ export function useHashRoute() {
       if (
         state.section.type !== prev.section.type ||
         state.section.slug !== prev.section.slug ||
-        state.section.mode !== prev.section.mode ||
         state.section.cabinetPath !== prev.section.cabinetPath
       ) {
         const selectedPath = useTreeStore.getState().selectedPath;

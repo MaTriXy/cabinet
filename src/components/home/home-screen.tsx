@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
+import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import { Users, Download, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { flattenTree } from "@/lib/tree-utils";
@@ -347,8 +348,8 @@ export function HomeScreen() {
       });
       setSection({
         type: "agent",
-        mode: "ops",
         slug: targetAgent,
+        cabinetPath: ROOT_CABINET_PATH,
         conversationId: data.conversation?.id,
       });
     },

@@ -33,7 +33,6 @@ import {
   Plus,
   BookOpen,
   Users,
-  Bot,
   SquareKanban,
   Pencil,
   FilePlus,
@@ -48,7 +47,6 @@ import {
 import { cn } from "@/lib/utils";
 import { AgentIdentity, getAgentDisplayName } from "@/components/agents/agent-identity";
 import { EditAgentIdentityDialog } from "@/components/agents/edit-agent-identity-dialog";
-import { resolveAgentIcon } from "@/lib/agents/icon-catalog";
 import {
   findNodeByPath,
   findParentCabinetNode,
@@ -132,7 +130,7 @@ export function TreeView() {
   }, []);
 
   const rootCabinet = useMemo(() => findRootCabinetNode(nodes), [nodes]);
-  const routeCabinetPath = section.mode === "cabinet" ? section.cabinetPath : undefined;
+  const routeCabinetPath = section.cabinetPath;
   const activeCabinet = useMemo(() => {
     if (!routeCabinetPath) return null;
     return findNodeByPath(nodes, routeCabinetPath);
@@ -143,7 +141,7 @@ export function TreeView() {
   }, [activeCabinet, nodes]);
   const effectiveCabinetPath = activeCabinet?.path || ROOT_CABINET_PATH;
   const cabinetVisibilityMode =
-    cabinetVisibilityModes[effectiveCabinetPath] || (activeCabinet ? "own" : "all");
+    cabinetVisibilityModes[effectiveCabinetPath] || "own";
   const visibleTreeNodes = activeCabinet?.children || rootCabinet?.children || nodes;
   const kbSectionLabel = "Data";
 
@@ -256,7 +254,6 @@ export function TreeView() {
     void loadPage(targetCabinetPath);
     setSection({
       type: "cabinet",
-      mode: "cabinet",
       cabinetPath: targetCabinetPath,
     });
   };
@@ -266,9 +263,78 @@ export function TreeView() {
     void loadPage(targetCabinetPath);
     setSection({
       type: "page",
-      mode: "cabinet",
       cabinetPath: targetCabinetPath,
     });
+  };
+
+  const renderAgentRow = (
+    key: string,
+    agent: {
+      slug: string;
+      cabinetPath?: string;
+      displayName?: string;
+      name?: string;
+      iconKey?: string;
+      color?: string;
+      avatar?: string;
+      avatarExt?: string;
+    },
+    opts: {
+      selected: boolean;
+      onClick: () => void;
+      activeDot?: boolean;
+      editable?: { slug: string; cabinetPath?: string };
+    }
+  ) => {
+    const row = (
+      <button
+        onClick={opts.onClick}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-foreground/[0.03]",
+          opts.selected && "bg-accent text-accent-foreground"
+        )}
+        style={pad(1)}
+      >
+        <AgentIdentity
+          agent={{
+            slug: agent.slug,
+            cabinetPath: agent.cabinetPath,
+            displayName: agent.displayName,
+            iconKey: agent.iconKey,
+            color: agent.color,
+            avatar: agent.avatar,
+            avatarExt: agent.avatarExt,
+          }}
+          size="sm"
+        />
+        <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/75">
+          {getAgentDisplayName(agent)}
+        </span>
+        {typeof opts.activeDot === "boolean" && (
+          <span
+            className={cn(
+              "ml-auto h-1.5 w-1.5 shrink-0 rounded-full",
+              opts.activeDot ? "bg-green-500" : "bg-muted-foreground/30"
+            )}
+          />
+        )}
+      </button>
+    );
+
+    if (!opts.editable) return <div key={key}>{row}</div>;
+
+    const editable = opts.editable;
+    return (
+      <ContextMenu key={key}>
+        <ContextMenuTrigger>{row}</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => setEditingAgent(editable)}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />
+            Edit agent
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
   };
 
   const openParentCabinet = () => {
@@ -411,17 +477,12 @@ export function TreeView() {
                 />
               </button>
               <button
-                onClick={() => {
-                  if (activeCabinet) {
-                    setSection({
-                      type: "agents",
-                      mode: "cabinet",
-                      cabinetPath: activeCabinet.path,
-                    });
-                    return;
-                  }
-                  setSection({ type: "agents", mode: "ops" });
-                }}
+                onClick={() =>
+                  setSection({
+                    type: "agents",
+                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                  })
+                }
                 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2 hover:text-foreground/80 transition-colors"
               >
                 <Users className="h-3.5 w-3.5 shrink-0" />
@@ -430,15 +491,10 @@ export function TreeView() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (activeCabinet) {
-                    setSection({
-                      type: "agents",
-                      mode: "cabinet",
-                      cabinetPath: activeCabinet.path,
-                    });
-                  } else {
-                    setSection({ type: "agents", mode: "ops" });
-                  }
+                  setSection({
+                    type: "agents",
+                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                  });
                   setTimeout(() => {
                     window.dispatchEvent(new CustomEvent("cabinet:open-add-agent"));
                   }, 100);
@@ -452,153 +508,54 @@ export function TreeView() {
 
             {agentsExpanded && (
               <>
-                {activeCabinet ? (
-                  agents.length > 0 ? (
-                    agents.map((agent) => {
-                      const displayName = getAgentDisplayName(agent);
-                      return (
-                        <ContextMenu key={agent.scopedId || agent.slug}>
-                          <ContextMenuTrigger>
-                            <button
-                              onClick={() =>
-                                setSection({
-                                  type: "agent",
-                                  mode: "cabinet",
-                                  slug: agent.slug,
-                                  cabinetPath:
-                                    agent.cabinetPath || activeCabinet?.path,
-                                  agentScopedId:
-                                    agent.scopedId ||
-                                    `${agent.cabinetPath || activeCabinet?.path}::agent::${agent.slug}`,
-                                })
-                              }
-                              className={cn(
-                                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-foreground/[0.03]",
-                                selectedAgentScopedId ===
-                                  (agent.scopedId ||
-                                    `${agent.cabinetPath || activeCabinet?.path}::agent::${agent.slug}`) &&
-                                  "bg-accent text-accent-foreground"
-                              )}
-                              style={pad(1)}
-                            >
-                              <AgentIdentity
-                                agent={{
-                                  slug: agent.slug,
-                                  cabinetPath: agent.cabinetPath,
-                                  displayName: agent.displayName,
-                                  iconKey: agent.iconKey,
-                                  color: agent.color,
-                                  avatar: agent.avatar,
-                                  avatarExt: agent.avatarExt,
-                                }}
-                                size="sm"
-                              />
-                              <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/75">
-                                {displayName}
-                              </span>
-                              <span
-                                className={cn(
-                                  "ml-auto h-1.5 w-1.5 shrink-0 rounded-full",
-                                  agent.active
-                                    ? "bg-green-500"
-                                    : "bg-muted-foreground/30"
-                                )}
-                              />
-                            </button>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem
-                              onClick={() =>
-                                setEditingAgent({
-                                  slug: agent.slug,
-                                  cabinetPath:
-                                    agent.cabinetPath || activeCabinet?.path,
-                                })
-                              }
-                            >
-                              <Pencil className="mr-2 h-3.5 w-3.5" />
-                              Edit agent
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })
-                  ) : (
-                    <div
-                      className="px-3 py-2 text-[11px] text-muted-foreground"
-                      style={pad(1)}
-                    >
-                      {cabinetVisibilityMode === "own"
-                        ? "This cabinet does not have local agents yet."
-                        : "No agents are visible in the selected cabinet scope."}
-                    </div>
-                  )
-                ) : (
-                  <>
-                    {/* General agent (depth 1) */}
-                    <button
-                      onClick={() =>
-                        setSection({ type: "agent", mode: "ops", slug: "general" })
-                      }
-                      className={itemClass(
-                        section.type === "agent" && section.slug === "general"
-                      )}
-                      style={pad(1)}
-                    >
-                      <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">General</span>
-                    </button>
-                    {/* Editor first, then rest (depth 2) */}
-                    {[
-                      ...agents.filter((a) => a.slug === "editor"),
-                      ...agents.filter((a) => a.slug !== "editor"),
-                    ].map((agent) => (
-                      <button
-                        key={agent.scopedId || agent.slug}
-                        onClick={() => {
-                          if (agent.cabinetPath) {
-                            setSection({
-                              type: "agent",
-                              mode: "cabinet",
-                              slug: agent.slug,
-                              cabinetPath: agent.cabinetPath,
-                              agentScopedId:
-                                agent.scopedId ||
-                                `${agent.cabinetPath}::agent::${agent.slug}`,
-                            });
-                            return;
-                          }
-                          setSection({ type: "agent", mode: "ops", slug: agent.slug });
-                        }}
-                        className={itemClass(
-                          selectedAgentScopedId ===
-                            (agent.scopedId ||
-                              (agent.cabinetPath
-                                ? `${agent.cabinetPath}::agent::${agent.slug}`
-                                : null)) ||
-                            (section.mode === "ops" &&
-                              section.type === "agent" &&
-                              section.slug === agent.slug)
-                        )}
-                        style={pad(1)}
-                      >
-                        {(() => {
-                          const Icon = resolveAgentIcon(agent.slug, agent.iconKey);
-                          return <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
-                        })()}
-                        <span className="truncate">{getAgentDisplayName(agent)}</span>
-                        <span
-                          className={cn(
-                            "ml-auto w-1.5 h-1.5 rounded-full shrink-0",
-                            (agent.runningCount || 0) > 0
-                              ? "bg-green-500"
-                              : "bg-muted-foreground/30"
-                          )}
-                        />
-                      </button>
-                    ))}
-                  </>
+                {renderAgentRow(
+                  "general",
+                  { slug: "general", displayName: "General" },
+                  {
+                    selected:
+                      section.type === "agent" && section.slug === "general",
+                    onClick: () =>
+                      setSection({
+                        type: "agent",
+                        slug: "general",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      }),
+                  }
                 )}
+                {[
+                  ...agents.filter((a) => a.slug === "editor"),
+                  ...agents.filter((a) => a.slug !== "editor"),
+                ].map((agent) => {
+                  const cabinetPathForAgent =
+                    agent.cabinetPath ||
+                    activeCabinet?.path ||
+                    ROOT_CABINET_PATH;
+                  const scopedId =
+                    agent.scopedId ||
+                    `${cabinetPathForAgent}::agent::${agent.slug}`;
+                  return renderAgentRow(
+                    agent.scopedId || agent.slug,
+                    agent,
+                    {
+                      selected:
+                        selectedAgentScopedId === scopedId ||
+                        (section.type === "agent" &&
+                          section.slug === agent.slug),
+                      activeDot: (agent.runningCount || 0) > 0,
+                      onClick: () =>
+                        setSection({
+                          type: "agent",
+                          slug: agent.slug,
+                          cabinetPath: cabinetPathForAgent,
+                          agentScopedId: scopedId,
+                        }),
+                      editable: {
+                        slug: agent.slug,
+                        cabinetPath: cabinetPathForAgent,
+                      },
+                    }
+                  );
+                })}
               </>
             )}
 
@@ -622,22 +579,17 @@ export function TreeView() {
                 />
               </button>
               <button
-                onClick={() => {
-                  if (activeCabinet) {
-                    setSection({
-                      type: "tasks",
-                      mode: "cabinet",
-                      cabinetPath: activeCabinet.path,
-                    });
-                    return;
-                  }
-                  setSection({ type: "tasks", mode: "ops" });
-                }}
+                onClick={() =>
+                  setSection({
+                    type: "tasks",
+                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                  })
+                }
                 className={cn(
                   "text-[11px] font-semibold uppercase tracking-wide text-left flex items-center gap-2 transition-colors",
                   section.type === "tasks" &&
-                    ((activeCabinet && section.cabinetPath === activeCabinet.path) ||
-                      (!activeCabinet && section.mode === "ops"))
+                    section.cabinetPath ===
+                      (activeCabinet?.path || ROOT_CABINET_PATH)
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground/80"
                 )}
@@ -648,15 +600,10 @@ export function TreeView() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (activeCabinet) {
-                    setSection({
-                      type: "tasks",
-                      mode: "cabinet",
-                      cabinetPath: activeCabinet.path,
-                    });
-                  } else {
-                    setSection({ type: "tasks", mode: "ops" });
-                  }
+                  setSection({
+                    type: "tasks",
+                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                  });
                   setTimeout(() => {
                     window.dispatchEvent(new CustomEvent("cabinet:open-create-task"));
                   }, 100);
@@ -825,7 +772,6 @@ export function TreeView() {
                 activeCabinet
                   ? {
                       type: "page",
-                      mode: "cabinet",
                       cabinetPath: activeCabinet.path,
                     }
                   : { type: "page" }

@@ -108,7 +108,6 @@ export function TaskDetailPanel() {
     setSection({
       type: "task",
       taskId: conversation.id,
-      mode: conversation.cabinetPath ? "cabinet" : "ops",
       cabinetPath: conversation.cabinetPath,
     });
   };

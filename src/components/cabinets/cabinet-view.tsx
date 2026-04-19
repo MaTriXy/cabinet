@@ -355,7 +355,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
       void loadPage(path);
       setSection({
         type: "cabinet",
-        mode: "cabinet",
         cabinetPath: path,
       });
     },
@@ -367,7 +366,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
       const targetCabinetPath = agent.cabinetPath || cabinetPath;
       setSection({
         type: "agent",
-        mode: "cabinet",
         slug: agent.slug,
         cabinetPath: targetCabinetPath,
         agentScopedId: agent.scopedId || `${targetCabinetPath}::agent::${agent.slug}`,
@@ -379,7 +377,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
   const openCabinetAgentsWorkspace = useCallback(() => {
     setSection({
       type: "agents",
-      mode: "cabinet",
       cabinetPath,
     });
   }, [cabinetPath, setSection]);
@@ -389,7 +386,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
       const targetCabinetPath = conversation.cabinetPath || cabinetPath;
       setSection({
         type: "agent",
-        mode: "cabinet",
         slug: conversation.agentSlug,
         cabinetPath: targetCabinetPath,
         agentScopedId: `${targetCabinetPath}::agent::${conversation.agentSlug}`,
@@ -527,7 +523,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
         if (data.run?.id) {
           setSection({
             type: "agent",
-            mode: "cabinet",
             slug: jobDialog.agentSlug,
             cabinetPath: jobDialog.cabinetPath,
             agentScopedId: `${jobDialog.cabinetPath}::agent::${jobDialog.agentSlug}`,
@@ -572,7 +567,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
         if (data.sessionId) {
           setSection({
             type: "agent",
-            mode: "cabinet",
             slug: heartbeatDialog.agentSlug,
             cabinetPath: heartbeatDialog.cabinetPath,
             agentScopedId: `${heartbeatDialog.cabinetPath}::agent::${heartbeatDialog.agentSlug}`,
@@ -827,7 +821,6 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
                   onNavigate={(agentSlug, agentCabinetPath, conversationId) =>
                     setSection({
                       type: "agent",
-                      mode: "cabinet",
                       slug: agentSlug,
                       cabinetPath: agentCabinetPath,
                       agentScopedId: `${agentCabinetPath}::agent::${agentSlug}`,
