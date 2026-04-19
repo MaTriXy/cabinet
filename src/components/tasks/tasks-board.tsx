@@ -879,7 +879,10 @@ export function TasksBoard({
   const [assignBusyAction, setAssignBusyAction] = useState<"save" | "start" | null>(null);
   const [busyDraftId, setBusyDraftId] = useState<string | null>(null);
   const [selectedAssignAgentId, setSelectedAssignAgentId] = useState<string | null>(null);
-  const [selectedFilterAgentId, setSelectedFilterAgentId] = useState<string>("all");
+  const initialAgentScopedId = useAppStore.getState().section.agentScopedId;
+  const [selectedFilterAgentId, setSelectedFilterAgentId] = useState<string>(
+    initialAgentScopedId || "all"
+  );
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>("all");
   const [busyConversationIds, setBusyConversationIds] = useState<Set<string>>(new Set());
   const [boardView, setBoardView] = useState<"board" | "schedule">("board");

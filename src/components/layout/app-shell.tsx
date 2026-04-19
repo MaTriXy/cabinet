@@ -29,6 +29,8 @@ const PptxViewer = dynamic(
 );
 import { HomeScreen } from "@/components/home/home-screen";
 import { AgentsWorkspace } from "@/components/agents/agents-workspace";
+import { AgentDetailV2 } from "@/components/agents/agent-detail-v2";
+import type { ConversationMeta } from "@/types/conversations";
 import { JobsManager } from "@/components/jobs/jobs-manager";
 import { TasksBoard } from "@/components/tasks/tasks-board";
 import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
@@ -258,6 +260,38 @@ export function AppShell() {
       );
     }
     if (section.type === "agent") {
+      if (section.slug) {
+        const agentCabinetPath = section.cabinetPath || ".";
+        const agentScopedId = `${agentCabinetPath}::agent::${section.slug}`;
+        return (
+          <AgentDetailV2
+            slug={section.slug}
+            onBack={() =>
+              setSection({
+                type: "agents",
+                mode: section.mode,
+                cabinetPath: section.cabinetPath,
+              })
+            }
+            onOpenConversation={(c: ConversationMeta) =>
+              setSection({
+                type: "task",
+                taskId: c.id,
+                mode: c.cabinetPath ? "cabinet" : "ops",
+                cabinetPath: c.cabinetPath,
+              })
+            }
+            onSeeAllConversations={() =>
+              setSection({
+                type: "tasks",
+                mode: section.mode || (section.cabinetPath ? "cabinet" : "ops"),
+                cabinetPath: section.cabinetPath,
+                agentScopedId,
+              })
+            }
+          />
+        );
+      }
       return (
         <AgentsWorkspace
           selectedScope="agent"
