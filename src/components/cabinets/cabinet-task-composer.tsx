@@ -203,7 +203,7 @@ function AgentPickerCompact({
         )}
         <ChevronDown className="size-3 text-muted-foreground/70" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-[320px] overflow-y-auto p-1">
+      <DropdownMenuContent align="start" className="max-h-[320px] overflow-y-auto scrollbar-thin p-1">
         {agents.map((agent) => {
           const isSelected = selected?.scopedId === agent.scopedId;
           return (
