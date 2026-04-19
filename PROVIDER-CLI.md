@@ -251,6 +251,35 @@ Phased work that landed on this branch (see commit trail below):
 
 ## 12. Next Steps
 
+### 12.0 TL;DR — what's left
+
+**Provider track (§12.1):** 6 of 12 items are live, 6 are deferred with a concrete reason each:
+
+| Deferred | Reason |
+|---|---|
+| #2 Skills injection | Needs catalog-location decision (where does Cabinet store skills?) |
+| #4 Per-provider directory refactor | Mechanical churn, behavior-neutral; low ROI |
+| #5 `agent-live-panel` adapter awareness | Minor; WebTerminal works fine for both paths |
+| #8 Reduce "provider = PTY CLI" assumptions | Cross-cutting audit; no API-only providers shipped yet |
+| #9 Reasoning-effort policy per provider | Product call |
+| #11 Polish placeholder glyphs | Needs licensed artwork |
+| #12 Daemon-level PTY keep-alive (same-process REPL) | Real engineering: interactive launch mode + stdin injection |
+
+**Terminal track (§12.2):** 21 of 24 items live. 3 remaining:
+
+| Deferred | Reason |
+|---|---|
+| T19 Distill PTY output into a clean agent turn | By design — terminal mode is "I drive the CLI"; structured summary/artifacts belong to native mode |
+| T20 Same-process continue (keep CLI alive across turns) | Same as §12.1 #12 — needs interactive-REPL launch mode |
+| T21 WebTerminal reconnect-after-navigate-away UX | Not verified — daemon buffers `session.output` and replays; needs manual QA pass |
+
+**Three genuinely actionable items remain:**
+1. **T20 / #12** (same pairing) — add an interactive-REPL launch mode to `createDetachedSession` + stdin injection path so same-process continue works for providers with a REPL (Claude/Codex without `-p`).
+2. **#2 Skills injection** — needs the catalog-location product decision first, then wiring is ~1 day of work.
+3. **#11 Glyph artwork** — if/when licensed artwork is available.
+
+Everything else is either shipped, by-design skipped, or a cross-cutting audit.
+
 ### 12.1 Status matrix
 
 | # | Item | Status | Commit(s) |
