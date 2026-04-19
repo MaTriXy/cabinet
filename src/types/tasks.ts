@@ -136,6 +136,13 @@ export interface TaskMeta {
   archivedAt?: string;
   /** Within-lane sort index for the v2 task board. Default 0. */
   boardOrder?: number;
+  /**
+   * Non-persistent UI-only: when a card represents a collapsed group of
+   * related conversations (e.g. recurring heartbeats from one agent), this
+   * is the total member count including the visible latest. Set by the
+   * board's group-collapsing pass; never written to disk.
+   */
+  groupSize?: number;
 }
 
 export interface ArtifactsIndex {

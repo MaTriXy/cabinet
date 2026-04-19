@@ -33,6 +33,42 @@ export interface BoardData {
 /** Re-derive lanes every 60s so the "Just Finished ≤1h" boundary sweeps. */
 const NOW_TICK_MS = 60_000;
 
+/**
+ * Group heartbeat-triggered tasks by agent slug, keep the latest per group,
+ * annotate the latest with `groupSize`. Non-heartbeat tasks pass through
+ * untouched. Preserves the outer sort of the input list.
+ */
+function collapseHeartbeats(tasks: TaskMeta[]): TaskMeta[] {
+  const seen = new Map<string, number>(); // agentSlug → group count
+  // First pass: count heartbeats per agent so we know which need collapsing.
+  for (const t of tasks) {
+    if (t.trigger !== "heartbeat") continue;
+    const slug = t.agentSlug ?? "__unknown__";
+    seen.set(slug, (seen.get(slug) ?? 0) + 1);
+  }
+  if (Array.from(seen.values()).every((n) => n <= 1)) return tasks;
+  // Second pass: emit the first heartbeat per agent (already sorted newest-
+  // first in the archive by laneSort) with groupSize set; skip the rest.
+  const emitted = new Set<string>();
+  const result: TaskMeta[] = [];
+  for (const t of tasks) {
+    if (t.trigger !== "heartbeat") {
+      result.push(t);
+      continue;
+    }
+    const slug = t.agentSlug ?? "__unknown__";
+    const total = seen.get(slug) ?? 1;
+    if (total <= 1) {
+      result.push(t);
+      continue;
+    }
+    if (emitted.has(slug)) continue;
+    emitted.add(slug);
+    result.push({ ...t, groupSize: total });
+  }
+  return result;
+}
+
 export function useBoardData({ cabinetPath, visibilityMode = "own" }: Options): BoardData {
   const [overview, setOverview] = useState<CabinetOverview | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
@@ -124,6 +160,12 @@ export function useBoardData({ cabinetPath, visibilityMode = "own" }: Options): 
     for (const lane of Object.keys(map) as LaneKey[]) {
       map[lane].sort(laneSort(lane));
     }
+    // Collapse recurring heartbeat conversations in Archive so long-running
+    // crons don't drown the lane. Same agent + trigger="heartbeat" → one
+    // visible card (the latest run) with a groupSize badge. No collapsing
+    // in running/done/needs so the user can still triage individual runs
+    // that need attention.
+    map.archive = collapseHeartbeats(map.archive);
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, nowBucket]);

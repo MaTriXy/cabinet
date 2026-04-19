@@ -1,6 +1,6 @@
 "use client";
 
-import { Terminal } from "lucide-react";
+import { HeartPulse, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isLegacyAdapterType } from "@/lib/agents/adapters/legacy-ids";
 import type { TaskMeta } from "@/types/tasks";
@@ -37,6 +37,7 @@ export function TaskCard({
   const state = deriveCardState(task, lane);
   const lastActivity = task.lastActivityAt ?? task.startedAt;
   const isTerminal = isLegacyAdapterType(task.adapterType);
+  const groupSize = task.groupSize && task.groupSize > 1 ? task.groupSize : 0;
 
   return (
     <button
@@ -53,6 +54,14 @@ export function TaskCard({
       <div className="flex items-center gap-2">
         <StatusIcon state={state} />
         <AgentPill agent={agent} slug={task.agentSlug ?? "general"} />
+        {groupSize > 0 && (
+          <span
+            title={`${groupSize} heartbeat runs collapsed — showing the latest`}
+            className="inline-flex items-center gap-0.5 rounded-full border border-pink-500/30 bg-pink-500/10 px-1.5 py-0.5 text-[9.5px] font-semibold text-pink-600 dark:text-pink-400"
+          >
+            <HeartPulse className="size-2.5" />+{groupSize - 1}
+          </span>
+        )}
         {isTerminal && (
           <span
             title="Running in terminal (PTY) mode"
