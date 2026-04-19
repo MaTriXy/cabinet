@@ -8,7 +8,7 @@ import {
   pageTypeColor,
   pageTypeIcon,
 } from "@/lib/ui/page-type-icons";
-import { useAppStore } from "@/stores/app-store";
+import { useAppStore, type SelectedSection } from "@/stores/app-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
 import { cn } from "@/lib/utils";
@@ -116,7 +116,13 @@ function directory(p: string): string {
 }
 
 /* eslint-disable react-hooks/static-components */
-function KbArtifactRow({ path }: { path: string }) {
+function KbArtifactRow({
+  path,
+  returnContext,
+}: {
+  path: string;
+  returnContext?: SelectedSection;
+}) {
   const pushSection = useAppStore((s) => s.pushSection);
   const focusPath = useTreeStore((s) => s.focusPath);
   const loadPage = useEditorStore((s) => s.loadPage);
@@ -130,9 +136,9 @@ function KbArtifactRow({ path }: { path: string }) {
       type="button"
       onClick={() => {
         const treePath = artifactPathToTreePath(path);
-        const current = useAppStore.getState().section;
+        const from = returnContext ?? useAppStore.getState().section;
         focusPath(treePath);
-        pushSection({ type: "page", cabinetPath: current.cabinetPath }, current);
+        pushSection({ type: "page", cabinetPath: from.cabinetPath }, from);
         void loadPage(treePath);
       }}
       className="group flex w-full items-center gap-2.5 rounded-md bg-card/80 px-2.5 py-2 text-left ring-1 ring-border/60 transition-colors hover:bg-muted/40"
@@ -168,7 +174,13 @@ function collectArtifactPaths(turn: Turn): string[] {
   return [...seen];
 }
 
-export function TurnBlock({ turn }: { turn: Turn }) {
+export function TurnBlock({
+  turn,
+  returnContext,
+}: {
+  turn: Turn;
+  returnContext?: SelectedSection;
+}) {
   const isUser = turn.role === "user";
   const totalTokens = turn.tokens
     ? turn.tokens.input + turn.tokens.output + (turn.tokens.cache ?? 0)
@@ -222,7 +234,7 @@ export function TurnBlock({ turn }: { turn: Turn }) {
         {artifactPaths.length > 0 ? (
           <div className="mt-3.5 space-y-1.5 rounded-xl border border-border/60 bg-muted/40 p-2 dark:bg-muted/20">
             {artifactPaths.map((path) => (
-              <KbArtifactRow key={path} path={path} />
+              <KbArtifactRow key={path} path={path} returnContext={returnContext} />
             ))}
           </div>
         ) : null}

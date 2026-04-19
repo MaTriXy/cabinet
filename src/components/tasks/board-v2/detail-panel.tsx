@@ -90,7 +90,15 @@ export function DetailPanel({
       </header>
 
       <div className="min-h-0 flex-1">
-        <TaskConversationPage taskId={task.id} variant="compact" />
+        <TaskConversationPage
+          taskId={task.id}
+          variant="compact"
+          returnContext={{
+            type: "task",
+            taskId: task.id,
+            cabinetPath: task.cabinetPath,
+          }}
+        />
       </div>
     </aside>
   );

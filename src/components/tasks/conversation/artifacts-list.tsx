@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { useAppStore } from "@/stores/app-store";
+import { useAppStore, type SelectedSection } from "@/stores/app-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
 import {
@@ -69,7 +69,13 @@ function usePageMeta(paths: string[]): Map<string, PageMetaEntry> {
   return meta;
 }
 
-export function ArtifactsList({ turns }: { turns: Turn[] }) {
+export function ArtifactsList({
+  turns,
+  returnContext,
+}: {
+  turns: Turn[];
+  returnContext?: SelectedSection;
+}) {
   const pushSection = useAppStore((s) => s.pushSection);
   const focusPath = useTreeStore((s) => s.focusPath);
   const loadPage = useEditorStore((s) => s.loadPage);
@@ -116,9 +122,9 @@ export function ArtifactsList({ turns }: { turns: Turn[] }) {
             type="button"
             onClick={() => {
               const treePath = artifactPathToTreePath(path);
-              const current = useAppStore.getState().section;
+              const from = returnContext ?? useAppStore.getState().section;
               focusPath(treePath);
-              pushSection({ type: "page", cabinetPath: current.cabinetPath }, current);
+              pushSection({ type: "page", cabinetPath: from.cabinetPath }, from);
               void loadPage(treePath);
             }}
             className="group flex w-full items-center gap-3 rounded-md bg-card px-3 py-2.5 text-left ring-1 ring-border/60 transition-colors hover:bg-muted/40"

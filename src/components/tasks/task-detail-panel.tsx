@@ -171,7 +171,15 @@ export function TaskDetailPanel() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <TaskConversationPage taskId={conversation.id} variant="compact" />
+        <TaskConversationPage
+          taskId={conversation.id}
+          variant="compact"
+          returnContext={{
+            type: "task",
+            taskId: conversation.id,
+            cabinetPath: conversation.cabinetPath,
+          }}
+        />
       </div>
     </div>
   );

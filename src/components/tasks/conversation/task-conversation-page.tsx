@@ -203,12 +203,24 @@ export interface TaskConversationPageProps {
   taskId: string;
   variant?: "full" | "compact";
   readOnly?: boolean;
+  /**
+   * Section the "Back" banner should restore when the user opens a KB
+   * artifact from this conversation. When omitted, artifact clicks fall
+   * back to whatever the app's current section is at click time — which
+   * is correct for standalone full-panel mounts (section === "task") but
+   * wrong for compact embeds inside a board/activity surface where the
+   * outer section is "tasks"/"cabinet"/etc. Compact-embed callers should
+   * pass `{type:"task", taskId, cabinetPath}` so back jumps the user
+   * into the full task view rather than the outer list.
+   */
+  returnContext?: import("@/stores/app-store").SelectedSection;
 }
 
 export function TaskConversationPage({
   taskId,
   variant = "full",
   readOnly = false,
+  returnContext,
 }: TaskConversationPageProps) {
   const isDemo = taskId === "demo";
   const isCompact = variant === "compact";
@@ -919,7 +931,7 @@ export function TaskConversationPage({
             ) : null}
             <div className="mx-auto max-w-3xl divide-y divide-border/40">
               {task.turns.map((turn) => (
-                <TurnBlock key={turn.id} turn={turn} />
+                <TurnBlock key={turn.id} turn={turn} returnContext={returnContext} />
               ))}
             </div>
             {showWrapUp && !readOnly ? (
@@ -955,7 +967,7 @@ export function TaskConversationPage({
         >
           <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="mx-auto max-w-3xl">
-              <ArtifactsList turns={task.turns} />
+              <ArtifactsList turns={task.turns} returnContext={returnContext} />
             </div>
           </div>
         </TabsContent>
