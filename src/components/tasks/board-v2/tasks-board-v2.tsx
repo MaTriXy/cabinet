@@ -3,6 +3,14 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { useBoardData } from "./use-board-data";
 import { KanbanView } from "./kanban-view";
 import { ListView } from "./list-view";
@@ -13,6 +21,9 @@ import { ViewToggle, type BoardViewMode } from "./view-toggle";
 import { FilterBar } from "./filter-bar";
 import { UndoToast, type PendingUndo } from "./undo-toast";
 import { ConfirmPopover, type PendingConfirm } from "./confirm-popover";
+import { useDragHandler } from "./use-drag-handler";
+import { TaskCard } from "./task-card";
+import { CARD_DROP_PREFIX } from "./dnd-keys";
 import { deriveLane, laneSort, type LaneKey } from "./lane-rules";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import type { CabinetVisibilityMode } from "@/types/cabinets";
@@ -54,6 +65,7 @@ export function TasksBoardV2({
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [pendingUndo, setPendingUndo] = useState<PendingUndo | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
 
   // Client-side agent filter. Null = all. Non-null narrows tasks +
   // conversations to that agent; byLane is rebuilt from the filtered set so
@@ -82,6 +94,22 @@ export function TasksBoardV2({
   const selected = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const selectedLane = selected ? deriveLane(selected, now) : null;
   const selectedAgent = selected ? agentsBySlug.get(selected.agentSlug ?? "") : undefined;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  const handleDragEnd = useDragHandler({
+    byLane: filteredByLane,
+    agentsBySlug,
+    onUndoQueued: setPendingUndo,
+    onConfirmRequested: setPendingConfirm,
+    onRefresh: refresh,
+  });
+
+  const draggedTask = dragTaskId ? tasks.find((t) => t.id === dragTaskId) ?? null : null;
+  const draggedLane = draggedTask ? deriveLane(draggedTask, now) : null;
+  const draggedAgent = draggedTask ? agentsBySlug.get(draggedTask.agentSlug ?? "") : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
@@ -114,6 +142,17 @@ export function TasksBoardV2({
         onChange={setAgentFilter}
       />
 
+    <DndContext
+      sensors={sensors}
+      onDragStart={(e: DragStartEvent) =>
+        setDragTaskId(String(e.active.id).replace(CARD_DROP_PREFIX, ""))
+      }
+      onDragCancel={() => setDragTaskId(null)}
+      onDragEnd={(e) => {
+        setDragTaskId(null);
+        void handleDragEnd(e);
+      }}
+    >
       <div className="relative flex min-h-0 flex-1">
         {loading ? (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -128,9 +167,6 @@ export function TasksBoardV2({
                 selectedId={selectedId}
                 now={now}
                 onSelect={setSelectedId}
-                onUndoQueued={setPendingUndo}
-                onConfirmRequested={setPendingConfirm}
-                onRefresh={refresh}
               />
             )}
             {view === "list" && (
@@ -170,6 +206,22 @@ export function TasksBoardV2({
           />
         )}
       </div>
+
+      <DragOverlay dropAnimation={null}>
+        {draggedTask && draggedLane ? (
+          <div className="rotate-[-2deg] shadow-2xl">
+            <TaskCard
+              task={draggedTask}
+              lane={draggedLane}
+              agent={draggedAgent}
+              isActive={false}
+              now={now}
+              onClick={() => undefined}
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
 
       <UndoToast pending={pendingUndo} onDismiss={() => setPendingUndo(null)} />
       <ConfirmPopover

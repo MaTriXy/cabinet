@@ -10,6 +10,7 @@ type PatchBody = {
   archived?: boolean;
   archivedAt?: string | null;
   boardOrder?: number;
+  agentSlug?: string;
 };
 
 async function patchConversation(
@@ -45,6 +46,20 @@ export async function setConversationBoardOrder(
   cabinetPath?: string
 ): Promise<void> {
   await patchConversation(id, { boardOrder }, cabinetPath);
+}
+
+/**
+ * Reassigns a conversation to a different agent slug. Phase 4 handoff via
+ * drag onto the People rail — the conversation stays in whatever lane it
+ * was, but `agentSlug` changes so the agent pill + filter reflect the new
+ * owner. The recipient sees it in their agent page view.
+ */
+export async function reassignConversation(
+  id: string,
+  toAgent: string,
+  cabinetPath?: string
+): Promise<void> {
+  await patchConversation(id, { agentSlug: toAgent }, cabinetPath);
 }
 
 /**

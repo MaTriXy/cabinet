@@ -54,6 +54,8 @@ interface PatchBody {
   archived?: boolean;
   // v2 board: within-lane sort index.
   boardOrder?: number;
+  // v2 board: reassign the conversation to a different agent.
+  agentSlug?: string;
 }
 
 export async function PATCH(
@@ -141,6 +143,9 @@ export async function PATCH(
   }
   if (typeof body.boardOrder === "number" && Number.isFinite(body.boardOrder)) {
     updates.boardOrder = body.boardOrder;
+  }
+  if (typeof body.agentSlug === "string" && body.agentSlug.trim()) {
+    updates.agentSlug = body.agentSlug.trim();
   }
 
   const nextMeta: ConversationMeta = {
