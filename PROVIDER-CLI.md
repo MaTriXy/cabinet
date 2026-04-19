@@ -365,6 +365,8 @@ Current UX: users edit `skills: [slug, slug]` directly in the agent's markdown f
 |---|------|--------|--------|
 | UX-1 | EFFORT_TONES table: dark-mode variants on every tone (header text, bg fills, borders, selected shadow) so the `SELECTED MODEL` banner + matrix chips read correctly against dark themes | ✅ Done | `2981581` |
 | UX-2 | Terminal mode: replace the Tabs + matrix with a dedicated `TerminalProviderPanel` (dark card, header "Pick a CLI to spawn in a PTY:", 2-3 col grid of CLI cards with glyph + name + ready/log-in/not-installed status, footer noting model/effort defaults + resume-capable providers). Click a ready card = select it with an emerald highlight. | ✅ Done | `2981581` |
+| UX-3 | Composer collapsed trigger button indicates terminal mode — `>_` terminal glyph in an emerald-bordered dark zinc container, trailing "Terminal" label in emerald uppercase (replacing the effort label since PTY uses CLI defaults). Whole button: dark zinc bg + emerald/40 border. | ✅ Done | `09c87a2` |
+| UX-4 | Native-mode provider tabs collapse to icon-only when inactive. Active tab widens to icon + name (+ "Not ready" chip when unready); inactive tabs render just the ProviderGlyph with tooltip. Fits all 8 providers without horizontal scroll. | ✅ Done | `09c87a2` |
 
 ## 13. Operational Notes
 
