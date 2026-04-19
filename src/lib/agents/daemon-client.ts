@@ -152,6 +152,48 @@ export async function stopDaemonSession(id: string): Promise<boolean> {
   }
 }
 
+/**
+ * Write stdin into a live PTY session. Returns `true` on 200, `false` on any
+ * error including 404 (session already exited). Callers that want to reuse the
+ * CLI's REPL for same-process continues should try this first, then fall back
+ * to `createDaemonSession` if it returns `false`.
+ */
+export async function writeDaemonSessionInput(
+  id: string,
+  input: string,
+  options: { appendEnter?: boolean } = {}
+): Promise<boolean> {
+  try {
+    const response = await daemonFetch(`/session/${id}/input`, {
+      method: "POST",
+      body: JSON.stringify({
+        input,
+        appendEnter: options.appendEnter ?? true,
+      }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check whether a daemon session currently exists and hasn't exited.
+ * Used to decide between same-process stdin injection vs. fresh PTY spawn.
+ */
+export async function isDaemonSessionAlive(id: string): Promise<boolean> {
+  try {
+    const response = await daemonFetch(`/session/${id}/output`);
+    if (!response.ok) return false;
+    const data = (await response.json()) as { status?: string; exited?: boolean };
+    if (data.exited === true) return false;
+    if (data.status && data.status !== "running") return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function reloadDaemonSchedules(): Promise<void> {
   const response = await daemonFetch("/reload-schedules", {
     method: "POST",

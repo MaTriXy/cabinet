@@ -1449,6 +1449,53 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /session/:id/input — write stdin to a live PTY session
+  // Used by same-process terminal-mode continuations: if the CLI is still in
+  // its REPL waiting for input, we write the next prompt directly into the
+  // existing process instead of spawning a new PTY.
+  const inputMatch = url.pathname.match(/^\/session\/([^/]+)\/input$/);
+  if (inputMatch && req.method === "POST") {
+    const sessionId = inputMatch[1];
+    const session = sessions.get(sessionId);
+    if (!session || session.exited || session.kind !== "pty") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({ error: "Session not found, exited, or not a PTY" })
+      );
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        const { input: rawInput, appendEnter } = JSON.parse(body || "{}") as {
+          input?: string;
+          appendEnter?: boolean;
+        };
+        if (typeof rawInput !== "string" || !rawInput) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "input (string) is required" }));
+          return;
+        }
+        session.pty.write(rawInput);
+        if (appendEnter !== false) {
+          setTimeout(() => {
+            if (!session.exited) session.pty.write("\r");
+          }, 150);
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: msg }));
+      }
+    });
+    return;
+  }
+
   // POST /session/:id/stop — stop a running session
   const stopMatch = url.pathname.match(/^\/session\/([^/]+)\/stop$/);
   if (stopMatch && req.method === "POST") {

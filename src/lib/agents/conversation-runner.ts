@@ -28,7 +28,9 @@ import { publishConversationEvent } from "./conversation-events";
 import {
   createDaemonSession,
   getDaemonSessionOutput,
+  isDaemonSessionAlive,
   pollDaemonSessionUntilDone,
+  writeDaemonSessionInput,
 } from "./daemon-client";
 import { readLibraryPersona } from "./library-manager";
 import { readPersona, type AgentPersona } from "./persona-manager";
@@ -902,8 +904,11 @@ export async function continueConversationRun(
 
   // Legacy PTY adapters don't implement adapter.execute — they delegate the
   // whole conversation to the daemon's PTY session machinery. For terminal-mode
-  // continuations, we reopen the PTY session with the new prompt and let the
-  // existing WebTerminal stream the output.
+  // continuations we prefer SAME-PROCESS continue: if the existing PTY is
+  // still alive (CLI is in its REPL), inject the new prompt via stdin so the
+  // user sees the response stream into the same xterm buffer without losing
+  // in-memory CLI state. If the PTY has already exited, fall back to spawning
+  // a fresh session under the same session id.
   if (adapter && adapter.executionEngine === "legacy_pty_cli") {
     const legacyPersona =
       meta.agentSlug && meta.agentSlug !== "general"
@@ -914,6 +919,21 @@ export async function continueConversationRun(
       legacyPersona?.workdir && legacyPersona.workdir !== "/data"
         ? `${DATA_DIR}/${legacyPersona.workdir.replace(/^\/+/, "")}`
         : legacyBaseCwd;
+
+    // 1. Try same-process continue: stdin-inject into the existing PTY.
+    const alive = await isDaemonSessionAlive(conversationId);
+    if (alive) {
+      const wrote = await writeDaemonSessionInput(
+        conversationId,
+        input.userMessage,
+        { appendEnter: true }
+      );
+      if (wrote) {
+        return readConversationMeta(conversationId, cp);
+      }
+    }
+
+    // 2. Fallback: spawn a fresh PTY under the same session id.
     try {
       await createDaemonSession({
         id: conversationId,
