@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { conversationMetaToTaskMeta } from "@/lib/agents/conversation-to-task-view";
 import { getAgentColor, tintFromHex } from "@/lib/agents/cron-compute";
+import { isLegacyAdapterType } from "@/lib/agents/adapters";
 import type { ConversationMeta } from "@/types/conversations";
 import type { TaskMeta } from "@/types/tasks";
 
@@ -203,6 +205,12 @@ export function RecentTasks({
               />
             </span>
             <span className="truncate">{task.title}</span>
+            {isLegacyAdapterType(task.adapterType) && (
+              <Terminal
+                className="ml-auto size-2.5 shrink-0 text-emerald-500"
+                aria-label="Terminal (PTY) mode"
+              />
+            )}
           </button>
         );
       })}

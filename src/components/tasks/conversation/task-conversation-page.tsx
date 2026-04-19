@@ -445,6 +445,15 @@ export function TaskConversationPage({
         </Link>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
+            {isTerminalMode && (
+              <span
+                title="Running in terminal (PTY) mode"
+                className="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              >
+                <Terminal className="size-3" />
+                PTY
+              </span>
+            )}
             <h1 className="truncate text-[14px] font-semibold tracking-tight">
               {task.meta.title}
             </h1>
