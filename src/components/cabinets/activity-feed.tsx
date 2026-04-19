@@ -133,10 +133,13 @@ export function ActivityFeed({
                   onClick={() => onOpen(conv)}
                   className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
                 >
+                  {/* Left: status + agent pill */}
                   <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                    <AgentPill agent={agent} slug={conv.agentSlug} size="sm" />
                     <StatusIcon state={cardState} />
+                    <AgentPill agent={agent} slug={conv.agentSlug} size="sm" />
                   </div>
+
+                  {/* Center: title + summary */}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13.5px] font-medium text-foreground">
                       {conv.title}
@@ -147,8 +150,13 @@ export function ActivityFeed({
                       </p>
                     ) : null}
                   </div>
+
+                  {/* Right: time + glyph / tokens */}
                   <div className="ml-2 flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-[11px] text-muted-foreground">
                     <div className="flex items-center gap-1.5">
+                      <span className="tabular-nums">
+                        {formatRelative(conv.lastActivityAt || conv.startedAt)}
+                      </span>
                       {providerIcon ? (
                         <span
                           className="inline-flex size-4 items-center justify-center rounded border border-border/60 bg-muted/30"
@@ -161,9 +169,6 @@ export function ActivityFeed({
                           />
                         </span>
                       ) : null}
-                      <span className="tabular-nums">
-                        {formatRelative(conv.lastActivityAt || conv.startedAt)}
-                      </span>
                     </div>
                     {tokens > 0 ? (
                       <span className="font-mono tabular-nums text-muted-foreground/80">
