@@ -480,10 +480,19 @@ export function TaskConversationPage({
           </h1>
           <span
             className={cn(
-              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
+              "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
               statusTone
             )}
           >
+            <span className="relative inline-flex size-3 items-center justify-center">
+              <Terminal className="relative z-10 size-3" />
+              {task.meta.status === "running" && (
+                <span
+                  className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping"
+                  aria-hidden="true"
+                />
+              )}
+            </span>
             {statusLabel}
           </span>
           {task.meta.providerId && (
@@ -494,9 +503,6 @@ export function TaskConversationPage({
               {task.meta.providerId}
             </span>
           )}
-          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
-            PTY
-          </span>
           <div className="h-5 w-px bg-zinc-800" />
           <button
             type="button"
