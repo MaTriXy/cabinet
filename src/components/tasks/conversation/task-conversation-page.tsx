@@ -20,7 +20,7 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-react";
-import { isLegacyAdapterType } from "@/lib/agents/adapters";
+import { isLegacyAdapterType } from "@/lib/agents/adapters/legacy-ids";
 import { WebTerminal } from "@/components/terminal/web-terminal";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

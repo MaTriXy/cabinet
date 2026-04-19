@@ -2,7 +2,7 @@
 
 import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isLegacyAdapterType } from "@/lib/agents/adapters";
+import { isLegacyAdapterType } from "@/lib/agents/adapters/legacy-ids";
 import type { TaskMeta } from "@/types/tasks";
 import type { CabinetAgentSummary } from "@/types/cabinets";
 import type { LaneKey } from "./lane-rules";
