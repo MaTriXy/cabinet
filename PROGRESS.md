@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-20] Added `data/have-fun/cv-rubeus-hagrid.md` — a satirical Hogwarts-groundskeeper CV for Rubeus Hagrid (Keeper of Keys, Care of Magical Creatures professor) as output of the `create-cv` scheduled job.
+
 [2026-04-20] Added `data/have-fun/cv-gilderoy-lockhart.md` — a satirical CV for Gilderoy Lockhart (Order of Merlin, Third Class) with post-Memory-Charm St Mungo's context, as output of the `create-cv` scheduled job.
 
 [2026-04-20] Added `data/have-fun/cv-dolores-umbridge.md` — a satirical Ministry-of-Magic-style CV for Dolores Umbridge as output of the `create-cv` scheduled job.

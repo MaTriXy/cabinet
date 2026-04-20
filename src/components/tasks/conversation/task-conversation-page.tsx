@@ -697,7 +697,7 @@ export function TaskConversationPage({
   // the rest. No tabs, no token bar, no prompt header card — the CLI's own
   // output is the source of truth. Composer pinned to the bottom only when
   // the PTY has exited (idle).
-  if (isTerminalMode && !isCompact) {
+  if (isTerminalMode) {
     const statusTone =
       task.meta.status === "running"
         ? "bg-emerald-500/20 text-emerald-300"
