@@ -129,17 +129,26 @@ export const codexCliProvider: AgentProvider = {
     };
   },
 
-  buildSessionInvocation(prompt: string | undefined, workdir: string) {
-    if (prompt?.trim()) {
-      return {
-        command: this.command || "codex",
-        args: this.buildArgs ? this.buildArgs(prompt.trim(), workdir) : [prompt.trim()],
-      };
+  buildSessionInvocation(
+    prompt: string | undefined,
+    _workdir: string,
+    opts
+  ) {
+    // Interactive TUI mode. Previously this wrapped the prompt with
+    // `buildArgs` which produces `codex exec … <prompt>` — but `codex exec`
+    // is the HEADLESS one-shot subcommand, so users who picked "terminal
+    // mode" were getting the non-interactive run piped through a PTY. The
+    // interactive TUI is invoked with no subcommand (bare `codex`), and the
+    // daemon pastes `initialPrompt` into the TUI once it's ready.
+    const args: string[] = [];
+    if (opts?.resumeId) {
+      // `codex resume <session-id>` rehydrates a prior interactive session.
+      args.push("resume", opts.resumeId);
     }
-
     return {
       command: this.command || "codex",
-      args: ["--ephemeral"],
+      args,
+      initialPrompt: prompt?.trim() || undefined,
     };
   },
 
