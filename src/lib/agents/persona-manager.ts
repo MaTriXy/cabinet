@@ -114,6 +114,7 @@ export interface AgentPersona {
   color?: string;         // hex color (overrides hash-based color)
   avatar?: string;        // "none" | preset id | "custom" (file at avatar.{ext})
   avatarExt?: string;     // extension of uploaded custom avatar (png/jpg/svg)
+  canDispatch?: boolean;  // can propose tasks/jobs to other agents (lead-default)
   // Computed
   slug: string;
   body: string; // markdown body (persona instructions)
@@ -244,6 +245,8 @@ export async function readPersona(slug: string, cabinetPath?: string): Promise<A
       typeof data.avatarExt === "string" && data.avatarExt.trim()
         ? data.avatarExt.trim()
         : undefined,
+    canDispatch:
+      typeof data.canDispatch === "boolean" ? data.canDispatch : undefined,
     slug,
     body: content.trim(),
   };
@@ -339,6 +342,9 @@ export async function writePersona(slug: string, persona: Partial<AgentPersona> 
             (slug): slug is string => typeof slug === "string" && slug.trim() !== ""
           ),
         }
+      : {}),
+    ...(typeof merged.canDispatch === "boolean"
+      ? { canDispatch: merged.canDispatch }
       : {}),
   };
 

@@ -1322,6 +1322,9 @@ interface JobConfig {
   timeout?: number;
   agentSlug: string;
   cabinetPath: string;
+  oneShot?: boolean;
+  runAfter?: string;
+  ownerTaskId?: string;
 }
 
 const scheduledJobs = new Map<string, ReturnType<typeof cron.schedule>>();
@@ -1365,13 +1368,36 @@ function scheduleJob(job: JobConfig): void {
       source: "scheduler",
       cabinetPath: job.cabinetPath,
       scheduledAt,
-    }).catch((error) => {
-      console.error(`Failed to trigger scheduled job ${key}:`, error);
-    });
+    })
+      .then(async () => {
+        if (job.oneShot) {
+          try {
+            await putJson(
+              `${getAppOrigin()}/api/agents/${job.agentSlug}/jobs/${job.id}`,
+              {
+                action: "update",
+                cabinetPath: job.cabinetPath,
+                enabled: false,
+              }
+            );
+          } catch (error) {
+            console.error(`Failed to disable one-shot job ${key}:`, error);
+          }
+          const existing = scheduledJobs.get(key);
+          if (existing) existing.stop();
+          scheduledJobs.delete(key);
+          console.log(`  One-shot job fired and disabled: ${key}`);
+        }
+      })
+      .catch((error) => {
+        console.error(`Failed to trigger scheduled job ${key}:`, error);
+      });
   });
 
   scheduledJobs.set(key, task);
-  console.log(`  Scheduled job: ${key} (${job.schedule})`);
+  console.log(
+    `  Scheduled job: ${key} (${job.schedule})${job.oneShot ? " [one-shot]" : ""}`
+  );
 }
 
 function scheduleHeartbeat(slug: string, cronExpr: string, cabinetPath: string): void {

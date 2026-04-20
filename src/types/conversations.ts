@@ -1,4 +1,6 @@
-export type ConversationTrigger = "manual" | "job" | "heartbeat";
+import type { DispatchedAction, PendingAction } from "./actions";
+
+export type ConversationTrigger = "manual" | "job" | "heartbeat" | "agent";
 export type ConversationSource = "manual" | "editor";
 
 export type ConversationStatus =
@@ -141,6 +143,19 @@ export interface ConversationMeta {
   errorRetryAfterSec?: number;
   /** Most recent resume/replay outcome. Written by the runner every turn. */
   lastResumeAttempt?: ConversationResumeAttempt;
+
+  /** Conversation that dispatched this one via an agent action. */
+  parentTaskId?: string;
+  /** Agent slug of the dispatcher that spawned this conversation. */
+  triggeringAgent?: string;
+  /** Depth of the dispatch chain; 0 for user-triggered. */
+  spawnDepth?: number;
+  /** When agent-action proposals were first parsed out of this turn. */
+  actionsProposedAt?: string;
+  /** Proposed agent actions awaiting human approval. */
+  pendingActions?: PendingAction[];
+  /** Actions that have been dispatched or rejected by the human. */
+  dispatchedActions?: DispatchedAction[];
 }
 
 export interface ConversationDetail {

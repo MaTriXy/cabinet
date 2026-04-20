@@ -50,12 +50,14 @@ const TRIGGER_LABELS: Record<ConversationMeta["trigger"], string> = {
   manual: "Manual",
   job: "Job",
   heartbeat: "Heartbeat",
+  agent: "Agent",
 };
 
 const TRIGGER_STYLES: Record<ConversationMeta["trigger"], string> = {
   manual: "bg-blue-500/10 text-blue-500",
   job: "bg-amber-500/10 text-amber-500",
   heartbeat: "bg-emerald-500/10 text-emerald-500",
+  agent: "bg-violet-500/10 text-violet-500",
 };
 
 function statusFromFilter(filter: StatusFilter): ConversationMeta["status"] | undefined {

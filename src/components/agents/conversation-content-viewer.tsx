@@ -153,6 +153,51 @@ function CabinetBlock({ block }: { block: Extract<Block, { type: "cabinet" }> })
   );
 }
 
+const ACTION_BADGE_COLORS: Record<string, string> = {
+  LAUNCH_TASK: "bg-pink-500/15 text-pink-400 border-pink-500/20",
+  SCHEDULE_JOB: "bg-blue-500/15 text-blue-400 border-blue-500/20",
+  SCHEDULE_TASK: "bg-violet-500/15 text-violet-400 border-violet-500/20",
+};
+
+function ActionsBlock({ block }: { block: Extract<Block, { type: "actions" }> }) {
+  if (block.actions.length === 0) return null;
+  return (
+    <div className="my-3 space-y-2 rounded-xl border border-border bg-muted/10 p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Proposed actions ({block.actions.length})
+      </div>
+      {block.actions.map((action, index) => {
+        const color =
+          ACTION_BADGE_COLORS[action.type] ||
+          "bg-muted/30 text-muted-foreground border-border";
+        const headline =
+          action.type === "SCHEDULE_JOB"
+            ? `${action.agent} · ${action.name} · ${action.schedule}`
+            : action.type === "SCHEDULE_TASK"
+              ? `${action.agent} · ${action.title} · ${action.when}`
+              : `${action.agent} · ${action.title}`;
+        return (
+          <div key={index} className="flex items-start gap-2">
+            <span
+              className={`mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${color}`}
+            >
+              {action.type}
+            </span>
+            <div className="min-w-0">
+              <div className="text-[12px] font-medium text-foreground/90">
+                {headline}
+              </div>
+              <div className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-foreground/70">
+                {action.prompt}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MarkdownBlock({ content }: { content: string }) {
   return (
     <div className="my-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-foreground">
@@ -184,6 +229,8 @@ function BlockRenderer({ blocks }: { blocks: Block[] }) {
             return <CodeBlock key={index} block={block} />;
           case "cabinet":
             return <CabinetBlock key={index} block={block} />;
+          case "actions":
+            return <ActionsBlock key={index} block={block} />;
           case "structured":
             return <StructuredBadge key={index} label={block.label} value={block.value} />;
           case "tokens":

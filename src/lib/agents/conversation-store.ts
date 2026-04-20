@@ -27,6 +27,13 @@ import {
 import { publishConversationEvent } from "./conversation-events";
 import { discoverCabinetPaths } from "../cabinets/discovery";
 import { buildConversationInstanceKey } from "./conversation-identity";
+import { parseAgentActions } from "./action-parser";
+import {
+  computeWarnings,
+  personaCanDispatch,
+} from "./action-validator";
+import { listPersonas, readPersona, type AgentPersona } from "./persona-manager";
+import type { PendingAction } from "../../types/actions";
 import {
   buildConversationNotificationIdentity,
   dedupeConversationNotifications,
@@ -942,6 +949,18 @@ export async function finalizeConversation(
     path: artifactPath,
   }));
 
+  if (!meta.actionsProposedAt) {
+    try {
+      const pending = await proposePendingActions(meta, cleanedOutput, prompt);
+      if (pending.length > 0) {
+        meta.pendingActions = [...(meta.pendingActions || []), ...pending];
+      }
+      meta.actionsProposedAt = new Date().toISOString();
+    } catch {
+      // Never fail a conversation finalize because action parsing threw.
+    }
+  }
+
   const previousStatus = meta.status;
   meta.status = input.status;
   meta.completedAt =
@@ -1737,4 +1756,62 @@ export async function updateAgentTurn(
   });
 
   return nextTurn;
+}
+
+// ── Agent action proposals ────────────────────────────────────────────────
+//
+// When an agent finishes a turn, parse any LAUNCH_TASK / SCHEDULE_JOB /
+// SCHEDULE_TASK markers it emitted and attach them to the ConversationMeta as
+// a pending approval queue. No dispatch happens here — the human reviews and
+// approves via the PendingActionsPanel in the UI.
+
+function makePendingId(): string {
+  return `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function proposePendingActions(
+  meta: ConversationMeta,
+  cleanedOutput: string,
+  prompt: string
+): Promise<PendingAction[]> {
+  const { actions } = parseAgentActions(cleanedOutput, prompt);
+  if (actions.length === 0) return [];
+
+  const dispatcher = meta.agentSlug
+    ? await readPersona(meta.agentSlug, meta.cabinetPath).catch(() => null)
+    : null;
+
+  const personas = await listPersonas(meta.cabinetPath).catch(() => [] as AgentPersona[]);
+  const lookup = new Map<string, AgentPersona>();
+  for (const p of personas) {
+    lookup.set(p.slug, p);
+    if (p.displayName) lookup.set(p.displayName, p);
+  }
+
+  // Walk lineage up to 3 levels for cycle detection — we can't recurse across
+  // cabinets here cheaply, so we only walk within this cabinet. Good enough.
+  const ancestors: string[] = [];
+  let cursor: ConversationMeta | null = meta;
+  for (let i = 0; i < 3 && cursor; i++) {
+    if (cursor.agentSlug) ancestors.push(cursor.agentSlug);
+    if (!cursor.parentTaskId) break;
+    cursor = await readConversationMeta(cursor.parentTaskId, cursor.cabinetPath).catch(
+      () => null
+    );
+  }
+
+  const now = new Date().toISOString();
+  const out: PendingAction[] = [];
+  for (const action of actions) {
+    const warnings = computeWarnings(meta, dispatcher, action, lookup, ancestors);
+    out.push({
+      id: makePendingId(),
+      action,
+      warnings,
+      createdAt: now,
+    });
+  }
+  // Silence unused-import warning on personaCanDispatch — exported for reuse.
+  void personaCanDispatch;
+  return out;
 }

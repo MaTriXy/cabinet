@@ -65,8 +65,8 @@ interface StartConversationInput {
   onComplete?: (completion: ConversationCompletion) => Promise<void> | void;
 }
 
-function buildCabinetEpilogueInstructions(): string {
-  return [
+function buildCabinetEpilogueInstructions(options: { canDispatch?: boolean } = {}): string {
+  const base = [
     "If you need the user to answer a question before you can continue,",
     "wrap that question in `<ask_user>...</ask_user>` tags on its own paragraph.",
     "Cabinet uses this marker to pause the task and highlight the composer.",
@@ -83,7 +83,39 @@ function buildCabinetEpilogueInstructions(): string {
     "This block is metadata for the Cabinet runner only. Never write a",
     "```cabinet ... ``` block inside the body of any .md file you save —",
     "the file should contain only its own content.",
-  ].join("\n");
+  ];
+
+  if (options.canDispatch) {
+    base.push(
+      "",
+      "You can delegate work to other Cabinet agents. These are *proposals* —",
+      "they will be reviewed by the human before any spawn. Inside the ```cabinet",
+      "block, you may add one or more of these lines:",
+      "  LAUNCH_TASK: <agent-slug> | <title> | <one-line prompt>",
+      "  SCHEDULE_JOB: <agent-slug> | <name> | <cron> | <prompt>",
+      "  SCHEDULE_TASK: <agent-slug> | <ISO datetime> | <title> | <prompt>",
+      "",
+      "For multi-line prompts or large fan-out (more than ~5 actions), emit a",
+      "separate ```cabinet-actions code block containing a JSON array:",
+      "```cabinet-actions",
+      '[{"type":"LAUNCH_TASK","agent":"<slug>","title":"<title>","prompt":"<prompt>"}]',
+      "```",
+      "",
+      "Rules:",
+      "- Only target agents that exist in this cabinet (use their exact slug).",
+      "- Duplicates (same type + agent + title + prompt) are deduped.",
+      "- LAUNCH_TASK to yourself is flagged; SCHEDULE_* to yourself is fine.",
+      "- You can propose as many actions as the task requires — the human bulk-approves."
+    );
+  }
+
+  return base.join("\n");
+}
+
+function resolvePersonaCanDispatch(persona: AgentPersona | null | undefined): boolean {
+  if (!persona) return false;
+  if (typeof persona.canDispatch === "boolean") return persona.canDispatch;
+  return persona.type === "lead";
 }
 
 function buildKnowledgeBaseScopeInstructions(
@@ -181,7 +213,7 @@ export async function buildManualConversationPrompt(input: {
     ...buildKnowledgeBaseScopeInstructions(baseCwd, input.cabinetPath),
     "Reflect useful outputs in KB files, not only in terminal text.",
     ...buildDiagramOutputInstructions(),
-    buildCabinetEpilogueInstructions(),
+    buildCabinetEpilogueInstructions({ canDispatch: resolvePersonaCanDispatch(persona) }),
     "",
     `User request:\n${input.userMessage}${mentionContext}`,
   ].join("\n");
@@ -248,7 +280,7 @@ export async function buildEditorConversationPrompt(input: {
     ...buildKnowledgeBaseScopeInstructions(baseCwd, input.cabinetPath),
     "Edit KB files directly and reflect useful outputs in the KB, not only in terminal text.",
     ...buildDiagramOutputInstructions(),
-    buildCabinetEpilogueInstructions(),
+    buildCabinetEpilogueInstructions({ canDispatch: resolvePersonaCanDispatch(persona) }),
     "",
     `User request:\n${input.userMessage}${mentionContext}`,
   ].join("\n");
@@ -544,7 +576,7 @@ export async function startJobConversation(
     ...buildKnowledgeBaseScopeInstructions(baseCwd, job.cabinetPath),
     "Reflect the results in KB files whenever useful.",
     ...buildDiagramOutputInstructions(),
-    buildCabinetEpilogueInstructions(),
+    buildCabinetEpilogueInstructions({ canDispatch: resolvePersonaCanDispatch(persona) }),
     "",
     `Job instructions:\n${jobPrompt}`,
   ].join("\n");
@@ -892,10 +924,12 @@ async function buildContinuationPrompt(options: {
 }): Promise<string> {
   const mentionContext = await buildMentionContext(options.mentionedPaths);
 
+  const canDispatch = resolvePersonaCanDispatch(options.persona);
+
   if (options.mode === "resume") {
     // Live session: persona + scope already live in the adapter's context.
     return [
-      buildCabinetEpilogueInstructions(),
+      buildCabinetEpilogueInstructions({ canDispatch }),
       mentionContext.trim(),
       "",
       `User follow-up:\n${options.userMessage}`,
@@ -911,7 +945,7 @@ async function buildContinuationPrompt(options: {
     ...buildKnowledgeBaseScopeInstructions(options.baseCwd, options.meta.cabinetPath),
     "Reflect useful outputs in KB files, not only in terminal text.",
     ...buildDiagramOutputInstructions(),
-    buildCabinetEpilogueInstructions(),
+    buildCabinetEpilogueInstructions({ canDispatch }),
     "",
     "Prior conversation (for context, do not re-output):",
     serializeTurnHistory(options.priorTurns),

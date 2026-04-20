@@ -1,8 +1,12 @@
+import type { AgentAction } from "@/types/actions";
+import { parseAgentActions } from "./action-parser";
+
 export type Block =
   | { type: "text"; content: string }
   | { type: "diff"; header: string; lines: DiffLine[] }
   | { type: "code"; lang: string; content: string }
   | { type: "cabinet"; fields: { label: string; value: string }[] }
+  | { type: "actions"; actions: AgentAction[] }
   | { type: "structured"; label: string; value: string }
   | { type: "tokens"; value: string };
 
@@ -13,7 +17,7 @@ export type DiffLine = {
 
 const DIFF_START = /^diff --git /;
 const STRUCTURED_RE =
-  /^(SUMMARY|CONTEXT|CONTEXT_UPDATE|ARTIFACT|DECISION|LEARNING|GOAL_UPDATE|MESSAGE_TO)\s*(?:\[([^\]]*)\])?:\s*(.*)$/;
+  /^(SUMMARY|CONTEXT|CONTEXT_UPDATE|ARTIFACT|DECISION|LEARNING|GOAL_UPDATE|MESSAGE_TO|LAUNCH_TASK|SCHEDULE_JOB|SCHEDULE_TASK)\s*(?:\[([^\]]*)\])?:\s*(.*)$/;
 const TOKENS_RE = /^[\d,]+$/;
 
 function preprocess(text: string): string {
@@ -90,7 +94,7 @@ function parseCodeBlock(
   lines: string[],
   startIdx: number
 ): { block: Block; endIdx: number } | null {
-  const match = lines[startIdx].match(/^```(\w*)$/);
+  const match = lines[startIdx].match(/^```([\w-]*)$/);
   if (!match) return null;
 
   const lang = match[1] || "text";
@@ -99,6 +103,13 @@ function parseCodeBlock(
 
   while (i < lines.length) {
     if (lines[i] === "```") {
+      if (lang === "cabinet-actions") {
+        const { actions } = parseAgentActions(
+          "```cabinet-actions\n" + codeLines.join("\n") + "\n```"
+        );
+        return { block: { type: "actions", actions }, endIdx: i + 1 };
+      }
+
       const nonEmpty = codeLines.filter((line) => line.trim());
       const allStructured =
         nonEmpty.length > 0 && nonEmpty.every((line) => STRUCTURED_RE.test(line));
@@ -128,7 +139,7 @@ function parseCodeBlock(
 
 function parseStructuredLine(line: string): Block | null {
   const match = line.match(
-    /^(SUMMARY|CONTEXT|CONTEXT_UPDATE|ARTIFACT|DECISION|LEARNING|GOAL_UPDATE|MESSAGE_TO)\s*(?:\[([^\]]*)\])?:\s+(.*)$/
+    /^(SUMMARY|CONTEXT|CONTEXT_UPDATE|ARTIFACT|DECISION|LEARNING|GOAL_UPDATE|MESSAGE_TO|LAUNCH_TASK|SCHEDULE_JOB|SCHEDULE_TASK)\s*(?:\[([^\]]*)\])?:\s+(.*)$/
   );
   if (!match) return null;
   const label = match[2] ? `${match[1]} [${match[2]}]` : match[1];

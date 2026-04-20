@@ -113,5 +113,12 @@ export function normalizeJobConfig(
       typeof input.updatedAt === "string" && input.updatedAt.trim()
         ? input.updatedAt
         : now,
+    ...(input.oneShot === true ? { oneShot: true } : {}),
+    ...(typeof input.runAfter === "string" && input.runAfter.trim()
+      ? { runAfter: input.runAfter.trim() }
+      : {}),
+    ...(typeof input.ownerTaskId === "string" && input.ownerTaskId.trim()
+      ? { ownerTaskId: input.ownerTaskId.trim() }
+      : {}),
   };
 }

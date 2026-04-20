@@ -6,7 +6,7 @@ export type TaskStatus =
   | "failed"
   | "archived";
 
-export type TaskTrigger = "manual" | "job" | "heartbeat";
+export type TaskTrigger = "manual" | "job" | "heartbeat" | "agent";
 
 export type TurnRole = "user" | "agent";
 

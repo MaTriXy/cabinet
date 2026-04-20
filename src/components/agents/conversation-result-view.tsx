@@ -6,6 +6,7 @@ import type { ConversationDetail } from "@/types/conversations";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { appendConversationCabinetPath } from "@/lib/agents/conversation-identity";
+import { PendingActionsPanel } from "./pending-actions-panel";
 
 function StatusBadge({ status }: { status: string }) {
   const isCompleted = status === "completed";
@@ -28,9 +29,11 @@ function StatusBadge({ status }: { status: string }) {
 export function ConversationResultView({
   detail,
   onOpenArtifact,
+  onRefresh,
 }: {
   detail: ConversationDetail;
   onOpenArtifact: (path: string) => void;
+  onRefresh?: () => void;
 }) {
   const transcriptUrl = appendConversationCabinetPath(
     `/agents/conversations/${detail.meta.id}`,
@@ -139,6 +142,17 @@ export function ConversationResultView({
             </div>
           ) : null}
         </section>
+
+        {/* Proposed agent actions */}
+        {(detail.meta.pendingActions?.length || detail.meta.dispatchedActions?.length) ? (
+          <PendingActionsPanel
+            conversationId={detail.meta.id}
+            cabinetPath={detail.meta.cabinetPath}
+            pending={detail.meta.pendingActions || []}
+            dispatched={detail.meta.dispatchedActions}
+            onRefresh={onRefresh}
+          />
+        ) : null}
 
         {/* Artifacts */}
         <section className="rounded-2xl border border-border bg-background p-5">

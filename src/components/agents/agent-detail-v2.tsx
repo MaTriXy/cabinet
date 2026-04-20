@@ -419,6 +419,7 @@ function TopBar({
   onBack,
   onToggleSchedule,
   onToggleActive,
+  onToggleCanDispatch,
   onExport,
   onDelete,
 }: {
@@ -428,6 +429,7 @@ function TopBar({
   onBack: () => void;
   onToggleSchedule: () => void;
   onToggleActive: () => void;
+  onToggleCanDispatch: () => void;
   onExport: () => void;
   onDelete: () => void;
 }) {
@@ -511,7 +513,20 @@ function TopBar({
               </Button>
             }
           />
-          <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem onClick={onToggleCanDispatch}>
+              <span className="mr-2 inline-flex size-4 items-center justify-center font-mono text-[11px]">
+                {(
+                  typeof persona.canDispatch === "boolean"
+                    ? persona.canDispatch
+                    : persona.type === "lead"
+                )
+                  ? "✓"
+                  : ""}
+              </span>
+              Can assign tasks to other team members
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onExport}>
               <Download className="h-3.5 w-3.5 mr-2" />
               Export persona
@@ -2069,6 +2084,23 @@ export function AgentDetailV2({
     refresh();
   }, [slug, refresh, effectiveCabinetPath]);
 
+  const toggleCanDispatch = useCallback(async () => {
+    if (!persona) return;
+    const current =
+      typeof persona.canDispatch === "boolean"
+        ? persona.canDispatch
+        : persona.type === "lead";
+    setPersona((prev) => (prev ? { ...prev, canDispatch: !current } : prev));
+    const body: Record<string, unknown> = { canDispatch: !current };
+    if (effectiveCabinetPath) body.cabinetPath = effectiveCabinetPath;
+    await fetch(`/api/agents/personas/${slug}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    refresh();
+  }, [persona, slug, refresh, effectiveCabinetPath]);
+
   const saveField = useCallback(
     async (field: string, value: string) => {
       // Optimistic update so UI responds instantly (avatar, icon, color, etc.)
@@ -2173,6 +2205,7 @@ export function AgentDetailV2({
             onBack={onBack || (() => history.back())}
             onToggleSchedule={() => setScheduleOpen((v) => !v)}
             onToggleActive={togglingActive ? () => {} : toggleActive}
+            onToggleCanDispatch={toggleCanDispatch}
             onExport={handleExport}
             onDelete={handleDelete}
           />

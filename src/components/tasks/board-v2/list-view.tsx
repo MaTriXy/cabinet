@@ -41,6 +41,11 @@ const TRIGGER_STYLES: Record<
     label: "Heartbeat",
     className: "bg-pink-500/12 text-pink-600 dark:text-pink-400 ring-1 ring-pink-500/20",
   },
+  agent: {
+    label: "Agent",
+    className:
+      "bg-violet-500/12 text-violet-600 dark:text-violet-400 ring-1 ring-violet-500/20",
+  },
 };
 
 function TriggerBadge({ trigger }: { trigger: TaskMeta["trigger"] }) {
