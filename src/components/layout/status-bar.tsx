@@ -8,6 +8,10 @@ import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { createConversation } from "@/lib/agents/conversation-client";
+import {
+  TaskRuntimePicker,
+  type TaskRuntimeSelection,
+} from "@/components/composer/task-runtime-picker";
 
 const DISCORD_SUPPORT_URL = "https://discord.gg/hJa5TRTbTH";
 const GITHUB_REPO_URL = "https://github.com/hilash/cabinet";
@@ -84,6 +88,7 @@ export function StatusBar() {
   const { open, addEditorSession } = useAIPanelStore();
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiSubmitting, setAiSubmitting] = useState(false);
+  const [aiRuntime, setAiRuntime] = useState<TaskRuntimeSelection>({});
 
   const showAIPill = section.type === "page" && !!selectedPath;
 
@@ -101,6 +106,7 @@ export function StatusBar() {
           pagePath: selectedPath,
           userMessage: message,
           mentionedPaths: [],
+          ...aiRuntime,
         });
         const conversation = data.conversation as { id: string; title: string };
         addEditorSession({
@@ -312,9 +318,16 @@ export function StatusBar() {
 
   return (
     <div className="relative flex items-center justify-between px-3 py-1 border-t border-border text-[11px] text-muted-foreground/60 bg-background">
-      {/* Center: AI edit pill */}
+      {/* Center: AI edit pill + runtime picker. Picker sits to the LEFT of
+          the pill so the narrow input stays readable; the same value is sent
+          in the createConversation call (terminal mode swaps to legacy PTY). */}
       {showAIPill && (
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center pointer-events-auto">
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-auto">
+          <TaskRuntimePicker
+            value={aiRuntime}
+            onChange={setAiRuntime}
+            className="h-6 px-1.5 text-[10px]"
+          />
           <div className="flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 gap-1.5 focus-within:border-border/80 focus-within:bg-muted/60 transition-colors w-56">
             <input
               type="text"

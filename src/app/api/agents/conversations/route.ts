@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  defaultAdapterTypeForProvider,
-  LEGACY_ADAPTER_BY_PROVIDER_ID,
-} from "@/lib/agents/adapters";
-import {
   buildEditorConversationPrompt,
   buildManualConversationPrompt,
   startConversationRun,
@@ -11,6 +7,7 @@ import {
 import { buildConversationInstanceKey } from "@/lib/agents/conversation-identity";
 import { listConversationMetas } from "@/lib/agents/conversation-store";
 import { readMemory, writeMemory } from "@/lib/agents/persona-manager";
+import { normalizeRuntimeOverride } from "@/lib/agents/runtime-overrides";
 import { readCabinetOverview } from "@/lib/cabinets/overview";
 import { findOwningCabinetPathForPage } from "@/lib/cabinets/server-paths";
 import type { CabinetVisibilityMode } from "@/types/cabinets";
@@ -98,25 +95,6 @@ export async function POST(req: NextRequest) {
       typeof body.cabinetPath === "string" && body.cabinetPath.trim()
         ? body.cabinetPath.trim()
         : undefined;
-    const requestedProviderId =
-      typeof body.providerId === "string" && body.providerId.trim()
-        ? body.providerId.trim()
-        : undefined;
-    const requestedAdapterType =
-      typeof body.adapterType === "string" && body.adapterType.trim()
-        ? body.adapterType.trim()
-        : undefined;
-    const requestedModel =
-      typeof body.model === "string" && body.model.trim()
-        ? body.model.trim()
-        : undefined;
-    const requestedEffort =
-      typeof body.effort === "string" && body.effort.trim()
-        ? body.effort.trim()
-        : undefined;
-    const requestedRuntimeMode =
-      body.runtimeMode === "terminal" ? "terminal" : undefined;
-
     if (!userMessage) {
       return NextResponse.json(
         { error: "userMessage is required" },
@@ -154,42 +132,30 @@ export async function POST(req: NextRequest) {
     const conversationCabinetPath =
       editorCabinetPath ??
       ("cabinetPath" in conversationInput ? conversationInput.cabinetPath : cabinetPath);
-    const resolvedProviderId = requestedProviderId || conversationInput.providerId;
-    let resolvedAdapterType =
-      requestedAdapterType ||
-      (requestedProviderId
-        ? defaultAdapterTypeForProvider(requestedProviderId)
-        : conversationInput.adapterType);
-    // Terminal runtime mode — swap to the provider's legacy PTY adapter so the
-    // CLI streams live. Model/effort are intentionally ignored in this mode
-    // because PTY runs use the CLI's own defaults.
-    if (requestedRuntimeMode === "terminal" && resolvedProviderId) {
-      const legacyAdapterType = LEGACY_ADAPTER_BY_PROVIDER_ID[resolvedProviderId];
-      if (legacyAdapterType) {
-        resolvedAdapterType = legacyAdapterType;
+
+    const runtime = normalizeRuntimeOverride(
+      {
+        providerId: body.providerId,
+        adapterType: body.adapterType,
+        model: body.model,
+        effort: body.effort,
+        runtimeMode: body.runtimeMode,
+      },
+      {
+        providerId: conversationInput.providerId,
+        adapterType: conversationInput.adapterType,
+        adapterConfig: conversationInput.adapterConfig,
       }
-    }
-    const adapterConfigBase =
-      requestedProviderId && requestedProviderId !== conversationInput.providerId
-        ? {}
-        : { ...(conversationInput.adapterConfig || {}) };
-    if (requestedModel) {
-      adapterConfigBase.model = requestedModel;
-    }
-    if (requestedEffort) {
-      adapterConfigBase.effort = requestedEffort;
-    }
-    const resolvedAdapterConfig =
-      Object.keys(adapterConfigBase).length > 0 ? adapterConfigBase : undefined;
+    );
 
     const conversation = await startConversationRun({
       agentSlug,
       title: conversationInput.title,
       trigger: "manual",
       prompt: conversationInput.prompt,
-      adapterType: resolvedAdapterType,
-      adapterConfig: resolvedAdapterConfig,
-      providerId: resolvedProviderId,
+      adapterType: runtime.adapterType,
+      adapterConfig: runtime.adapterConfig,
+      providerId: runtime.providerId,
       mentionedPaths:
         "mentionedPaths" in conversationInput
           ? conversationInput.mentionedPaths

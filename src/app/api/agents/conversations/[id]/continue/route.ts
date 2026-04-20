@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  defaultAdapterTypeForProvider,
-  LEGACY_ADAPTER_BY_PROVIDER_ID,
-} from "@/lib/agents/adapters";
 import { continueConversationRun } from "@/lib/agents/conversation-runner";
 import { readConversationMeta } from "@/lib/agents/conversation-store";
+import { normalizeRuntimeOverride } from "@/lib/agents/runtime-overrides";
 
 interface ContinueBody {
   userMessage?: string;
@@ -58,47 +55,36 @@ export async function POST(
     : [];
 
   // Runtime override: users can switch provider/model/effort per turn.
-  // When only providerId is given without adapterType, derive the default
-  // adapter for that provider. When neither is given, the runner inherits
-  // from the conversation's existing meta.
-  const providerId =
-    typeof body.providerId === "string" && body.providerId.trim()
-      ? body.providerId.trim()
-      : undefined;
-  let adapterType =
-    typeof body.adapterType === "string" && body.adapterType.trim()
-      ? body.adapterType.trim()
-      : providerId
-        ? defaultAdapterTypeForProvider(providerId)
-        : undefined;
-  // Terminal runtime mode — swap to the provider's legacy PTY adapter so the
-  // continuation streams live through the same xterm view.
-  if (body.runtimeMode === "terminal") {
-    const resolvedProviderId = providerId || existing.providerId;
-    if (resolvedProviderId) {
-      const legacyAdapterType = LEGACY_ADAPTER_BY_PROVIDER_ID[resolvedProviderId];
-      if (legacyAdapterType) adapterType = legacyAdapterType;
+  // Normalization (legacy-adapter swap, model/effort stripping in terminal
+  // mode, provider/adapter inheritance) lives in a shared helper so this
+  // route and the new-task POST can't drift.
+  const runtime = normalizeRuntimeOverride(
+    {
+      providerId: body.providerId,
+      adapterType: body.adapterType,
+      model: body.model,
+      effort: body.effort,
+      runtimeMode: body.runtimeMode,
+    },
+    {
+      providerId: existing.providerId,
+      adapterType: existing.adapterType,
+      adapterConfig: existing.adapterConfig,
     }
-  }
-  const isTerminalMode = body.runtimeMode === "terminal";
-  const model =
-    !isTerminalMode && typeof body.model === "string" && body.model.trim()
-      ? body.model.trim()
-      : undefined;
-  const effort =
-    !isTerminalMode && typeof body.effort === "string" && body.effort.trim()
-      ? body.effort.trim()
-      : undefined;
+  );
 
   // Fire the continuation in the background; the UI streams updates via SSE.
+  // continueConversationRun takes model/effort as separate overrides (it
+  // merges them into the per-turn adapterConfig). In terminal mode the
+  // normalizer strips both — pass undefined so the PTY adapter uses defaults.
   void continueConversationRun(id, {
     userMessage,
     mentionedPaths,
     cabinetPath: existing.cabinetPath ?? cabinetPath,
-    providerId,
-    adapterType,
-    model,
-    effort,
+    providerId: runtime.providerId,
+    adapterType: runtime.adapterType,
+    model: runtime.isTerminal ? undefined : body.model?.trim() || undefined,
+    effort: runtime.isTerminal ? undefined : body.effort?.trim() || undefined,
   }).catch((err) => {
     console.error(`[conversation-runner] ${id} continue failed`, err);
   });

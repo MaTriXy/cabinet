@@ -23,6 +23,10 @@ import type { AgentListItem } from "@/types/agents";
 import { createConversation } from "@/lib/agents/conversation-client";
 import { flattenTree } from "@/lib/tree-utils";
 import { ComposerInput } from "@/components/composer/composer-input";
+import {
+  TaskRuntimePicker,
+  type TaskRuntimeSelection,
+} from "@/components/composer/task-runtime-picker";
 import { useComposer, type MentionableItem } from "@/hooks/use-composer";
 
 interface PastSession {
@@ -287,6 +291,8 @@ export function AIPanel() {
     }
   }, [currentPath, liveSessions]);
 
+  const [taskRuntime, setTaskRuntime] = useState<TaskRuntimeSelection>({});
+
   const composer = useComposer({
     items: mentionItems,
     disabled: !currentPath,
@@ -323,12 +329,14 @@ export function AIPanel() {
                 agentSlug: targetAgent,
                 userMessage: message,
                 mentionedPaths,
+                ...taskRuntime,
               }
             : {
                 source: "editor",
                 pagePath: currentPath,
                 userMessage: message,
                 mentionedPaths,
+                ...taskRuntime,
               }
         );
         const conversation = data.conversation as ConversationMeta;
@@ -780,6 +788,9 @@ export function AIPanel() {
           maxHeight="160px"
           items={mentionItems}
           autoFocus={isOpen}
+          actionsStart={
+            <TaskRuntimePicker value={taskRuntime} onChange={setTaskRuntime} />
+          }
         />
       </div>
     </div>

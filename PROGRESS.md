@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-20] Added `data/have-fun/cv-horace-slughorn.md` — a satirical CV for Horace E. F. Slughorn (Order of Merlin, First Class; Slug Club convenor) as output of the `create-cv` scheduled job.
+
 [2026-04-20] Added `data/have-fun/cv-rubeus-hagrid.md` — a satirical Hogwarts-groundskeeper CV for Rubeus Hagrid (Keeper of Keys, Care of Magical Creatures professor) as output of the `create-cv` scheduled job.
 
 [2026-04-20] Added `data/have-fun/cv-gilderoy-lockhart.md` — a satirical CV for Gilderoy Lockhart (Order of Merlin, Third Class) with post-Memory-Charm St Mungo's context, as output of the `create-cv` scheduled job.
@@ -706,3 +708,5 @@
 [2026-04-20] Terminal-mode tasks now render the terminal layout in compact/side-panel mounts too. `task-conversation-page.tsx` previously gated the fullscreen terminal branch on `!isCompact`, so clicking a PTY task from the board/kanban opened it in the detail panel showing the regular Chat/Artifacts/Diff/Logs tabs — even though the selected runtime was Terminal. Dropped the `!isCompact` guard so any mount (fullscreen, side panel, board-v2 detail panel) with a legacy adapterType gets the Terminal/Details(/Transcript) tabs + WebTerminal layout. Storage + adapter swap were already correct: `POST /api/agents/conversations` resolves `runtimeMode: "terminal"` to `LEGACY_ADAPTER_BY_PROVIDER_ID[providerId]` and persists e.g. `claude_code_legacy` in meta.json; only the UI conditional was hiding it.
 
 [2026-04-20] Avatar/icon picker consistency: avatar preset thumbnails now match the icon cells (8-col grid of 32x32 tiles) instead of the old 6-col 40x40 layout. Icon catalog expanded from 40 to ~140 Lucide glyphs (Anchor through Wine), with the picker constrained to a scrollable 56-tall region so the popover stays compact.
+
+[2026-04-20] Consolidated runtime-override handling across all task composers. New src/lib/agents/runtime-overrides.ts → normalizeRuntimeOverride(requested, fallback) is the single source of truth for provider/adapter/model/effort/terminal-mode resolution. Both POST /api/agents/conversations (new task) and POST /api/agents/conversations/[id]/continue now call it, fixing a drift where the new-task path never stripped model/effort in terminal mode (they leaked into meta.json). Added TaskRuntimePicker to the AI panel composer and the status-bar AI pill — both previously sent createConversation with no runtime fields at all, so users who picked terminal as their default never got terminal from those surfaces.
