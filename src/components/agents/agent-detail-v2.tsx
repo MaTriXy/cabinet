@@ -528,9 +528,22 @@ function TopBar({
                 }
               />
               <TooltipContent>
-                {canDispatch
-                  ? "This agent can propose LAUNCH_TASK / SCHEDULE_* actions for teammates. Toggle off to revoke."
-                  : "Let this agent delegate tasks to other Cabinet agents. Proposals still require human approval before dispatch."}
+                <div className="max-w-[260px] space-y-1.5">
+                  <div>
+                    {canDispatch
+                      ? "Can hand off work to teammates. You approve each handoff before it runs."
+                      : "Let this agent hand off work to teammates. You approve each handoff before it runs."}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Try:{" "}
+                    <span className="italic">
+                      &ldquo;Ask the editor to draft our launch post.&rdquo;
+                    </span>
+                  </div>
+                  {canDispatch && (
+                    <div className="text-muted-foreground">Click to turn off.</div>
+                  )}
+                </div>
               </TooltipContent>
             </Tooltip>
           );

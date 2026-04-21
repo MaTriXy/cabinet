@@ -1,5 +1,9 @@
 # Progress
 
+[2026-04-21] Simpler tooltip on the **Can dispatch** / **No dispatch** pill in the agent detail header. Plain-English phrasing ("Can hand off work to teammates. You approve each handoff before it runs.") plus an example prompt line ("Try: 'Ask the editor to draft our launch post.'"), and a trailing "Click to turn off" line in the on-state. No jargon like LAUNCH_TASK / SCHEDULE_*.
+
+[2026-04-21] Tasks board agents filter now honors the cabinet-visibility toggle. `use-board-data.ts` was sending `visibilityMode=` to `/api/cabinets/overview`, but the route reads `visibility=` — so the toggle was a silent no-op and the board was pinned to the active cabinet's own agents no matter what. Changed the overview call's query param to `visibility`. Left the conversations call alone: `/api/agents/conversations` actually does read `visibilityMode`, so the two endpoints remain inconsistent with each other but both are now correctly addressed.
+
 [2026-04-21] Fix task composer agent dropdown selection: switched `DropdownMenuItem` from `onSelect` to `onClick`. Base-ui's `Menu.Item` doesn't wire `onSelect` to clicks, so agent picks were silently dropped; matches the pattern already used in `reassign-menu.tsx` and `cabinet-task-composer.tsx`.
 
 [2026-04-21] Task composer agent dropdown (`new-task-dialog.tsx`) now renders the real `AgentAvatar` shared component in both the trigger button and each menu item, replacing the raw emoji span. Shows uploaded avatar images when set, and falls back to the tinted icon when none — matching how the sidebar and reassign menu already render agents.
