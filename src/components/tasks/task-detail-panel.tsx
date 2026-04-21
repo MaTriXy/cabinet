@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowUpRight, BrainCircuit, X } from "lucide-react";
+import { ArrowUpRight, BrainCircuit, Maximize2, Minimize2, X } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
 import { Button } from "@/components/ui/button";
 import { ProviderGlyph } from "@/components/agents/provider-glyph";
 import { useProviderIcon } from "@/hooks/use-provider-icons";
 import { formatEffortName } from "@/lib/agents/runtime-options";
+import { cn } from "@/lib/utils";
 import type {
   ConversationMeta,
   ConversationStatus,
@@ -97,6 +98,8 @@ export function TaskDetailPanel() {
   const conversation = useAppStore((s) => s.taskPanelConversation);
   const setTaskPanelConversation = useAppStore((s) => s.setTaskPanelConversation);
   const setSection = useAppStore((s) => s.setSection);
+  const fullscreen = useAppStore((s) => s.taskPanelFullscreen);
+  const toggleFullscreen = useAppStore((s) => s.toggleTaskPanelFullscreen);
   const providerIcon = useProviderIcon(conversation?.providerId);
 
   if (!conversation) return null;
@@ -113,7 +116,14 @@ export function TaskDetailPanel() {
   };
 
   return (
-    <div className="flex h-full w-[420px] shrink-0 flex-col border-l border-border/70 bg-background">
+    <div
+      className={cn(
+        "flex flex-col bg-background",
+        fullscreen
+          ? "fixed inset-0 z-50"
+          : "h-full w-[420px] shrink-0 border-l border-border/70"
+      )}
+    >
       <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -151,6 +161,15 @@ export function TaskDetailPanel() {
             </div>
           ) : null}
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 shrink-0 p-0 text-muted-foreground"
+          onClick={toggleFullscreen}
+          title={fullscreen ? "Shrink" : "Enlarge"}
+        >
+          {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </Button>
         <Button
           variant="ghost"
           size="sm"

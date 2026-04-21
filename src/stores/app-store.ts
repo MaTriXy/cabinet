@@ -43,6 +43,7 @@ interface AppState {
   aiPanelCollapsed: boolean;
   cabinetVisibilityModes: Record<string, CabinetVisibilityMode>;
   taskPanelConversation: ConversationMeta | null;
+  taskPanelFullscreen: boolean;
   providers: ProviderInfo[];
   defaultProviderId: string | null;
   defaultModel: string | null;
@@ -66,6 +67,8 @@ interface AppState {
     mode: CabinetVisibilityMode
   ) => void;
   setTaskPanelConversation: (conversation: ConversationMeta | null) => void;
+  setTaskPanelFullscreen: (fullscreen: boolean) => void;
+  toggleTaskPanelFullscreen: () => void;
 }
 
 function normalizeVisibilityCabinetPath(cabinetPath?: string): string {
@@ -114,6 +117,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   aiPanelCollapsed: false,
   cabinetVisibilityModes: loadCabinetVisibilityModes(),
   taskPanelConversation: null,
+  taskPanelFullscreen: false,
   providers: [],
   defaultProviderId: null,
   defaultModel: null,
@@ -149,15 +153,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSection: (section) =>
-    set({ section, taskPanelConversation: null, returnTo: null }),
+    set({ section, taskPanelConversation: null, taskPanelFullscreen: false, returnTo: null }),
 
   pushSection: (next, from) =>
-    set({ section: next, taskPanelConversation: null, returnTo: from }),
+    set({ section: next, taskPanelConversation: null, taskPanelFullscreen: false, returnTo: from }),
 
   popReturnTo: () => {
     const { returnTo } = get();
     if (!returnTo) return;
-    set({ section: returnTo, returnTo: null, taskPanelConversation: null });
+    set({ section: returnTo, returnTo: null, taskPanelConversation: null, taskPanelFullscreen: false });
   },
 
   toggleTerminal: () => {
@@ -225,7 +229,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ cabinetVisibilityModes: nextModes });
   },
 
-  setTaskPanelConversation: (conversation) => set({ taskPanelConversation: conversation }),
+  setTaskPanelConversation: (conversation) =>
+    set({ taskPanelConversation: conversation, taskPanelFullscreen: false }),
+
+  setTaskPanelFullscreen: (fullscreen) => set({ taskPanelFullscreen: fullscreen }),
+
+  toggleTaskPanelFullscreen: () =>
+    set({ taskPanelFullscreen: !get().taskPanelFullscreen }),
 
   openAgentTab: (taskTitle: string, prompt: string) => {
     const id = `agent-${Date.now()}`;

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, BellOff, X } from "lucide-react";
+import { Bell, BellOff, Maximize2, Minimize2, X } from "lucide-react";
 import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
+import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 import { AgentPill } from "./agent-pill";
 import { StatusIcon, deriveCardState } from "./status-icon";
@@ -30,13 +31,22 @@ export function DetailPanel({
   onClose: () => void;
   onRefresh?: () => Promise<void>;
 }) {
+  const fullscreen = useAppStore((s) => s.taskPanelFullscreen);
+  const toggleFullscreen = useAppStore((s) => s.toggleTaskPanelFullscreen);
+  const setFullscreen = useAppStore((s) => s.setTaskPanelFullscreen);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (fullscreen) {
+        setFullscreen(false);
+      } else {
+        onClose();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, fullscreen, setFullscreen]);
 
   const state = deriveCardState(task, lane);
   const [muting, setMuting] = useState(false);
@@ -56,7 +66,14 @@ export function DetailPanel({
   }
 
   return (
-    <aside className="absolute inset-y-0 right-0 z-20 flex w-[460px] flex-col border-l border-border/70 bg-background shadow-xl">
+    <aside
+      className={cn(
+        "flex flex-col bg-background",
+        fullscreen
+          ? "fixed inset-0 z-50"
+          : "absolute inset-y-0 right-0 z-20 w-[460px] border-l border-border/70 shadow-xl"
+      )}
+    >
       <header className="flex items-start gap-3 border-b border-border/60 px-5 py-3">
         <StatusIcon state={state} size="md" />
         <div className="min-w-0 flex-1">
@@ -67,6 +84,14 @@ export function DetailPanel({
             {task.title}
           </h2>
         </div>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title={fullscreen ? "Shrink (Esc)" : "Enlarge"}
+        >
+          {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+        </button>
         <button
           type="button"
           onClick={toggleMuted}
