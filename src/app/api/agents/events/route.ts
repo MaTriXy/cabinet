@@ -75,10 +75,10 @@ export async function GET() {
 
           send("agent_status", agentStatuses);
 
-          // Conversation completion notifications
-          const completedNotifications = drainConversationNotifications();
-          if (completedNotifications.length > 0) {
-            const enriched = completedNotifications.map((n) => {
+          // Conversation start + completion notifications
+          const drained = drainConversationNotifications();
+          if (drained.length > 0) {
+            const enriched = drained.map((n) => {
               const persona = personas.find(
                 (p) =>
                   p.slug === n.agentSlug &&
@@ -92,15 +92,27 @@ export async function GET() {
                 agentEmoji: persona?.emoji || "🤖",
               };
             });
-            send("conversation_completed", enriched);
 
-            // Agent just finished — it may have written KB files anywhere in
-            // the tree. The shallow fs.stat diff at the bottom of this tick
-            // only catches top-level mtime changes, so a file written into
-            // e.g. data/have-fun/voldemort/ doesn't trip it. Force a
-            // tree_changed so the sidebar refetches without F5.
-            send("tree_changed", { reason: "conversation_completed" });
-            lastDataVersion = await getDataDirVersion();
+            const started = enriched.filter((n) => n.status === "running");
+            const terminal = enriched.filter(
+              (n) => n.status === "completed" || n.status === "failed"
+            );
+
+            if (started.length > 0) {
+              send("conversation_started", started);
+            }
+
+            if (terminal.length > 0) {
+              send("conversation_completed", terminal);
+
+              // Agent just finished — it may have written KB files anywhere in
+              // the tree. The shallow fs.stat diff at the bottom of this tick
+              // only catches top-level mtime changes, so a file written into
+              // e.g. data/have-fun/voldemort/ doesn't trip it. Force a
+              // tree_changed so the sidebar refetches without F5.
+              send("tree_changed", { reason: "conversation_completed" });
+              lastDataVersion = await getDataDirVersion();
+            }
           }
 
           // Goal progress (only for agents with goals)

@@ -137,6 +137,14 @@ export function AppShell() {
           );
         } catch { /* ignore */ }
       });
+      es.addEventListener("conversation_started", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          window.dispatchEvent(
+            new CustomEvent("cabinet:conversation-started", { detail: data })
+          );
+        } catch { /* ignore */ }
+      });
     } catch {
       // SSE not supported
     }

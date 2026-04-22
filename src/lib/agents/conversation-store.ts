@@ -38,6 +38,7 @@ import {
   buildConversationNotificationIdentity,
   dedupeConversationNotifications,
   shouldEnqueueConversationNotification,
+  shouldEnqueueConversationStart,
 } from "./conversation-notification-utils";
 import { DATA_DIR, sanitizeFilename, virtualPathFromFs } from "../storage/path-utils";
 import {
@@ -56,7 +57,7 @@ function resolveConversationsDir(cabinetPath?: string): string {
   return CONVERSATIONS_DIR;
 }
 
-// ── In-memory notification queue for completed/failed conversations ──
+// ── In-memory notification queue for conversation start + terminal events ──
 export interface ConversationNotification {
   id: string;
   agentSlug: string;
@@ -64,7 +65,15 @@ export interface ConversationNotification {
   title: string;
   status: ConversationStatus;
   summary?: string;
+  // ISO timestamp of the event (completedAt for terminal rows, startedAt for
+  // "running" start rows). Field name kept for back-compat with the existing
+  // SSE payload + toast UI.
   completedAt: string;
+  // Populated only for start notifications so the toast can render a
+  // trigger-specific subtitle ("Scheduled: daily-standup", "Heartbeat", etc).
+  trigger?: ConversationTrigger;
+  jobName?: string;
+  scheduledAt?: string;
 }
 
 const notificationQueue: ConversationNotification[] = [];
@@ -477,6 +486,20 @@ export async function createConversation(
     seq: createdSeq ?? undefined,
     payload: { status: meta.status },
   });
+
+  if (shouldEnqueueConversationStart(meta.trigger)) {
+    enqueueConversationNotification({
+      id,
+      agentSlug: meta.agentSlug,
+      cabinetPath: cp,
+      title: meta.title,
+      status: "running",
+      completedAt: startedAt,
+      trigger: meta.trigger,
+      jobName: meta.jobName,
+      scheduledAt: meta.scheduledAt,
+    });
+  }
 
   return meta;
 }

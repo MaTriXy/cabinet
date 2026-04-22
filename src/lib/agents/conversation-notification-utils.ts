@@ -1,4 +1,4 @@
-import type { ConversationStatus } from "@/types/conversations";
+import type { ConversationStatus, ConversationTrigger } from "@/types/conversations";
 
 export interface ConversationNotificationIdentityLike {
   id: string;
@@ -15,6 +15,12 @@ export function shouldEnqueueConversationNotification(
   nextStatus: ConversationStatus
 ): boolean {
   return !isTerminalConversationStatus(previousStatus) && isTerminalConversationStatus(nextStatus);
+}
+
+// Only scheduled/background starts toast. Manual runs already render the
+// transcript in the foreground, so an extra toast would be noise.
+export function shouldEnqueueConversationStart(trigger: ConversationTrigger): boolean {
+  return trigger !== "manual";
 }
 
 export function buildConversationNotificationIdentity(
