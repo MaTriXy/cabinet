@@ -210,17 +210,20 @@ export function NewCabinetDialog({
           <Archive className="h-4 w-4" />
           New Cabinet
         </button>
-        <NewCabinetOverlay
-          open={open}
-          onOpenChange={setOpen}
-          parentPath={parentPath}
-          defaultName={defaultName}
-        />
+        {open && (
+          <NewCabinetOverlay
+            open={open}
+            onOpenChange={setOpen}
+            parentPath={parentPath}
+            defaultName={defaultName}
+          />
+        )}
       </>
     );
   }
 
   // Controlled mode
+  if (!open) return null;
   return (
     <NewCabinetOverlay
       open={open}
