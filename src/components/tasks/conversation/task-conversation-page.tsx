@@ -56,6 +56,7 @@ import { TaskComposerPanel } from "./task-composer-panel";
 import { MOCK_TASK } from "./mock-data";
 import type { Task, TaskEvent, TaskStatus } from "@/types/tasks";
 import { compactTask, fetchTask, patchTask, postTurn } from "@/lib/agents/task-client";
+import { peekTaskIsTerminal } from "@/lib/agents/terminal-mode-cache";
 
 const STATUS_META: Record<
   TaskStatus,
@@ -491,6 +492,15 @@ export function TaskConversationPage({
     : 0;
 
   const isTerminalMode = task ? isLegacyAdapterType(task.meta.adapterType) : false;
+  // Warm hint from the client-side cache populated by any surface that saw
+  // this task in a conversations-list response (sidebar, board). Lets us
+  // mount the xterm shell before the detail fetch returns — biggest win on
+  // dev where the detail call can sit behind parallel route compiles.
+  const [earlyIsTerminal] = useState<boolean | null>(() =>
+    isDemo ? false : peekTaskIsTerminal(taskId)
+  );
+  const terminalModeActive =
+    isTerminalMode || (!task && earlyIsTerminal === true);
   const firstUserTurn = task?.turns.find((t) => t.role === "user") || null;
   const terminalPrompt = firstUserTurn?.content || task?.meta.title || "";
   const attachedSkills = task ? readRuntimeSkills(task.meta.adapterConfig) : null;
@@ -724,7 +734,7 @@ export function TaskConversationPage({
     );
   }
 
-  if (!task) {
+  if (!task && !terminalModeActive) {
     return (
       <div className="flex h-full items-center justify-center bg-background text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
@@ -736,25 +746,33 @@ export function TaskConversationPage({
   // the rest. No tabs, no token bar, no prompt header card — the CLI's own
   // output is the source of truth. Composer pinned to the bottom only when
   // the PTY has exited (idle).
-  if (isTerminalMode) {
-    const statusTone =
-      task.meta.status === "running"
+  //
+  // When `terminalModeActive` is true but `task` is still null we're in
+  // the optimistic pre-hydration path: render with placeholders so the
+  // WebTerminal starts connecting to the PTY immediately. When the detail
+  // fetch resolves we re-render without remounting (stable sessionId key).
+  if (terminalModeActive) {
+    const taskStatus = task?.meta.status;
+    const statusTone = !task
+      ? "bg-zinc-700/60 text-zinc-300"
+      : taskStatus === "running"
         ? "bg-emerald-500/20 text-emerald-300"
-        : task.meta.status === "awaiting-input"
+        : taskStatus === "awaiting-input"
           ? "bg-amber-500/20 text-amber-300"
-          : task.meta.status === "failed"
+          : taskStatus === "failed"
             ? "bg-rose-500/20 text-rose-300"
             : "bg-zinc-700/60 text-zinc-300";
-    const statusLabel =
-      task.meta.status === "running"
+    const statusLabel = !task
+      ? "connecting"
+      : taskStatus === "running"
         ? "live"
-        : task.meta.status === "awaiting-input"
+        : taskStatus === "awaiting-input"
           ? "awaiting input"
-          : task.meta.status === "idle"
+          : taskStatus === "idle"
             ? "exited"
-            : task.meta.status === "failed"
+            : taskStatus === "failed"
               ? "failed"
-              : task.meta.status === "done"
+              : taskStatus === "done"
                 ? "done"
                 : "archived";
 
@@ -765,7 +783,10 @@ export function TaskConversationPage({
 
     const showDetails = terminalTab === "details";
     const showTranscript = terminalTab === "transcript";
-    const isClaudeProvider = task.meta.providerId === "claude-code";
+    // Keep the tab row consistent: hide the transcript tab until we've
+    // confirmed this is Claude. While `task` is loading we don't know the
+    // provider, so fall back to a 2-column layout (Terminal | Details).
+    const isClaudeProvider = task?.meta.providerId === "claude-code";
 
     return (
       <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
@@ -848,7 +869,7 @@ export function TaskConversationPage({
                 <ArrowLeft className="size-3.5" />
               </Link>
               <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                {task.meta.title}
+                {task?.meta.title ?? "Loading…"}
               </h1>
               <span
                 className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
@@ -858,11 +879,18 @@ export function TaskConversationPage({
               </span>
             </header>
             <div className="min-h-0 flex-1 overflow-hidden">
-              <ClaudeTranscriptView
-                taskId={taskId}
-                cabinetPath={task.meta.cabinetPath}
-                statusKey={`${task.meta.status}:${task.meta.lastActivityAt ?? ""}`}
-              />
+              {task ? (
+                <ClaudeTranscriptView
+                  taskId={taskId}
+                  cabinetPath={task.meta.cabinetPath}
+                  statusKey={`${task.meta.status}:${task.meta.lastActivityAt ?? ""}`}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Loading transcript…
+                </div>
+              )}
             </div>
           </div>
         ) : showDetails ? (
@@ -876,9 +904,9 @@ export function TaskConversationPage({
                 <ArrowLeft className="size-3.5" />
               </Link>
               <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                {task.meta.title}
+                {task?.meta.title ?? "Loading…"}
               </h1>
-              {task.meta.providerId && (
+              {task?.meta.providerId && (
                 <span
                   className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
                   title={`Provider: ${task.meta.providerId}`}
@@ -886,15 +914,17 @@ export function TaskConversationPage({
                   {task.meta.providerId}
                 </span>
               )}
-              <StatusActionButton
-                status={task.meta.status}
-                busy={busy}
-                onMarkDone={handleMarkDone}
-                onRetry={handleRestart}
-              />
+              {task && (
+                <StatusActionButton
+                  status={task.meta.status}
+                  busy={busy}
+                  onMarkDone={handleMarkDone}
+                  onRetry={handleRestart}
+                />
+              )}
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {detailLoading && !detail ? (
+              {!task || (detailLoading && !detail) ? (
                 <div className="flex h-full items-center justify-center text-muted-foreground">
                   <Loader2 className="mr-2 size-4 animate-spin" />
                   Loading details…
@@ -916,7 +946,7 @@ export function TaskConversationPage({
                   onOpenArtifact={(artifactPath) => {
                     void openArtifactPath(
                       artifactPath,
-                      task.meta.cabinetPath
+                      task?.meta.cabinetPath
                         ? { type: "page", cabinetPath: task.meta.cabinetPath }
                         : { type: "page" }
                     );
@@ -942,7 +972,7 @@ export function TaskConversationPage({
           </Link>
           <Terminal className="size-3.5 shrink-0 text-emerald-400" />
           <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-100">
-            {task.meta.title}
+            {task?.meta.title ?? "Loading…"}
           </h1>
           <span
             className={cn(
@@ -952,7 +982,7 @@ export function TaskConversationPage({
           >
             <span className="relative inline-flex size-3 items-center justify-center">
               <Terminal className="relative z-10 size-3" />
-              {task.meta.status === "running" && (
+              {task?.meta.status === "running" && (
                 <span
                   className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping"
                   aria-hidden="true"
@@ -961,7 +991,7 @@ export function TaskConversationPage({
             </span>
             {statusLabel}
           </span>
-          {task.meta.providerId && (
+          {task?.meta.providerId && (
             <span
               className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400"
               title={`Provider: ${task.meta.providerId}`}
@@ -990,13 +1020,14 @@ export function TaskConversationPage({
           >
             <Copy className="size-3.5" />
           </button>
-          {task.meta.status === "running" || task.meta.status === "awaiting-input" ? (
+          {task && (taskStatus === "running" || taskStatus === "awaiting-input") ? (
             <Button
               variant="ghost"
               size="sm"
               className="h-7 gap-1 px-2 text-[11px] text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
               disabled={busy || isDemo}
               onClick={async () => {
+                if (!task) return;
                 try {
                   setBusy(true);
                   await stopConversation(task.meta.id, task.meta.cabinetPath);
@@ -1012,12 +1043,14 @@ export function TaskConversationPage({
               Stop
             </Button>
           ) : null}
-          <StatusActionButton
-            status={task.meta.status}
-            busy={busy}
-            onMarkDone={handleMarkDone}
-            onRetry={handleRestart}
-          />
+          {task && (
+            <StatusActionButton
+              status={task.meta.status}
+              busy={busy}
+              onMarkDone={handleMarkDone}
+              onRetry={handleRestart}
+            />
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger
               className="inline-flex size-9 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
@@ -1035,7 +1068,7 @@ export function TaskConversationPage({
                 <ExternalLink className="mr-2 size-3.5" />
                 Open transcript
               </DropdownMenuItem>
-              {task.meta.status !== "running" && !isDemo ? (
+              {task && taskStatus !== "running" && !isDemo ? (
                 <DropdownMenuItem onClick={() => void handleRestart()}>
                   <RotateCcw className="mr-2 size-3.5" />
                   Restart
@@ -1044,7 +1077,7 @@ export function TaskConversationPage({
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => void handleDelete()}
-                disabled={isDemo || busy}
+                disabled={!task || isDemo || busy}
                 className="text-rose-400 focus:bg-rose-500/10 focus:text-rose-300"
               >
                 <Trash2 className="mr-2 size-3.5" />
@@ -1060,7 +1093,7 @@ export function TaskConversationPage({
             when the user exits the CLI themselves (Ctrl-D / /exit). */}
         <div className="min-h-0 flex-1 bg-zinc-950">
           <WebTerminal
-            sessionId={task.meta.id}
+            sessionId={taskId}
             reconnect
             themeSurface="terminal"
             onClose={() => {
@@ -1073,6 +1106,13 @@ export function TaskConversationPage({
       </div>
     );
   }
+
+  // Safety guard: the two early returns above cover every (task === null)
+  // case (spinner when not terminal, optimistic terminal shell when
+  // terminal), so by the time we reach the native chat layout below, task
+  // is always populated. This assert makes the non-null narrowing explicit
+  // for TypeScript.
+  if (!task) return null;
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">

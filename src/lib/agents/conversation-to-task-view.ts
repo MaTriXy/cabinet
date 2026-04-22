@@ -12,6 +12,7 @@ import type {
   TurnArtifact,
   Turn,
 } from "@/types/tasks";
+import { rememberTaskRuntime } from "./terminal-mode-cache";
 
 /**
  * Map ConversationMeta → TaskMeta (UI shape). The UI status is derived:
@@ -25,6 +26,10 @@ import type {
  */
 export function conversationMetaToTaskMeta(meta: ConversationMeta): TaskMeta {
   const status = deriveStatus(meta);
+  // Warm the client-side runtime-mode cache so TaskConversationPage can
+  // mount the xterm shell without waiting on its own detail fetch. No-op
+  // on the server — hydrate() guards the sessionStorage touch.
+  rememberTaskRuntime(meta.id, meta.adapterType);
   return {
     id: meta.id,
     title: meta.title,
