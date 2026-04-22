@@ -11,7 +11,6 @@
  */
 
 import { WebSocketServer, WebSocket } from "ws";
-import * as pty from "node-pty";
 import path from "path";
 import http from "http";
 import fs from "fs";
@@ -29,33 +28,22 @@ import {
 } from "../src/lib/runtime/runtime-config";
 import {
   getDetachedPromptLaunchMode,
-  getOneShotLaunchSpec,
-  getSessionLaunchSpec,
   resolveProviderId,
 } from "../src/lib/agents/provider-runtime";
 import {
   agentAdapterRegistry,
   resolveLegacyExecutionProviderId,
 } from "../src/lib/agents/adapters";
-import {
-  consumeClaudeStreamJson,
-  createClaudeStreamAccumulator,
-  flushClaudeStreamJson,
-  type ClaudeStreamAccumulator,
-} from "../src/lib/agents/adapters/claude-stream";
 import { getNvmNodeBin } from "../src/lib/agents/nvm-path";
 import {
   appendConversationTranscript,
   finalizeConversation,
   listConversationMetas,
-  parseCabinetBlock,
   readConversationMeta,
   readConversationTranscript,
   transcriptShowsCompletedRun,
-  writeConversationMeta,
   writeSession,
 } from "../src/lib/agents/conversation-store";
-import { publishConversationEvent } from "../src/lib/agents/conversation-events";
 import {
   getTokenFromAuthorizationHeader,
   isDaemonTokenValid,
@@ -64,6 +52,17 @@ import {
   normalizeJobConfig,
   normalizeJobId,
 } from "../src/lib/jobs/job-normalization";
+import { stripAnsi } from "./pty/ansi";
+import {
+  completeClaudeSession,
+  distillPtyOutput,
+  scheduleStreamCabinetExtraction,
+} from "./pty/claude-lifecycle";
+import {
+  createPtyManager,
+  type PtyManager,
+} from "./pty/manager";
+import type { BaseSession, CompletedOutputEntry, PtySession } from "./pty/types";
 
 const PORT = getDaemonPort();
 const CABINET_MANIFEST_FILE = ".cabinet";
@@ -126,45 +125,10 @@ const enrichedPath = [
   process.env.PATH,
 ].join(":");
 
-// ===== PTY Terminal Server =====
-
-type SessionResolutionStatus = "completed" | "failed";
-
-interface BaseSession {
-  id: string;
-  kind: "pty" | "structured";
-  providerId: string;
-  adapterType?: string;
-  ws: WebSocket | null;
-  createdAt: Date;
-  output: string[];
-  exited: boolean;
-  exitCode: number | null;
-  resolvedStatus?: SessionResolutionStatus;
-  resolvingStatus?: boolean;
-  stopFallbackTimer?: NodeJS.Timeout;
-  stop: (signal?: NodeJS.Signals) => void;
-}
-
-interface PtySession extends BaseSession {
-  kind: "pty";
-  pty: pty.IPty;
-  timeoutHandle?: NodeJS.Timeout;
-  initialPrompt?: string;
-  initialPromptSent?: boolean;
-  initialPromptTimer?: NodeJS.Timeout;
-  promptSubmittedOutputLength?: number;
-  autoExitRequested?: boolean;
-  autoExitFallbackTimer?: NodeJS.Timeout;
-  claudeCompletionTimer?: NodeJS.Timeout;
-  readyStrategy?: "claude";
-  outputMode?: "plain" | "claude-stream-json";
-  structuredOutput?: ClaudeStreamAccumulator;
-  /** Cabinet-block stream-extraction debounce timer. */
-  streamExtractionTimer?: NodeJS.Timeout;
-  /** Fingerprint of the last stream-extracted cabinet block, to avoid re-applying. */
-  streamExtractionFingerprint?: string;
-}
+// ===== Session orchestration =====
+// PTY-specific types + lifecycle helpers live in server/pty/*. The daemon
+// owns the unified `sessions` map (PTY + structured), routes HTTP/WS, and
+// drives the scheduler + event bus.
 
 interface StructuredSession extends BaseSession {
   kind: "structured";
@@ -211,8 +175,7 @@ interface StructuredSession extends BaseSession {
 type ActiveSession = PtySession | StructuredSession;
 
 const sessions = new Map<string, ActiveSession>();
-const completedOutput = new Map<string, { output: string; completedAt: number }>();
-const CLAUDE_AUTO_EXIT_GRACE_MS = 1200;
+const completedOutput = new Map<string, CompletedOutputEntry>();
 
 function resolveSessionCwd(input?: string): string {
   if (!input) return DATA_DIR;
@@ -247,28 +210,8 @@ function rejectUnauthorized(res: http.ServerResponse): void {
   res.end(JSON.stringify({ error: "Unauthorized" }));
 }
 
-function stripAnsi(str: string): string {
-  return str
-    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, "")
-    .replace(/\u001B[P^_][\s\S]*?\u001B\\/g, "")
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\u001B[@-_]/g, "")
-    .replace(/[\u0000-\u0008\u000B-\u001A\u001C-\u001F\u007F]/g, "");
-}
 
-function claudePromptReady(output: string): boolean {
-  const plain = stripAnsi(output).replace(/\r/g, "\n");
-  return (
-    plain.includes("shift+tab to cycle") ||
-    /(?:^|\n)[❯>]\s*$/.test(plain)
-  );
-}
 
-function clearClaudeCompletionTimer(session: PtySession): void {
-  if (!session.claudeCompletionTimer) return;
-  clearTimeout(session.claudeCompletionTimer);
-  delete session.claudeCompletionTimer;
-}
 
 function clearSessionStopFallbackTimer(session: ActiveSession): void {
   if (!session.stopFallbackTimer) return;
@@ -276,78 +219,9 @@ function clearSessionStopFallbackTimer(session: ActiveSession): void {
   delete session.stopFallbackTimer;
 }
 
-function completeClaudeSession(session: PtySession, output: string): void {
-  if (session.exited || session.autoExitRequested || session.resolvedStatus) {
-    return;
-  }
 
-  clearClaudeCompletionTimer(session);
-  session.resolvedStatus = "completed";
-  session.resolvingStatus = true;
-  session.autoExitRequested = true;
-  const plain = stripAnsi(output);
-  completedOutput.set(session.id, { output: plain, completedAt: Date.now() });
-  void finalizeConversation(session.id, {
-    status: "completed",
-    exitCode: 0,
-    output: plain,
-  }).finally(() => {
-    session.resolvingStatus = false;
-  });
-  session.pty.write("/exit\r");
-  session.autoExitFallbackTimer = setTimeout(() => {
-    if (session.exited) return;
-    try {
-      session.pty.kill();
-    } catch {}
-  }, 1500);
-}
 
-function consumeStructuredOutput(session: PtySession, chunk: string): string {
-  if (session.outputMode !== "claude-stream-json") {
-    return chunk;
-  }
 
-  if (!session.structuredOutput) {
-    session.structuredOutput = createClaudeStreamAccumulator();
-  }
-
-  return consumeClaudeStreamJson(session.structuredOutput, chunk);
-}
-
-function flushStructuredOutput(session: PtySession): string {
-  if (session.outputMode !== "claude-stream-json" || !session.structuredOutput) {
-    return "";
-  }
-
-  return flushClaudeStreamJson(session.structuredOutput);
-}
-
-function submitInitialPrompt(session: PtySession): void {
-  if (!session.initialPrompt || session.initialPromptSent || session.exited) {
-    return;
-  }
-
-  session.initialPromptSent = true;
-  session.promptSubmittedOutputLength = session.output.join("").length;
-  if (session.initialPromptTimer) {
-    clearTimeout(session.initialPromptTimer);
-    delete session.initialPromptTimer;
-  }
-
-  session.pty.write(session.initialPrompt);
-  // Claude Code's TUI groups rapidly-arriving input into a `[Pasted text
-  // #N +X lines]` block; while paste mode is active a trailing `\r`
-  // becomes part of the paste instead of a submit keystroke, and the
-  // prompt sits in the input waiting for the user to hit Enter. The
-  // paste window is ~100-200ms of quiet, so wait comfortably past it
-  // before sending Enter.
-  setTimeout(() => {
-    if (!session.exited) {
-      session.pty.write("\r");
-    }
-  }, 600);
-}
 
 async function syncConversationChunk(sessionId: string, chunk: string): Promise<void> {
   const meta = await readConversationMeta(sessionId);
@@ -374,186 +248,6 @@ function emitSessionOutput(
   if (session.kind === "pty") {
     scheduleStreamCabinetExtraction(session);
   }
-}
-
-/**
- * Interactive CLIs (Claude session mode, Codex, etc.) print the cabinet
- * epilogue block ( ```cabinet / SUMMARY: / ARTIFACT: / ``` ) and then sit at
- * an idle prompt waiting for more input. We debounce-poll the accumulated
- * stdout for ~1s after each chunk; when a cabinet block with a SUMMARY is
- * detected, we:
- *   1. Write meta.summary / meta.contextSummary / meta.artifactPaths
- *   2. Publish task.updated so the Details tab refetches
- *
- * We do NOT exit the CLI — keeping the terminal open preserves the full
- * interactive experience. The user continues typing or manually exits (Ctrl-D
- * / /exit) when they're done; PTY exit then runs finalizeSessionConversation
- * which is idempotent with the values already written here.
- *
- * The fingerprint guard lets us re-apply when a later turn emits a new
- * cabinet block (e.g. user follows up and the agent produces a fresh
- * SUMMARY + ARTIFACT set).
- */
-const STREAM_EXTRACTION_DEBOUNCE_MS = 1000;
-
-function scheduleStreamCabinetExtraction(session: PtySession): void {
-  if (session.exited || session.resolvedStatus) return;
-
-  if (session.streamExtractionTimer) {
-    clearTimeout(session.streamExtractionTimer);
-  }
-  session.streamExtractionTimer = setTimeout(() => {
-    delete session.streamExtractionTimer;
-    void runStreamCabinetExtraction(session).catch(() => {});
-  }, STREAM_EXTRACTION_DEBOUNCE_MS);
-}
-
-function buildStreamExtractionFingerprint(parsed: {
-  summary?: string;
-  contextSummary?: string;
-  artifactPaths: string[];
-}): string {
-  return [
-    parsed.summary ?? "",
-    parsed.contextSummary ?? "",
-    parsed.artifactPaths.join("|"),
-  ].join("§");
-}
-
-async function runStreamCabinetExtraction(session: PtySession): Promise<void> {
-  if (session.exited || session.resolvedStatus) return;
-
-  const plain = stripAnsi(session.output.join(""));
-  if (!/```cabinet[\s\S]*?```/i.test(plain)) return;
-
-  const meta = await readConversationMeta(session.id).catch(() => null);
-  if (!meta || meta.status !== "running") return;
-
-  let prompt = "";
-  try {
-    if (meta.promptPath) {
-      const fsPath = path.resolve(DATA_DIR, meta.promptPath);
-      if (fsPath.startsWith(DATA_DIR)) {
-        prompt = await fs.promises.readFile(fsPath, "utf8");
-      }
-    }
-  } catch {
-    prompt = "";
-  }
-
-  const parsed = parseCabinetBlock(plain, prompt);
-  if (!parsed.summary) return;
-
-  const fingerprint = buildStreamExtractionFingerprint(parsed);
-  if (session.streamExtractionFingerprint === fingerprint) return;
-  session.streamExtractionFingerprint = fingerprint;
-
-  meta.summary = parsed.summary;
-  meta.contextSummary = parsed.contextSummary;
-  meta.artifactPaths = parsed.artifactPaths;
-
-  try {
-    await writeConversationMeta(meta);
-  } catch {
-    // If the write fails, clear the fingerprint so the next debounce tick
-    // retries, and let the normal PTY-exit finalize path catch it.
-    session.streamExtractionFingerprint = undefined;
-    return;
-  }
-
-  publishConversationEvent({
-    type: "task.updated",
-    taskId: session.id,
-    cabinetPath: meta.cabinetPath,
-    payload: { streaming: true, streamExtracted: true },
-  });
-}
-
-function maybeAutoExitClaudeSession(session: PtySession): void {
-  if (
-    !session.initialPrompt ||
-    !session.initialPromptSent ||
-    session.exited ||
-    session.autoExitRequested ||
-    session.resolvedStatus
-  ) {
-    return;
-  }
-
-  const submittedLength = session.promptSubmittedOutputLength ?? 0;
-  const currentOutput = session.output.join("");
-  if (currentOutput.length <= submittedLength) {
-    clearClaudeCompletionTimer(session);
-    return;
-  }
-
-  const outputSincePrompt = currentOutput.slice(submittedLength);
-  if (!transcriptShowsCompletedRun(outputSincePrompt, session.initialPrompt)) {
-    clearClaudeCompletionTimer(session);
-    return;
-  }
-
-  if (session.claudeCompletionTimer) {
-    return;
-  }
-
-  session.claudeCompletionTimer = setTimeout(() => {
-    delete session.claudeCompletionTimer;
-    if (session.exited || session.autoExitRequested || session.resolvedStatus) {
-      return;
-    }
-
-    const latestOutput = session.output.join("");
-    const latestSubmittedLength = session.promptSubmittedOutputLength ?? 0;
-    if (latestOutput.length <= latestSubmittedLength) {
-      return;
-    }
-
-    const latestSincePrompt = latestOutput.slice(latestSubmittedLength);
-    if (!transcriptShowsCompletedRun(latestSincePrompt, session.initialPrompt)) {
-      return;
-    }
-
-    completeClaudeSession(session, latestOutput);
-  }, CLAUDE_AUTO_EXIT_GRACE_MS);
-}
-
-/**
- * Distill raw PTY output into a 1-line summary suitable for the task detail
- * header. PTY output is full of TUI chrome (box-drawing, CLI banners, prompt
- * strings) that makes `makeSummaryFromOutput`'s "first non-blank line" rule
- * useless for terminal-mode tasks. Build a deterministic synthetic line
- * instead, keyed off exit code + line count + any extracted agent-looking
- * response.
- */
-function distillPtyOutput(
-  plain: string,
-  exitCode: number | null,
-  providerId: string | undefined
-): string {
-  const lines = plain
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const lineCount = lines.length;
-  const providerLabel = providerId ? `${providerId} ` : "";
-  const status = exitCode === 0 ? "exited cleanly" : `exited with code ${exitCode ?? "?"}`;
-  // Find the last substantive non-chrome line — strips box-drawing, lone
-  // punctuation, and common prompt strings. Acts as a best-effort preview of
-  // what the agent actually said.
-  const chromePattern =
-    /^[\s│┃┆┊╎╏║┋╿╽─━┄┅┈┉━╌╍═╴╸╼╾┎┏┒┓┖┗┚┛┤├┬┴┼╋╬╏╢╠╣╦╩╬>❯•●○◦·.…:;,!?\-*+=^~`'"]*$/;
-  let preview: string | null = null;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const candidate = lines[i];
-    if (candidate.length < 20) continue;
-    if (chromePattern.test(candidate)) continue;
-    if (/^\s*\[Process exited/.test(candidate)) continue;
-    preview = candidate.slice(0, 160);
-    break;
-  }
-  const tail = preview ? ` — last output: ${preview}` : "";
-  return `Terminal ${providerLabel}session ${status} · ${lineCount} line${lineCount === 1 ? "" : "s"}${tail}`;
 }
 
 async function finalizeSessionConversation(session: ActiveSession): Promise<void> {
@@ -845,196 +539,6 @@ function handlePtyConnection(ws: WebSocket, req: http.IncomingMessage): void {
   attachSessionSocket(session, ws);
 }
 
-function createDetachedSession(input: {
-  sessionId: string;
-  providerId?: string;
-  adapterType?: string;
-  adapterConfig?: Record<string, unknown>;
-  prompt?: string;
-  cwd?: string;
-  timeoutSeconds?: number;
-  onData?: (chunk: string) => void;
-  launchMode?: "session" | "one-shot";
-  /**
-   * Provider-specific session id captured from a prior terminal-mode PTY
-   * run. Threaded into the launch spec so the CLI resumes the old session
-   * (e.g. `claude --resume <id>`, `opencode --session <id>`) instead of
-   * starting fresh. Absent on first turns.
-   */
-  adapterResumeId?: string | null;
-}): PtySession {
-  const cwd = resolveSessionCwd(input.cwd);
-  const executionProviderId = resolveLegacyExecutionProviderId({
-    adapterType: input.adapterType,
-    providerId: input.providerId,
-  });
-  const resumeId =
-    typeof input.adapterResumeId === "string" && input.adapterResumeId.trim()
-      ? input.adapterResumeId.trim()
-      : undefined;
-  let launch =
-    input.launchMode === "one-shot" && input.prompt?.trim()
-      ? getOneShotLaunchSpec({
-          providerId: executionProviderId,
-          prompt: input.prompt,
-          workdir: cwd,
-          resumeId,
-        })
-      : getSessionLaunchSpec({
-          providerId: executionProviderId,
-          prompt: input.prompt,
-          workdir: cwd,
-          resumeId,
-        });
-  const resolvedProviderId = resolveProviderId(executionProviderId);
-
-  if (
-    input.launchMode === "one-shot" &&
-    resolvedProviderId === "claude-code"
-  ) {
-    const nextArgs: string[] = [];
-    for (let index = 0; index < launch.args.length; index += 1) {
-      const arg = launch.args[index];
-      if (arg === "--output-format") {
-        index += 1;
-        continue;
-      }
-      if (arg === "text" && launch.args[index - 1] === "--output-format") {
-        continue;
-      }
-      nextArgs.push(arg);
-    }
-
-    nextArgs.push(
-      "--verbose",
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages"
-    );
-    launch = {
-      ...launch,
-      args: nextArgs,
-    };
-  }
-
-  const term = pty.spawn(launch.command, launch.args, {
-    name: "xterm-256color",
-    cols: 120,
-    rows: 30,
-    cwd,
-    env: {
-      ...(process.env as Record<string, string>),
-      PATH: enrichedPath,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      FORCE_COLOR: "3",
-      LANG: "en_US.UTF-8",
-    },
-  });
-
-  const session: PtySession = {
-    id: input.sessionId,
-    kind: "pty",
-    providerId: resolvedProviderId,
-    adapterType: input.adapterType,
-    pty: term,
-    ws: null,
-    createdAt: new Date(),
-    output: [],
-    exited: false,
-    exitCode: null,
-    stop: (signal = "SIGTERM") => {
-      try {
-        term.kill(signal);
-      } catch {}
-    },
-    initialPrompt: launch.initialPrompt?.trim() || undefined,
-    initialPromptSent: false,
-    promptSubmittedOutputLength: 0,
-    autoExitRequested: false,
-    readyStrategy: launch.readyStrategy,
-    outputMode:
-      input.launchMode === "one-shot" && resolvedProviderId === "claude-code"
-        ? "claude-stream-json"
-        : "plain",
-    structuredOutput:
-      input.launchMode === "one-shot" && resolvedProviderId === "claude-code"
-        ? createClaudeStreamAccumulator()
-        : undefined,
-  };
-  sessions.set(input.sessionId, session);
-
-  term.onData((data: string) => {
-    const displayChunk = consumeStructuredOutput(session, data);
-    if (displayChunk) {
-      emitSessionOutput(session, displayChunk, input.onData);
-    }
-    if (
-      session.initialPrompt &&
-      !session.initialPromptSent &&
-      session.readyStrategy === "claude" &&
-      claudePromptReady(session.output.join(""))
-    ) {
-      submitInitialPrompt(session);
-    }
-    maybeAutoExitClaudeSession(session);
-  });
-
-  term.onExit(({ exitCode }) => {
-    console.log(`Session ${input.sessionId} PTY exited with code ${exitCode}`);
-    session.exited = true;
-    session.exitCode = exitCode;
-    clearSessionStopFallbackTimer(session);
-    if (session.timeoutHandle) {
-      clearTimeout(session.timeoutHandle);
-      delete session.timeoutHandle;
-    }
-    if (session.initialPromptTimer) {
-      clearTimeout(session.initialPromptTimer);
-      delete session.initialPromptTimer;
-    }
-    if (session.autoExitFallbackTimer) {
-      clearTimeout(session.autoExitFallbackTimer);
-      delete session.autoExitFallbackTimer;
-    }
-    if (session.streamExtractionTimer) {
-      clearTimeout(session.streamExtractionTimer);
-      delete session.streamExtractionTimer;
-    }
-    clearClaudeCompletionTimer(session);
-
-    const trailingDisplay = flushStructuredOutput(session);
-    if (trailingDisplay) {
-      emitSessionOutput(session, trailingDisplay, input.onData);
-    }
-
-    const plain = stripAnsi(session.output.join(""));
-    completedOutput.set(input.sessionId, { output: plain, completedAt: Date.now() });
-    void finalizeSessionConversation(session).catch(() => {});
-
-    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-      sessions.delete(input.sessionId);
-      session.ws.close();
-    }
-  });
-
-  if (input.timeoutSeconds && input.timeoutSeconds > 0) {
-    session.timeoutHandle = setTimeout(() => {
-      console.warn(`Session ${input.sessionId} timed out after ${input.timeoutSeconds}s`);
-      try {
-        term.kill();
-      } catch {}
-    }, input.timeoutSeconds * 1000);
-  }
-
-  if (session.initialPrompt) {
-    session.initialPromptTimer = setTimeout(() => {
-      submitInitialPrompt(session);
-    }, 1500);
-  }
-
-  return session;
-}
 
 function createStructuredSession(input: {
   sessionId: string;
@@ -1238,6 +742,22 @@ function createStructuredSession(input: {
   return session;
 }
 
+// Shared PTY manager — owns the PTY-spawn factory + stdin injection path.
+// The `sessions` map and `completedOutput` map stay in the daemon so the
+// HTTP/WS routes can look up either PTY or structured sessions by id.
+const ptyManager: PtyManager = createPtyManager({
+  // Map<string, ActiveSession> is invariant in TS; the manager reads it as
+  // Map<string, BaseSession> and narrows on kind, so cast through BaseSession
+  // rather than duplicating the map across modules.
+  sessions: sessions as unknown as Map<string, BaseSession>,
+  completedOutput,
+  finalizeSessionConversation,
+  emitSessionOutput,
+  clearSessionStopFallbackTimer,
+  resolveSessionCwd,
+  enrichedPath,
+});
+
 function createSession(input: {
   sessionId: string;
   providerId?: string;
@@ -1277,7 +797,7 @@ function createSession(input: {
   // Legacy PTY path: forward the adapter session id as `adapterResumeId` so
   // the launch spec can append `--resume` / `--session` for providers that
   // support terminal-mode resume (Claude, Cursor, OpenCode).
-  return createDetachedSession({
+  return ptyManager.spawn({
     ...input,
     adapterResumeId: input.adapterSessionId ?? null,
   });
@@ -1599,7 +1119,7 @@ const server = http.createServer(async (req, res) => {
         !active.resolvedStatus &&
         transcriptShowsCompletedRun(plain, active.initialPrompt)
       ) {
-        completeClaudeSession(active, plain);
+        completeClaudeSession(active, plain, { completedOutput });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -1779,14 +1299,6 @@ const server = http.createServer(async (req, res) => {
   const inputMatch = url.pathname.match(/^\/session\/([^/]+)\/input$/);
   if (inputMatch && req.method === "POST") {
     const sessionId = inputMatch[1];
-    const session = sessions.get(sessionId);
-    if (!session || session.exited || session.kind !== "pty") {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({ error: "Session not found, exited, or not a PTY" })
-      );
-      return;
-    }
     let body = "";
     req.on("data", (chunk) => {
       body += chunk.toString();
@@ -1802,14 +1314,15 @@ const server = http.createServer(async (req, res) => {
           res.end(JSON.stringify({ error: "input (string) is required" }));
           return;
         }
-        session.pty.write(rawInput);
-        if (appendEnter !== false) {
-          // Same paste-window guard as submitInitialPrompt — Claude's TUI
-          // groups rapid input as a paste, and an Enter inside that
-          // window becomes part of the paste instead of submitting.
-          setTimeout(() => {
-            if (!session.exited) session.pty.write("\r");
-          }, 600);
+        const result = ptyManager.writeInput(sessionId, rawInput, {
+          appendEnter: appendEnter !== false,
+        });
+        if (!result.ok) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({ error: "Session not found, exited, or not a PTY" })
+          );
+          return;
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, sessionId }));

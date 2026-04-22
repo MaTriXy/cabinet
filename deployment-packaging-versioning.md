@@ -38,7 +38,7 @@ cd cabinet
 npm run dev:all
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:4000` (the default; dev-next.mjs auto-bumps if the port is busy).
 
 ### Production-style run
 

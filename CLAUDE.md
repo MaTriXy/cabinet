@@ -11,11 +11,11 @@ Cabinet is an AI-first self-hosted knowledge base and startup OS. All content li
 - **Framework:** Next.js 16 (App Router), TypeScript
 - **UI:** Tailwind CSS + shadcn/ui (base-ui based, NOT Radix — no `asChild` prop)
 - **Editor:** Tiptap (ProseMirror-based) with markdown roundtrip via HTML intermediate
-- **State:** Zustand (tree-store, editor-store, ai-panel-store, app-store)
+- **State:** Zustand (tree-store, editor-store, ai-panel-store, task-store, app-store)
 - **Fonts:** Inter (sans) + JetBrains Mono (code)
 - **Icons:** Lucide (no emoji in system chrome)
 - **Markdown:** gray-matter (frontmatter), unified/remark (MD→HTML), turndown (HTML→MD)
-- **AI:** Claude Code and Codex CLI via the adapter runtime; `WebTerminal` stays in the product for interactive sessions
+- **AI providers:** Claude Code, Codex CLI, Cursor CLI, OpenCode, Copilot CLI, Grok CLI, Pi, and a generic CLI adapter — all driven through the shared adapter runtime in `src/lib/agents/`.
 
 ## Architecture
 
@@ -49,8 +49,8 @@ src/
   lib/agents/                → Adapter runtime, conversation runner, personas, providers
   lib/jobs/                  → Job scheduler (node-cron)
 server/
-  cabinet-daemon.ts          → Unified daemon for structured runs, PTY sessions, scheduler, events
-  terminal-server.ts         → Standalone PTY WebSocket server kept for focused terminal debugging/legacy use
+  cabinet-daemon.ts          → Unified daemon: structured adapter runs, PTY sessions, scheduler, event bus
+  pty/                       → PTY session module: ansi, claude-lifecycle, manager, types
 data/                        → Content directory (KB pages, tasks, jobs)
 ```
 
@@ -63,8 +63,8 @@ data/                        → Content directory (KB pages, tasks, jobs)
 5. **shadcn/ui uses base-ui** (not Radix) — DialogTrigger, ContextMenuTrigger etc. do NOT have `asChild`
 6. **Dark mode default** — theme toggle available, use `next-themes` with `attribute="class"`
 7. **Auto-save** — debounced 500ms after last keystroke in editor-store
-8. **AI runs use a mixed runtime model** — tasks/jobs/heartbeats default to structured adapters; `WebTerminal` remains for interactive sessions and experimental legacy PTY flows.
-9. **Do not assume the terminal is being removed** — the product direction is away from terminal-first task execution, while keeping terminal functionality for direct sessions and future features such as Cabinet-managed tmux-like workflows.
+8. **AI runs use a mixed runtime model** — tasks/jobs/heartbeats default to structured adapters; terminal mode (PTY sessions) is a first-class alternative that runs inside the same daemon process via `server/pty/`. `WebTerminal` is the interactive surface for both.
+9. **Terminal is a first-class runtime** — not deprecated, not an escape hatch. Terminal mode is user-selectable per task (Native / Terminal toggle in the composer) and is the direction for future terminal-native workflows (Cabinet-managed tmux-like sessions).
 10. **Version restore** — users can restore any page to a previous git commit via the Version History panel
 11. **Embedded apps** — dirs with `index.html` + no `index.md` render as iframes. Add `.app` marker for full-screen mode (sidebar + AI panel auto-collapse)
 12. **Linked repos** — `.repo.yaml` in a data dir links it to a Git repo (local path + remote URL). Agents use this to read/search source code in context. See `data/CLAUDE.md` for full spec.
@@ -77,8 +77,8 @@ When Cabinet starts an AI edit or task run:
 
 1. **The request becomes a conversation** with `providerId`, `adapterType`, and optional adapter config such as model or effort.
 2. **Detached runs** go through `/api/agents/conversations` → `conversation-runner` → `cabinet-daemon`.
-3. **Structured adapters are the default** for detached Claude/Codex runs; legacy PTY adapters remain available as experimental escape hatches.
-4. **Interactive editor/live surfaces may still mount `WebTerminal`** when terminal feedback matters.
+3. **Structured adapters are the default** for detached Claude/Codex runs; terminal mode (PTY, named `*_legacy` in the adapter registry for historical reasons) is a first-class alternative surfaced by the composer's Native / Terminal toggle.
+4. **Terminal-mode tasks render with `WebTerminal`** — xterm.js bound to the daemon's PTY WebSocket — instead of the structured TurnBlock transcript.
 5. **Models should edit targeted files directly when useful** and reflect durable value in KB files, not only transcript text.
 6. **If content gets corrupted** — users can restore from Version History (clock icon → select commit → Restore)
 
@@ -88,9 +88,9 @@ The AI panel supports `@` mentions — users type `@PageName` to attach other pa
 ## Commands
 
 ```bash
-npm run dev          # Start Next.js dev server on localhost:3000
-npm run dev:daemon   # Start unified daemon on localhost:3001
-npm run dev:terminal # Start standalone terminal WebSocket server on localhost:3001 (focused PTY/legacy debugging)
+npm run dev          # Start Next.js dev server (default: localhost:4000, auto-bumps if busy)
+npm run dev:daemon   # Start unified daemon (default: localhost:4100, auto-bumps if busy)
+                     #   PTY sessions + structured adapters + scheduler + event bus, under tsx watch
 npm run dev:all      # Start both servers
 npm run debug:chrome # Launch Chrome with CDP on localhost:9222 for frontend debugging
 npm run build        # Production build
@@ -99,7 +99,7 @@ npm run lint         # ESLint
 
 ## Frontend Debugging
 
-Use `npm run debug:chrome` when you need a debuggable browser session. It launches Chrome or Chromium with `--remote-debugging-port=9222`, opens Cabinet at `http://localhost:3000` by default, and prints the DevTools endpoints:
+Use `npm run debug:chrome` when you need a debuggable browser session. It launches Chrome or Chromium with `--remote-debugging-port=9222`, opens Cabinet at `http://localhost:4000` by default (override by passing a URL as the first argument), and prints the DevTools endpoints:
 
 - `http://127.0.0.1:9222/json/version`
 - `http://127.0.0.1:9222/json/list`

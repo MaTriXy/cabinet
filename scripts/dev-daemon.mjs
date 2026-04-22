@@ -122,7 +122,13 @@ async function main() {
   );
   const child = spawn(
     process.execPath,
-    [tsxCli, "server/cabinet-daemon.ts", ...process.argv.slice(2)],
+    [
+      tsxCli,
+      "watch",
+      "--clear-screen=false",
+      "server/cabinet-daemon.ts",
+      ...process.argv.slice(2),
+    ],
     {
       cwd: PROJECT_ROOT,
       stdio: "inherit",

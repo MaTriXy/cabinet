@@ -60,7 +60,7 @@ const STANDALONE_PRUNE_PATHS = [
 const SERVER_PRUNE_PATHS = [
   path.join("server", "cabinet-daemon.ts"),
   path.join("server", "db.ts"),
-  path.join("server", "terminal-server.ts"),
+  path.join("server", "pty"),
   path.join("server", "cabinet-daemon.cjs"),
   path.join("server", "migrations"),
 ];

@@ -217,7 +217,7 @@ Phased work that landed on this branch (see commit trail below):
 2. **Structured adapters for Claude / Codex / Gemini** — stream-json parsing instead of raw PTY replay; structured usage + session metadata flow into transcripts natively.
 3. **Daemon runtime generalization** — `server/cabinet-daemon.ts` manages both legacy PTY and structured adapter-backed sessions, writing into the same conversation store.
 4. **Provider + adapter selection UI** — providers API exposes adapter metadata; runtime-selection helpers surface defaults, available adapters, and override semantics across agent settings / creation / job editors / mission control.
-5. **Legacy preservation** — legacy CLI paths kept as experimental escape hatches. `WebTerminal` retained as a product capability for interactive use.
+5. **Terminal mode promoted to first-class** — the `*_legacy` PTY adapters (named that way for historical reasons) power the user-selectable **Terminal** mode in the task composer; `WebTerminal` is the interactive surface for these sessions.
 6. **Native live-session UI** — replaced task live-rendering that previously depended on `WebTerminal`. Shared renderer across `task-detail-panel`, `jobs-manager`, `agents-workspace`.
 7. **Shared task composer** — per-task runtime overrides + compact runtime picker (brain-icon trigger) unified across task board, home screen, agents workspace, AI panel, and status-bar entry points.
 8. **Runtime picker consolidation** — provider tabs / model rows / effort columns matrix with a selected-model summary row.

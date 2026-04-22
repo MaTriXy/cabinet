@@ -52,7 +52,7 @@ cd cabinet
 npm run dev:all
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The onboarding wizard builds your custom AI team in 5 questions.
+Open [http://localhost:4000](http://localhost:4000). The onboarding wizard builds your custom AI team in 5 questions.
 
 ---
 
@@ -165,7 +165,8 @@ cabinet/
     stores/          -> Zustand state management
     lib/             -> Storage, markdown, git, agents, jobs
   server/
-    cabinet-daemon.ts -> WebSocket + job scheduler + agent executor
+    cabinet-daemon.ts -> WebSocket + job scheduler + structured adapters + agent executor
+    pty/              -> PTY session module (spawn, Claude lifecycle, ansi)
   data/
     .agents/.library/ -> 20 pre-built agent templates
     getting-started/  -> Default KB page
@@ -197,8 +198,8 @@ cp .env.example .env.local
 ## Commands
 
 ```bash
-npm run dev          # Next.js dev server (port 3000)
-npm run dev:daemon   # Unified daemon: structured runs, terminal sessions, WebSockets, scheduler (port 3001)
+npm run dev          # Next.js dev server (port 4000 by default)
+npm run dev:daemon   # Unified daemon: structured runs, terminal sessions, WebSockets, scheduler (port 4100 by default)
 npm run dev:all      # Both servers
 npm run build        # Production build
 npm run start        # Production mode (both servers)

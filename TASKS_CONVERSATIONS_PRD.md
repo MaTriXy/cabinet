@@ -784,7 +784,7 @@ sequenceDiagram
     participant API as POST /api/agents/conversations
     participant Runner as conversation-runner
     participant Store as conversation-store
-    participant Daemon as cabinet-daemon :3001
+    participant Daemon as cabinet-daemon :4100
     participant Adapter as AgentExecutionAdapter
     participant CLI as Provider CLI
     participant Bus as conversation-events
@@ -896,7 +896,7 @@ flowchart LR
       AR[adapters/registry]
     end
 
-    subgraph Daemon["cabinet-daemon :3001"]
+    subgraph Daemon["cabinet-daemon :4100"]
       SS[Session Supervisor]
       BUS[Event Bus]
     end
@@ -994,7 +994,7 @@ Eight providers today. Each follows the §7 adapter contract.
 | `grok-cli` | Grok CLI | `grok-local` | ⚠️ via context blob | xAI API key | `{ contextBlob }` | (stream helper TBD) |
 | `copilot-cli` | Copilot CLI | `copilot-local` | ⚠️ via context blob | GitHub login | `{ contextBlob }` | (stream helper TBD) |
 
-Two legacy PTY adapters (`claude_code_legacy`, `codex_cli_legacy`) are registered as **escape hatches for debugging only** — not user-selectable by default, marked `experimental: true`.
+Every provider also registers a `*_legacy` PTY adapter (`claude_code_legacy`, `codex_cli_legacy`, `cursor_cli_legacy`, `opencode_legacy`, `copilot_cli_legacy`, `grok_cli_legacy`, `pi_legacy`, plus the generic fallback). These power the composer's user-selectable **Terminal** mode — the task streams over the daemon's `/api/daemon/pty` WebSocket into `WebTerminal` instead of producing a structured TurnBlock transcript. The `_legacy` suffix is historical naming; they are first-class runtimes, not escape hatches.
 
 ### 11.2 Runtime selection precedence
 
@@ -1221,7 +1221,7 @@ Future, implied (not in this revision):
 - **Codec** — `AdapterSessionCodec`; serializes/deserializes session state between runs so `session.json` stays provider-agnostic.
 - **Composer primitive** — `ComposerInput` + `useComposer` + `TaskRuntimePicker` — the shared prompt UI reused across all 11 surfaces.
 - **Conversation** — The unit of work; one or more turns, persisted under `.agents/.conversations/`.
-- **Daemon** — `server/cabinet-daemon.ts`, process on `:3001` that runs adapters out-of-band.
+- **Daemon** — `server/cabinet-daemon.ts`, process on `:4100` (default) that runs adapters out-of-band.
 - **Mention** — A `@PageName` reference attached to a prompt; content is inlined by `buildMentionContext`.
 - **Persona** — Named agent config (prompt header, default provider, default cabinet).
 - **Replay** — Continue strategy that re-sends the full prompt history; used when resume isn't available.

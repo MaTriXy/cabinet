@@ -315,18 +315,21 @@ Cabinet runs as **two processes** started with a single command:
 
 ```
 npm run start
-  ├── Next.js (port 3000) — UI + API routes
-  └── Cabinet Daemon (port 3001) — WebSocket + scheduler + agent execution
+  ├── Next.js        (default port 4000) — UI + API routes
+  └── Cabinet Daemon (default port 4100) — WebSocket + scheduler + agent execution
 ```
+Port defaults are provided by `src/lib/runtime/runtime-config.ts` and auto-bumped by the dev wrappers when busy. Override with `CABINET_APP_PORT` / `CABINET_DAEMON_PORT`.
 
 ### Cabinet Daemon (`server/cabinet-daemon.ts`)
 
 ```
 Cabinet Daemon
-├── Terminal Server      ← existing PTY/WebSocket
+├── PTY module           ← server/pty/ — spawn + Claude lifecycle + ansi
+├── Structured adapters  ← Claude stream-json, Codex, Cursor, OpenCode (subprocess)
 ├── Job Scheduler        ← node-cron, fires agent jobs on schedule
-├── Agent Executor       ← spawns Claude Code CLI processes for agents
-└── Event Bus            ← WebSocket channels for real-time updates
+├── Event Bus            ← WebSocket channels for real-time updates (/api/daemon/events)
+└── HTTP + WS endpoints  ← /session/*, /sessions, /reload-schedules, /trigger, /health
+                           + WS /api/daemon/pty (terminal sessions)
 ```
 
 **Agent Execution Flow:**
