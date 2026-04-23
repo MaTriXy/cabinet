@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AVATAR_PRESETS } from "@/lib/agents/avatar-catalog";
+import { showError } from "@/lib/ui/toast";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import {
   refreshUserProfile,
@@ -62,14 +63,14 @@ export function EditUserAvatarDialog({
 
   async function uploadCustom(file: File) {
     if (file.size > 1024 * 1024) {
-      alert("Avatar must be 1 MB or smaller.");
+      showError("Avatar must be 1 MB or smaller.");
       return;
     }
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch("/api/user/avatar", { method: "POST", body: fd });
     if (!res.ok) {
-      alert("Upload failed.");
+      showError("Upload failed.");
       return;
     }
     await refreshUserProfile();

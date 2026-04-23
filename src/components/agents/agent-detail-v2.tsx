@@ -55,6 +55,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { showError } from "@/lib/ui/toast";
+import { confirmDialog } from "@/lib/ui/confirm";
 import {
   AgentAvatar,
   getAgentDisplayName,
@@ -2103,9 +2105,13 @@ export function AgentDetailV2({
   const handleDelete = useCallback(async () => {
     if (!persona) return;
     const name = getAgentDisplayName(persona) || persona.name || slug;
-    const confirmed = window.confirm(
-      `Delete agent "${name}"?\n\nThis removes the persona file and scheduled jobs. Past conversations stay on disk.`
-    );
+    const confirmed = await confirmDialog({
+      title: `Delete agent "${name}"?`,
+      message:
+        "Removes the persona file and scheduled jobs. Past conversations stay on disk.",
+      confirmText: "Delete agent",
+      destructive: true,
+    });
     if (!confirmed) return;
     const qs = effectiveCabinetPath
       ? `?cabinetPath=${encodeURIComponent(effectiveCabinetPath)}`
@@ -2117,7 +2123,7 @@ export function AgentDetailV2({
       if (onBack) onBack();
       else history.back();
     } else {
-      window.alert("Delete failed. Check the console for details.");
+      showError("Delete failed. Check the console for details.");
     }
   }, [persona, slug, onBack, effectiveCabinetPath]);
 

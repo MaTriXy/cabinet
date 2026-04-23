@@ -34,17 +34,17 @@ Execution tracker for the findings in [Cabinet Pre-Release UX Audit](../CABINET-
 | 5 | Greeting shows literal `Good afternoon, there.` with unfilled placeholder | P0 | **Done** (2026-04-23) | #3, #38 |
 | 6 | Template carousel duplicates every card in the a11y tree | P0 | **Done** (2026-04-23) | #40 |
 | 7 | Task detail stuck on `Loading… · connecting` forever, no timeout | P0 | Open | #59 |
-| 8 | Agent "Recent work" shows prompt fragments as file names | P0 | Open | #73 |
+| 8 | Agent "Recent work" shows prompt fragments as file names | P0 | **Done** (2026-04-23) | #73 |
 | 9 | Status bar acts as a marketing bar (Chat / Contribute / 1,659 stars) | P0 | **Done** (2026-04-23) | #156 |
 | 10 | Mobile is not designed — no hamburger, clipped composer, overlapping chrome | P0 | Open | #164 |
-| 11 | Editor toolbar icon buttons missing `aria-label` (confirmed empty on first 4) | P0 | Open | #89, #174 |
+| 11 | Editor toolbar icon buttons missing `aria-label` (confirmed empty on first 4) | P0 | **N/A** — already fixed; `ToolButton` wires `aria-label` from `label` (2026-04-23) | #89, #174 |
 | 12 | Greeting wrapped in `role="alert" aria-live="assertive"` shouts to screen readers | P0 | **N/A** — confirmed clear by inspection (2026-04-23) | #173 |
 | 13 | 22 Google Font families requested on first paint for theme preview | P0 | Open | #187 |
 | 14 | Duplicate API calls on first paint (providers ×3, overview ×5, health ×3, …) | P0 | Open | #188 |
 | 15 | Next.js DevTools button visible in production UI | P0 | **Done** (2026-04-23) | #219 |
 | 16 | No top-nav IA — only the mixed sidebar leads to agents/tasks/jobs/settings | P0 | Open | #11 |
-| 17 | Sidebar flattens 70+ CVs and songs to the root of DATA — looks like demo noise | P0 | Open | #22 |
-| 18 | Replace all `alert()` / `window.confirm()` with toasts + typed-confirm dialogs | P0 | Open | #207, #208 |
+| 17 | Sidebar flattens 70+ CVs and songs to the root of DATA — looks like demo noise | P0 | **Done** (2026-04-23) — demo content archived to `data-old-5/` on 2026-04-22; current `/data/` only seeds `getting-started/` | #22 |
+| 18 | Replace all `alert()` / `window.confirm()` with toasts + typed-confirm dialogs | P0 | **Done** (2026-04-23) | #207, #208 |
 | 19 | `<div onClick>` without keyboard handler in mission-control and elsewhere | P0 | **Done** (2026-04-23) | #175 |
 
 ---

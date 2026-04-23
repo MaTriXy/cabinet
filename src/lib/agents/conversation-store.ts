@@ -276,6 +276,24 @@ function normalizeSingleArtifactCandidate(raw: string): string | null {
   }
   if (!normalized || normalized.startsWith("..")) return null;
   if (/^relative\/path\/to\/file\d*$/i.test(normalized)) return null;
+
+  // Strict path guard. Agents sometimes return multi-sentence prose that the
+  // upstream splitter fails to reject — fragments like "line per file you
+  // created or updated. Do not list multiple files on a single" used to show
+  // up as file names in the "Recent work" block (UX audit #73).
+  //
+  // A real artifact path either contains a directory separator or ends in a
+  // known file extension; and it must not contain whitespace in the segment
+  // before the extension / separator. Anything else is prose.
+  const hasSeparator = normalized.includes("/");
+  const hasExtension = /\.[A-Za-z0-9]{1,8}$/.test(normalized);
+  if (!hasSeparator && !hasExtension) return null;
+  const pathHead = hasExtension
+    ? normalized.replace(/\.[A-Za-z0-9]{1,8}$/, "")
+    : normalized;
+  if (/\s/.test(pathHead)) return null;
+  // Paths we generate are short — 200 chars is already a runaway match.
+  if (normalized.length > 200) return null;
   return normalized;
 }
 

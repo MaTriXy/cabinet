@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ICON_PICKER_KEYS, getIconByKey } from "@/lib/agents/icon-catalog";
+import { showError } from "@/lib/ui/toast";
 import { AGENT_PALETTE } from "@/lib/themes";
 import { AVATAR_PRESETS } from "@/lib/agents/avatar-catalog";
 import { AgentAvatar } from "./agent-avatar";
@@ -153,7 +154,7 @@ export function EditAgentIdentityDialog({
   async function uploadAvatar(file: File) {
     if (!target) return;
     if (file.size > 1024 * 1024) {
-      alert("Avatar must be 1 MB or smaller.");
+      showError("Avatar must be 1 MB or smaller.");
       return;
     }
     const fd = new FormData();
@@ -164,7 +165,7 @@ export function EditAgentIdentityDialog({
       body: fd,
     });
     if (!res.ok) {
-      alert("Upload failed.");
+      showError("Upload failed.");
       return;
     }
     const data = await res.json();

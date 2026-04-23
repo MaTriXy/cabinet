@@ -30,6 +30,7 @@ import { ProviderGlyph } from "@/components/agents/provider-glyph";
 import { RuntimeSelectionBanner } from "@/components/composer/task-runtime-picker";
 import type { ProviderInfo } from "@/types/agents";
 import type { RegistryTemplate } from "@/lib/registry/registry-manifest";
+import { showError } from "@/lib/ui/toast";
 import { RegistryBrowser } from "@/components/registry/registry-browser";
 import {
   ROOMS,
@@ -2438,7 +2439,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       fetch("/api/terminal/open", { method: "POST" }).catch(() => {
-                                        alert("Could not open terminal automatically. Please open Terminal.app (Mac) or your system terminal manually.");
+                                        showError("Could not open terminal automatically. Open your system terminal manually.");
                                       });
                                     }}
                                     className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 mt-1.5 text-[11px] font-medium transition-all hover:-translate-y-0.5"

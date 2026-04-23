@@ -53,6 +53,8 @@ import {
 } from "@/components/composer/task-runtime-picker";
 import { isAgentProviderSelectable } from "@/lib/agents/provider-filters";
 import { cn } from "@/lib/utils";
+import { showError } from "@/lib/ui/toast";
+import { confirmDialog } from "@/lib/ui/confirm";
 import type { ProviderInfo } from "@/types/agents";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import {
@@ -356,7 +358,7 @@ export function SettingsPage() {
         }>).map((conflict) =>
           `${conflict.providerId}: ${conflict.agentSlugs.length} agents, ${conflict.jobs.length} jobs`
         ).join("\n");
-        window.alert(`Provider disable blocked until assignments are migrated:\n${message}`);
+        showError(`Provider disable blocked until assignments are migrated: ${message}`);
       }
     } catch {
       // ignore
@@ -754,13 +756,13 @@ export function SettingsPage() {
                         });
                         const data = await res.json().catch(() => null);
                         if (!res.ok) {
-                          alert(data?.error || "Failed to save.");
+                          showError(data?.error || "Failed to save.");
                           return;
                         }
                         setDataDirRestartNeeded(true);
                         setDataDirPending(null);
                       } catch {
-                        alert("Failed to save data directory.");
+                        showError("Failed to save data directory.");
                       } finally {
                         setDataDirSaving(false);
                       }
@@ -989,9 +991,12 @@ export function SettingsPage() {
                                             : [];
 
                                         if (provider.enabled && (provider.usage?.totalCount ?? 0) > 0) {
-                                          const confirmed = window.confirm(
-                                            `Disable ${provider.name} and migrate ${describeProviderUsage(provider)} to ${getProviderName(nextDefault)}?`
-                                          );
+                                          const confirmed = await confirmDialog({
+                                            title: `Disable ${provider.name}?`,
+                                            message: `Migrate ${describeProviderUsage(provider)} to ${getProviderName(nextDefault)}.`,
+                                            confirmText: "Disable and migrate",
+                                            destructive: true,
+                                          });
                                           if (!confirmed) return;
                                         }
 
@@ -1059,7 +1064,7 @@ export function SettingsPage() {
                                                   <button
                                                     onClick={() => {
                                                       fetch("/api/terminal/open", { method: "POST" }).catch(() => {
-                                                        alert("Could not open terminal automatically. Please open Terminal.app (Mac) or your system terminal manually.");
+                                                        showError("Could not open terminal automatically. Open your system terminal manually.");
                                                       });
                                                     }}
                                                     className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 mt-1.5 text-[11px] font-medium transition-all hover:-translate-y-0.5"

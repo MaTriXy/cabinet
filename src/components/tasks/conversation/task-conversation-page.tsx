@@ -31,6 +31,7 @@ import { WebTerminal } from "@/components/terminal/web-terminal";
 import { TerminalExitedView } from "@/components/terminal/terminal-exited-view";
 import { ClaudeTranscriptView } from "@/components/tasks/conversation/claude-transcript-view";
 import { ConversationResultView } from "@/components/agents/conversation-result-view";
+import { confirmDialog } from "@/lib/ui/confirm";
 import {
   closeConversation,
   deleteConversation,
@@ -755,10 +756,13 @@ export function TaskConversationPage({
 
   const handleDelete = useCallback(async () => {
     if (!task || isDemo) return;
-    if (typeof window !== "undefined") {
-      const ok = window.confirm("Delete this task? This cannot be undone.");
-      if (!ok) return;
-    }
+    const ok = await confirmDialog({
+      title: "Delete this task?",
+      message: "This cannot be undone.",
+      confirmText: "Delete task",
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await deleteConversation(taskId, task.meta.cabinetPath);
