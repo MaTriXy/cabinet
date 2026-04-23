@@ -56,6 +56,7 @@ import { usePersistentState } from "./use-persistent-state";
 import { TaskCard } from "./task-card";
 import { CARD_DROP_PREFIX } from "./dnd-keys";
 import { deriveLane, laneSort, type LaneKey } from "./lane-rules";
+import { BoardSkeleton } from "./board-skeletons";
 import { CABINET_VISIBILITY_OPTIONS } from "@/lib/cabinets/visibility";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import { useAppStore } from "@/stores/app-store";
@@ -456,9 +457,7 @@ export function TasksBoardV2({
           </div>
         )}
         {loading ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            <Loader2 className="size-5 animate-spin" />
-          </div>
+          <BoardSkeleton view={view} />
         ) : (
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
             {view === "kanban" && (
