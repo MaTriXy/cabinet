@@ -339,6 +339,8 @@ export function TaskConversationPage({
   const turnUser =
     userState.status === "ready" ? userState.data.profile : null;
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [connectTimedOut, setConnectTimedOut] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [editingSummary, setEditingSummary] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
@@ -452,22 +454,37 @@ export function TaskConversationPage({
     setShowRawReplay(false);
   }, [taskId]);
 
-  // Initial fetch (skip for demo)
+  // Initial fetch (skip for demo). Includes an 8s connect watchdog: if the
+  // task hasn't loaded by then we flip `connectTimedOut` so the terminal
+  // status pill switches from "connecting" to an error + Retry affordance
+  // instead of spinning forever (audit #59).
   useEffect(() => {
     if (isDemo) return;
     let cancelled = false;
     setLoadError(null);
+    setConnectTimedOut(false);
+    const watchdog = setTimeout(() => {
+      if (!cancelled) setConnectTimedOut(true);
+    }, 8000);
     fetchTask(taskId)
       .then((t) => {
-        if (!cancelled) setTask(t);
+        if (!cancelled) {
+          setTask(t);
+          setConnectTimedOut(false);
+          clearTimeout(watchdog);
+        }
       })
       .catch((e: Error) => {
-        if (!cancelled) setLoadError(e.message);
+        if (!cancelled) {
+          setLoadError(e.message);
+          clearTimeout(watchdog);
+        }
       });
     return () => {
       cancelled = true;
+      clearTimeout(watchdog);
     };
-  }, [isDemo, taskId]);
+  }, [isDemo, taskId, retryNonce]);
 
   // Fetch the agent's identity (avatar/icon/color/displayName) so turn blocks
   // can render the real avatar instead of a generic sparkles glyph.
@@ -812,18 +829,24 @@ export function TaskConversationPage({
   // fetch resolves we re-render without remounting (stable sessionId key).
   if (terminalModeActive) {
     const taskStatus = task?.meta.status;
-    const statusTone = !task
-      ? "bg-zinc-700/60 text-zinc-300"
-      : taskStatus === "running"
-        ? "bg-emerald-500/20 text-emerald-300"
-        : taskStatus === "awaiting-input"
-          ? "bg-amber-500/20 text-amber-300"
-          : taskStatus === "failed"
-            ? "bg-rose-500/20 text-rose-300"
-            : "bg-zinc-700/60 text-zinc-300";
-    const statusLabel = !task
-      ? "connecting"
-      : taskStatus === "running"
+    const statusTone = !task && (loadError || connectTimedOut)
+      ? "bg-rose-500/20 text-rose-300"
+      : !task
+        ? "bg-zinc-700/60 text-zinc-300"
+        : taskStatus === "running"
+          ? "bg-emerald-500/20 text-emerald-300"
+          : taskStatus === "awaiting-input"
+            ? "bg-amber-500/20 text-amber-300"
+            : taskStatus === "failed"
+              ? "bg-rose-500/20 text-rose-300"
+              : "bg-zinc-700/60 text-zinc-300";
+    const statusLabel = !task && loadError
+      ? "error"
+      : !task && connectTimedOut
+        ? "unreachable"
+        : !task
+          ? "connecting"
+          : taskStatus === "running"
         ? "live"
         : taskStatus === "awaiting-input"
           ? "awaiting input"
@@ -1031,8 +1054,28 @@ export function TaskConversationPage({
           </Link>
           <Terminal className="size-3.5 shrink-0 text-emerald-400" />
           <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-100">
-            {task?.meta.title ?? "Loading…"}
+            {task?.meta.title ??
+              (loadError
+                ? "Task unavailable"
+                : connectTimedOut
+                  ? "Task is unreachable"
+                  : terminalPrompt
+                    ? terminalPrompt.split("\n")[0].slice(0, 80)
+                    : "Opening task…")}
           </h1>
+          {!task && (loadError || connectTimedOut) && (
+            <button
+              type="button"
+              onClick={() => {
+                setLoadError(null);
+                setConnectTimedOut(false);
+                setRetryNonce((n) => n + 1);
+              }}
+              className="shrink-0 inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-zinc-200 hover:border-zinc-600 hover:bg-zinc-800"
+            >
+              Retry
+            </button>
+          )}
           <span
             className={cn(
               "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",

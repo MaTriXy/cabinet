@@ -366,7 +366,9 @@ export function TasksBoardV2({
           )}
 
           <span className="text-[11px] text-muted-foreground">
-            {agentFilter ? `${filteredTasks.length} of ${tasks.length}` : `${tasks.length}`}
+            {agentFilter || triggerFilter !== "all"
+              ? `${filteredTasks.length} of ${tasks.length}`
+              : `${tasks.length}`}
             {" "}task{tasks.length === 1 ? "" : "s"}
           </span>
 
@@ -433,7 +435,26 @@ export function TasksBoardV2({
         void handleDragEnd(e);
       }}
     >
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {!loading && tasks.length > 0 && filteredTasks.length === 0 && (
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-amber-500/10 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-200">
+            <span>
+              <strong>{tasks.length}</strong> task{tasks.length === 1 ? "" : "s"} hidden by filters
+              {agentFilter && ` · agent: ${agentFilter}`}
+              {triggerFilter !== "all" && ` · trigger: ${triggerFilter}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setAgentFilter(null);
+                setTriggerFilter("all");
+              }}
+              className="rounded border border-amber-600/40 bg-background px-2 py-0.5 text-[11px] font-medium hover:bg-amber-500/10"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">
             <Loader2 className="size-5 animate-spin" />

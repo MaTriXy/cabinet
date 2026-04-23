@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UpdateCheckResult } from "@/types";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 
 interface UseCabinetUpdateOptions {
   autoRefresh?: boolean;
@@ -32,7 +33,7 @@ export function useCabinetUpdate(options: UseCabinetUpdateOptions = {}) {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/system/update", {
+      const response = await dedupFetch("/api/system/update", {
         cache: "no-store",
       });
       if (!response.ok) {

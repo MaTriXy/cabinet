@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 
 interface ProviderIconInfo {
   id: string;
@@ -21,7 +22,7 @@ async function fetchProviderIcons(): Promise<Map<string, ProviderIconInfo>> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const res = await fetch("/api/agents/providers", { cache: "no-store" });
+      const res = await dedupFetch("/api/agents/providers", { cache: "no-store" });
       if (!res.ok) {
         inflight = null;
         return new Map();

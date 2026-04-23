@@ -175,6 +175,53 @@ function parseHash(hash: string): RouteState {
     };
   }
 
+  // Bare-route aliases scoped to the root cabinet. Lets every shared link of
+  // the form `/#/tasks`, `/#/agents`, `/#/jobs` land on the correct view
+  // without having to know about the internal `/#/cabinet/./tasks` shape.
+  // Audit #11, #12.
+  if (parts[0] === "agents") {
+    if (parts[1]) {
+      const slug = decodePathSegment(parts[1]);
+      return {
+        section: {
+          type: "agent",
+          cabinetPath: ROOT_CABINET_PATH,
+          slug,
+          agentScopedId: `${ROOT_CABINET_PATH}::agent::${slug}`,
+        },
+        pagePath: null,
+      };
+    }
+    return {
+      section: { type: "agents", cabinetPath: ROOT_CABINET_PATH },
+      pagePath: null,
+    };
+  }
+
+  if (parts[0] === "tasks") {
+    if (parts[1]) {
+      return {
+        section: {
+          type: "task",
+          cabinetPath: ROOT_CABINET_PATH,
+          taskId: decodePathSegment(parts[1]),
+        },
+        pagePath: null,
+      };
+    }
+    return {
+      section: { type: "tasks", cabinetPath: ROOT_CABINET_PATH },
+      pagePath: null,
+    };
+  }
+
+  if (parts[0] === "jobs") {
+    return {
+      section: { type: "jobs", cabinetPath: ROOT_CABINET_PATH },
+      pagePath: null,
+    };
+  }
+
   return { section: { type: "home" }, pagePath: null };
 }
 

@@ -12,6 +12,7 @@ import {
   TaskRuntimePicker,
   type TaskRuntimeSelection,
 } from "@/components/composer/task-runtime-picker";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 
 const DISCORD_SUPPORT_URL = "https://discord.gg/hJa5TRTbTH";
 const GITHUB_REPO_URL = "https://github.com/hilash/cabinet";
@@ -152,7 +153,7 @@ export function StatusBar() {
 
   const fetchProviderStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/agents/providers/status", { cache: "no-store" });
+      const res = await dedupFetch("/api/agents/providers/status", { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data.providers)) {
@@ -167,8 +168,8 @@ export function StatusBar() {
     let mounted = true;
     const checkHealth = async () => {
       const [appRes, daemonRes] = await Promise.allSettled([
-        fetch("/api/health", { cache: "no-store" }),
-        fetch("/api/health/daemon", { cache: "no-store" }),
+        dedupFetch("/api/health", { cache: "no-store" }),
+        dedupFetch("/api/health/daemon", { cache: "no-store" }),
       ]);
       if (!mounted) return;
       const appOk = appRes.status === "fulfilled" && appRes.value.ok;

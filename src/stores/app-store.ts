@@ -3,6 +3,7 @@ import type { CabinetVisibilityMode } from "@/types/cabinets";
 import type { ConversationMeta } from "@/types/conversations";
 import type { ProviderInfo } from "@/types/agents";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 
 export type SectionType =
   | "home"
@@ -130,7 +131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (providersLoading || providersLoaded) return;
     set({ providersLoading: true });
     try {
-      const response = await fetch("/api/agents/providers");
+      const response = await dedupFetch("/api/agents/providers");
       if (!response.ok) return;
       const data = await response.json() as {
         providers?: ProviderInfo[];

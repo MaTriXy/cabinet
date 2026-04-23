@@ -40,7 +40,9 @@ import { AIPanel } from "@/components/ai-panel/ai-panel";
 import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
 import { SearchPalette } from "@/components/search/search-palette";
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog-host";
+import { TopNav } from "@/components/layout/top-nav";
 import { useGlobalHotkeys } from "@/hooks/use-global-hotkeys";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { StatusBar } from "@/components/layout/status-bar";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { UpdateDialog } from "@/components/layout/update-dialog";
@@ -158,7 +160,7 @@ export function AppShell() {
   // use this to self-correct a stale cache.
   useEffect(() => {
     const run = () => {
-      fetch("/api/agents/config")
+      dedupFetch("/api/agents/config")
         .then((r) => r.json())
         .then((data) => {
           const done = !!data.exists;
@@ -480,6 +482,7 @@ export function AppShell() {
         className="flex-1 flex flex-col overflow-hidden"
         style={{ '--sidebar-toggle-offset': sidebarCollapsed ? '2.25rem' : '0px' } as React.CSSProperties}
       >
+        <TopNav />
         <main className="flex-1 flex flex-col overflow-hidden">
           {renderContent()}
         </main>

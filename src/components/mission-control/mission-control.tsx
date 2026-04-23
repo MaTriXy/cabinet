@@ -5,6 +5,7 @@ import { Gauge, Plus, RefreshCw, Zap, MessageSquare, Loader2, BookOpen, Power, P
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { useTreeStore } from "@/stores/tree-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { PulseStrip } from "./pulse-strip";
@@ -61,7 +62,7 @@ export function MissionControl() {
 
   // Load company name from config
   useEffect(() => {
-    fetch("/api/agents/config")
+    dedupFetch("/api/agents/config")
       .then((r) => r.json())
       .then((d) => {
         const name = d.company?.name || d.company || "";

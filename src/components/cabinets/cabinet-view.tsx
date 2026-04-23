@@ -31,6 +31,7 @@ import type {
 } from "@/types/cabinets";
 import type { ScheduleEvent } from "@/lib/agents/cron-compute";
 import { NextUpRuns } from "./next-up-runs";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { OrgChartModal } from "./org-chart-modal";
 
 export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
@@ -143,7 +144,7 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
   }, []);
 
   useEffect(() => {
-    fetch("/api/agents/config")
+    dedupFetch("/api/agents/config")
       .then((response) => response.json())
       .then((data) => {
         const nextName = [
