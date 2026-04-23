@@ -481,6 +481,59 @@ function VariantH() {
 }
 
 /* ────────────────────────────────────────────────────────────── */
+/* I — H with full-strength title (recommended)                   */
+/* ────────────────────────────────────────────────────────────── */
+function VariantI() {
+  const [active, setActive] = useState<DrawerId>("tasks");
+  return (
+    <div className="px-2 pt-3">
+      <div>
+        <button className="flex w-full items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5 text-left ring-1 ring-border/60 hover:bg-muted/80 transition-colors">
+          <Archive className="h-[18px] w-[18px] shrink-0 text-amber-400" />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            {CABINET_NAME}
+          </span>
+          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            ALL <ChevronDown className="h-3 w-3" />
+          </span>
+        </button>
+        <div className="mx-[9px] grid grid-cols-3 gap-1 rounded-b-lg bg-muted/40 p-1 pt-2 border border-border/60">
+          {DRAWERS.map((d) => {
+            const Icon = d.icon;
+            const isActive = active === d.id;
+            return (
+              <button
+                key={d.id}
+                onClick={() => setActive(d.id)}
+                className={cn(
+                  "relative flex w-full flex-col items-center gap-0.5 rounded-md px-1.5 pt-3 pb-2 transition-all duration-150",
+                  isActive
+                    ? "-translate-y-px bg-background text-foreground shadow-[0_1px_0_rgba(0,0,0,0.06),0_6px_14px_-10px_rgba(0,0,0,0.35)] ring-1 ring-border/70"
+                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                )}
+              >
+                {/* drawer pull handle — thinner, soft amber */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "absolute left-1/2 top-1 h-[2px] w-4 -translate-x-1/2 rounded-full transition-colors",
+                    isActive ? "bg-amber-400/50" : "bg-muted-foreground/30"
+                  )}
+                />
+                <Icon className="h-[18px] w-[18px] shrink-0" />
+                <span className="text-[8px] font-semibold uppercase tracking-[0.1em]">
+                  {d.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────── */
 /* Tasks icon alternates                                          */
 /* ────────────────────────────────────────────────────────────── */
 function TasksIconRow() {
@@ -576,6 +629,13 @@ const VARIANTS: Variant[] = [
     summary:
       "Exactly G with three changes: removed the `mt-1` gap so the drawer frame sits flush against the header; frame corners go `rounded-lg` → `rounded-b-lg` (flat top, rounded bottom); frame horizontal inset is `mx-[9px]` so it's 5px narrower per side than G — gives a modest crown/lip.",
     Component: VariantH,
+  },
+  {
+    id: "i",
+    title: "I — H + full-strength title (recommended)",
+    summary:
+      "Identical to H, but the cabinet name returns from `text-muted-foreground` to `text-foreground` so it reads clearly at a glance — amber icon stays as the accent, not the sole anchor. The ALL chip keeps its muted tone.",
+    Component: VariantI,
   },
 ];
 

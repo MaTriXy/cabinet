@@ -381,16 +381,22 @@ export function TreeView() {
           </button>
         ) : null}
 
-        {/* ── Cabinet (depth 0) ───────────────────────────── */}
-        <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 w-full" style={pad(0)}>
+        {/* ── Cabinet header + drawer tabs (H variant) ─────
+             Header rail (always) + drawer-tab strip (flush below) wrapped
+             in one `px-2 pt-3` column. Strip is `mx-[9px]`-inset so the
+             header reads as a wider crown over the drawer frame. */}
+        <div className="px-2 pt-3">
+        <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5 ring-1 ring-border/60 hover:bg-muted/80 transition-colors">
           <ContextMenu>
           <ContextMenuTrigger>
           <button
             onClick={() => openCabinetOverview(activeCabinet?.path || cabinetPath)}
-            className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex min-w-0 flex-1 items-center gap-2 text-left hover:text-foreground/80 transition-colors"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-            {cabinetAgentScopeName || activeCabinet?.frontmatter?.title || activeCabinet?.name || "Cabinet"}
+            <Archive className="h-[18px] w-[18px] shrink-0 text-amber-400" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
+              {cabinetAgentScopeName || activeCabinet?.frontmatter?.title || activeCabinet?.name || "Cabinet"}
+            </span>
           </button>
           </ContextMenuTrigger>
           <ContextMenuContent>
@@ -460,7 +466,7 @@ export function TreeView() {
           >
             <SelectTrigger
               size="sm"
-              className="ml-auto h-5 min-w-0 w-auto gap-0.5 rounded border-none bg-transparent px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 shadow-none hover:text-foreground/80 focus-visible:ring-0"
+              className="ml-auto h-5 min-w-0 w-auto gap-0.5 rounded border-none bg-transparent px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70 shadow-none hover:text-foreground/80 focus-visible:ring-0"
             >
               <SelectValue placeholder="Own" />
             </SelectTrigger>
@@ -480,18 +486,14 @@ export function TreeView() {
         </div>
 
         {cabinetExpanded && (
-          <>
-
-            {/* ── Cabinet drawers ───────────────────────────────
-                Three horizontal tabs (Data · Agents · Tasks) that act like
-                physical drawer pulls. Exactly one is open; clicking a closed
-                tab routes to that section and slides its content in below. */}
-            <div className="px-2 pt-2 pb-1">
-              <div
-                role="tablist"
-                aria-label="Cabinet drawers"
-                className="grid grid-cols-3 gap-1 rounded-lg bg-muted/40 p-1 ring-1 ring-border/60"
-              >
+          /* ── Cabinet drawers ───────────────────────────────
+             Three drawer-pull tabs (Data · Agents · Tasks) flush against the
+             header above, inset by mx-[9px] so the header reads as a crown. */
+          <div
+            role="tablist"
+            aria-label="Cabinet drawers"
+            className="mx-[9px] grid grid-cols-3 gap-1 rounded-b-lg bg-muted/40 p-1 pt-2 border border-border/60"
+          >
                 {([
                   {
                     id: "data" as DrawerId,
@@ -578,14 +580,22 @@ export function TreeView() {
                           drawer.onOpen();
                         }}
                         className={cn(
-                          "flex w-full flex-col items-center gap-0.5 rounded-md px-1.5 py-2 transition-all duration-150",
+                          "relative flex w-full flex-col items-center gap-0.5 rounded-md px-1.5 pt-3 pb-2 transition-all duration-150",
                           active
                             ? "-translate-y-px bg-background text-foreground shadow-[0_1px_0_rgba(0,0,0,0.06),0_6px_14px_-10px_rgba(0,0,0,0.35)] ring-1 ring-border/70"
                             : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
                         )}
                       >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        <span className="text-[10px] font-semibold uppercase tracking-wide">
+                        {/* drawer pull handle */}
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "absolute left-1/2 top-1 h-[2px] w-4 -translate-x-1/2 rounded-full transition-colors",
+                            active ? "bg-amber-400/50" : "bg-muted-foreground/30"
+                          )}
+                        />
+                        <Icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="text-[8px] font-semibold uppercase tracking-[0.1em]">
                           {drawer.label}
                         </span>
                       </button>
@@ -606,9 +616,12 @@ export function TreeView() {
                     </div>
                   );
                 })}
-              </div>
-            </div>
+          </div>
+        )}
+        </div>
 
+        {cabinetExpanded && (
+          <>
             {agentsExpanded && (
               <div
                 key="drawer-agents"
