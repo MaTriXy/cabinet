@@ -29,7 +29,6 @@ import { RecentTasks } from "./recent-tasks";
 import type { TreeNode as TreeNodeType } from "@/types";
 import {
   CornerLeftUp,
-  ChevronRight,
   Plus,
   BookOpen,
   Users,
@@ -110,9 +109,44 @@ export function TreeView() {
   const setCabinetVisibilityMode = useAppStore((s) => s.setCabinetVisibilityMode);
 
   const [cabinetExpanded, setCabinetExpanded] = useState(true);
-  const [agentsExpanded, setAgentsExpanded] = useState(true);
-  const [tasksExpanded, setTasksExpanded] = useState(true);
-  const [kbExpanded, setKbExpanded] = useState(true);
+
+  // Cabinet-drawer UI: the sidebar exposes three "drawers" — Agents, Tasks, and
+  // Data — as a horizontal tab row. Only one is open at a time. The previous
+  // vertical-accordion `agentsExpanded` / `tasksExpanded` / `kbExpanded` flags
+  // are now derived from `activeDrawer` for minimal downstream churn.
+  const DRAWER_LS_KEY = "cabinet.sidebar.drawer";
+  type DrawerId = "agents" | "tasks" | "data";
+  const [activeDrawer, setActiveDrawer] = useState<DrawerId>(() => {
+    if (typeof window === "undefined") return "data";
+    const stored = window.localStorage.getItem(DRAWER_LS_KEY);
+    return stored === "agents" || stored === "tasks" || stored === "data"
+      ? stored
+      : "data";
+  });
+
+  // When the route changes under us (hash nav, shortcut, etc.), auto-open the
+  // matching drawer so the sidebar and main are always in sync.
+  useEffect(() => {
+    if (section.type === "agent" || section.type === "agents") {
+      setActiveDrawer("agents");
+    } else if (section.type === "task" || section.type === "tasks") {
+      setActiveDrawer("tasks");
+    }
+    // Other section types keep the user's last manual choice.
+  }, [section.type]);
+
+  // Persist the user's manual drawer choice so returning to the app restores it.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DRAWER_LS_KEY, activeDrawer);
+    } catch {
+      // ignore quota / privacy-mode errors
+    }
+  }, [activeDrawer]);
+
+  const agentsExpanded = activeDrawer === "agents";
+  const tasksExpanded = activeDrawer === "tasks";
+  const kbExpanded = activeDrawer === "data";
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [cabinetAgentScopeName, setCabinetAgentScopeName] = useState<string | null>(null);
   const [kbSubPageOpen, setKbSubPageOpen] = useState(false);
@@ -461,58 +495,142 @@ export function TreeView() {
         {cabinetExpanded && (
           <>
 
-            {/* ── Agents (depth 1) ─────────────────────────── */}
-            <div
-              className="group flex items-center gap-1.5 px-3 pt-3 pb-1.5 w-full"
-              style={pad(0)}
-            >
-              <button
-                onClick={() => setAgentsExpanded(!agentsExpanded)}
-                className="text-muted-foreground/50 hover:text-foreground/80 transition-colors shrink-0"
+            {/* ── Cabinet drawers ───────────────────────────────
+                Three horizontal tabs (Agents · Tasks · Data) that act like
+                physical drawer pulls. Exactly one is open; clicking a closed
+                tab routes to that section and slides its content in below. */}
+            <div className="px-2 pt-2 pb-1">
+              <div
+                role="tablist"
+                aria-label="Cabinet drawers"
+                className="grid grid-cols-3 gap-1 rounded-lg bg-muted/40 p-1 ring-1 ring-border/60"
               >
-                <ChevronRight
-                  className={cn(
-                    "h-3 w-3 shrink-0 transition-transform duration-150",
-                    agentsExpanded && "rotate-90"
-                  )}
-                />
-              </button>
-              <button
-                onClick={() =>
-                  setSection({
-                    type: "agents",
-                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
-                  })
-                }
-                className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2 hover:text-foreground/80 transition-colors"
-              >
-                <Users className="h-3.5 w-3.5 shrink-0" />
-                Agents
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSection({
-                    type: "agents",
-                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
-                  });
-                  setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent("cabinet:open-add-agent"));
-                  }, 100);
-                }}
-                className="ml-auto opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-200 text-muted-foreground hover:text-foreground"
-                title="Add agent"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
+                {([
+                  {
+                    id: "agents" as DrawerId,
+                    label: "Agents",
+                    icon: Users,
+                    onOpen: () =>
+                      setSection({
+                        type: "agents",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      }),
+                    onAdd: () => {
+                      setSection({
+                        type: "agents",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      });
+                      setTimeout(() => {
+                        window.dispatchEvent(
+                          new CustomEvent("cabinet:open-add-agent")
+                        );
+                      }, 100);
+                    },
+                  },
+                  {
+                    id: "tasks" as DrawerId,
+                    label: "Tasks",
+                    icon: SquareKanban,
+                    onOpen: () =>
+                      setSection({
+                        type: "tasks",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      }),
+                    onAdd: () => {
+                      setSection({
+                        type: "tasks",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      });
+                      setTimeout(() => {
+                        window.dispatchEvent(
+                          new CustomEvent("cabinet:open-create-task")
+                        );
+                      }, 100);
+                    },
+                  },
+                  {
+                    id: "data" as DrawerId,
+                    label: "Data",
+                    icon: BookOpen,
+                    onOpen: () => {
+                      if (activeCabinet) {
+                        openCabinetDataPage(activeCabinet.path);
+                        return;
+                      }
+                      if (
+                        section.type !== "home" &&
+                        section.type !== "page" &&
+                        section.type !== "cabinet"
+                      ) {
+                        setSection({ type: "home" });
+                      }
+                    },
+                    onAdd: () => {
+                      if (activeCabinet) {
+                        setKbSubPageOpen(true);
+                      } else {
+                        const btn = document.querySelector<HTMLButtonElement>(
+                          "[data-new-page-trigger]"
+                        );
+                        btn?.click();
+                      }
+                    },
+                  },
+                ] as const).map((drawer) => {
+                  const Icon = drawer.icon;
+                  const active = activeDrawer === drawer.id;
+                  return (
+                    <div key={drawer.id} className="relative group">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        aria-label={`${drawer.label} drawer`}
+                        onClick={() => {
+                          setActiveDrawer(drawer.id);
+                          drawer.onOpen();
+                        }}
+                        className={cn(
+                          "flex w-full flex-col items-center gap-0.5 rounded-md px-1.5 py-2 transition-all duration-150",
+                          active
+                            ? "-translate-y-px bg-background text-foreground shadow-[0_1px_0_rgba(0,0,0,0.06),0_6px_14px_-10px_rgba(0,0,0,0.35)] ring-1 ring-border/70"
+                            : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                        )}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="text-[10px] font-semibold uppercase tracking-wide">
+                          {drawer.label}
+                        </span>
+                      </button>
+                      {active && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            drawer.onAdd();
+                          }}
+                          title={`Add to ${drawer.label}`}
+                          aria-label={`Add to ${drawer.label}`}
+                          className="absolute right-1 top-1 inline-flex size-4 items-center justify-center rounded text-muted-foreground/70 opacity-0 transition-opacity duration-150 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {agentsExpanded && (
-              <>
+              <div
+                key="drawer-agents"
+                className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+              >
                 {[
                   ...agents.filter((a) => a.slug === "editor"),
                   ...agents.filter((a) => a.slug !== "editor"),
-                ].map((agent) => {
+                ].map((agent, i) => {
                   const cabinetPathForAgent =
                     agent.cabinetPath ||
                     activeCabinet?.path ||
@@ -520,181 +638,62 @@ export function TreeView() {
                   const scopedId =
                     agent.scopedId ||
                     `${cabinetPathForAgent}::agent::${agent.slug}`;
-                  return renderAgentRow(
-                    agent.scopedId || agent.slug,
-                    agent,
-                    {
-                      selected:
-                        selectedAgentScopedId === scopedId ||
-                        (section.type === "agent" &&
-                          section.slug === agent.slug),
-                      activeDot: (agent.runningCount || 0) > 0,
-                      onClick: () =>
-                        setSection({
-                          type: "agent",
-                          slug: agent.slug,
-                          cabinetPath: cabinetPathForAgent,
-                          agentScopedId: scopedId,
-                        }),
-                      editable: {
-                        slug: agent.slug,
-                        cabinetPath: cabinetPathForAgent,
-                      },
-                    }
+                  return (
+                    <div
+                      key={agent.scopedId || agent.slug}
+                      className="animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+                      style={{ animationDelay: `${Math.min(i, 10) * 20}ms`, animationFillMode: "backwards" }}
+                    >
+                      {renderAgentRow(
+                        agent.scopedId || agent.slug,
+                        agent,
+                        {
+                          selected:
+                            selectedAgentScopedId === scopedId ||
+                            (section.type === "agent" &&
+                              section.slug === agent.slug),
+                          activeDot: (agent.runningCount || 0) > 0,
+                          onClick: () =>
+                            setSection({
+                              type: "agent",
+                              slug: agent.slug,
+                              cabinetPath: cabinetPathForAgent,
+                              agentScopedId: scopedId,
+                            }),
+                          editable: {
+                            slug: agent.slug,
+                            cabinetPath: cabinetPathForAgent,
+                          },
+                        }
+                      )}
+                    </div>
                   );
                 })}
-              </>
+              </div>
             )}
 
-            {/* ── Divider ──────────────────────────────────── */}
-            <div className="mx-3 my-1.5 border-t border-border" />
-
-            {/* ── Tasks ───────────────────────────────────── */}
-            <div
-              className="group flex items-center gap-1.5 px-3 pt-2 pb-1 w-full"
-              style={pad(0)}
-            >
-              <button
-                onClick={() => setTasksExpanded(!tasksExpanded)}
-                className="text-muted-foreground/50 hover:text-foreground/80 transition-colors shrink-0"
-              >
-                <ChevronRight
-                  className={cn(
-                    "h-3 w-3 shrink-0 transition-transform duration-150",
-                    tasksExpanded && "rotate-90"
-                  )}
-                />
-              </button>
-              <button
-                onClick={() =>
-                  setSection({
-                    type: "tasks",
-                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
-                  })
-                }
-                className={cn(
-                  "text-[11px] font-semibold uppercase tracking-wide text-left flex items-center gap-2 transition-colors",
-                  section.type === "tasks" &&
-                    section.cabinetPath ===
-                      (activeCabinet?.path || ROOT_CABINET_PATH)
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground/80"
-                )}
-              >
-                <SquareKanban className="h-3.5 w-3.5 shrink-0" />
-                Tasks
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSection({
-                    type: "tasks",
-                    cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
-                  });
-                  setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent("cabinet:open-create-task"));
-                  }, 100);
-                }}
-                className="ml-auto opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-200 text-muted-foreground hover:text-foreground"
-                title="Add task"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* ── Recent tasks (depth 1) ──────────────────── */}
             {tasksExpanded && (
-              <RecentTasks
-                active
-                padStyle={pad(1)}
-                itemClass={itemClass}
-                cabinetPath={activeCabinet?.path}
-                agents={agents}
-              />
-            )}
-
-            {/* ── Divider ──────────────────────────────────── */}
-            <div className="mx-3 my-1.5 border-t border-border" />
-
-            {/* ── Knowledge Base label ──────────────────────── */}
-            <div className="group flex items-center gap-1.5 px-3 pt-2 pb-1 w-full" style={pad(0)}>
-              <button
-                onClick={() => setKbExpanded(!kbExpanded)}
-                className="shrink-0 text-muted-foreground/50 hover:text-foreground/80 transition-colors"
+              <div
+                key="drawer-tasks"
+                className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
               >
-                <ChevronRight
-                  className={cn(
-                    "h-3 w-3 shrink-0 transition-transform duration-150",
-                    kbExpanded && "rotate-90"
-                  )}
+                <RecentTasks
+                  active
+                  padStyle={pad(1)}
+                  itemClass={itemClass}
+                  cabinetPath={activeCabinet?.path}
+                  agents={agents}
                 />
-              </button>
-              <ContextMenu>
-              <ContextMenuTrigger>
-                <button
-                  onClick={() => {
-                    if (activeCabinet) {
-                      openCabinetDataPage(activeCabinet.path);
-                      return;
-                    }
-                    setSection({ type: "home" });
-                  }}
-                  className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-left flex items-center gap-2 hover:text-foreground/80 transition-colors"
-                >
-                  <BookOpen className="h-3.5 w-3.5 shrink-0" />
-                  {kbSectionLabel}
-                </button>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem onClick={() => setKbSubPageOpen(true)}>
-                  <FilePlus className="h-4 w-4 mr-2" />
-                  Add Sub Page
-                </ContextMenuItem>
-                <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
-                  <GitBranch className="h-4 w-4 mr-2" />
-                  Load Knowledge
-                </ContextMenuItem>
-                <ContextMenuItem onClick={async () => {
-                  const dir = await getDataDir();
-                  navigator.clipboard.writeText(
-                    dataRootPath ? `${dir}/${dataRootPath}` : dir
-                  );
-                }}>
-                  <ClipboardCopy className="h-4 w-4 mr-2" />
-                  Copy Full Path
-                </ContextMenuItem>
-                <ContextMenuItem onClick={() => {
-                  fetch("/api/system/open-data-dir", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ subpath: dataRootPath }),
-                  });
-                }}>
-                  <FolderOpen className="h-4 w-4 mr-2" />
-                  Open in Finder
-                </ContextMenuItem>
-              </ContextMenuContent>
-              </ContextMenu>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (activeCabinet) {
-                    setKbSubPageOpen(true);
-                  } else {
-                    const btn = document.querySelector<HTMLButtonElement>(
-                      "[data-new-page-trigger]"
-                    );
-                    btn?.click();
-                  }
-                }}
-                className="ml-auto opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-200 text-muted-foreground hover:text-foreground"
-                title="Add page"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              </div>
+            )}
 
             {kbExpanded && (
+              <ContextMenu>
+                <ContextMenuTrigger>
+                  <div
+                    key="drawer-data"
+                    className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+                  >
               <>
                 {visibleTreeNodes.length === 0 ? (
                   <button
@@ -727,6 +726,42 @@ export function TreeView() {
                   ))
                 )}
               </>
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem onClick={() => setKbSubPageOpen(true)}>
+                    <FilePlus className="h-4 w-4 mr-2" />
+                    Add Sub Page
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
+                    <GitBranch className="h-4 w-4 mr-2" />
+                    Load Knowledge
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={async () => {
+                      const dir = await getDataDir();
+                      navigator.clipboard.writeText(
+                        dataRootPath ? `${dir}/${dataRootPath}` : dir
+                      );
+                    }}
+                  >
+                    <ClipboardCopy className="h-4 w-4 mr-2" />
+                    Copy Full Path
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={() => {
+                      fetch("/api/system/open-data-dir", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ subpath: dataRootPath }),
+                      });
+                    }}
+                  >
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Open in Finder
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             )}
           </>
         )}

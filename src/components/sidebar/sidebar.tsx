@@ -11,6 +11,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   Settings,
+  Home,
+  Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -147,9 +149,42 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Home"
+            title="Home"
             className={cn(
               "h-7 w-7 shrink-0",
-              (section.type === "settings") && "bg-accent text-foreground"
+              section.type === "home" && "bg-accent text-foreground"
+            )}
+            onClick={() => setSection({ type: "home" })}
+          >
+            <Home className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Jobs"
+            title="Jobs"
+            className={cn(
+              "h-7 w-7 shrink-0",
+              section.type === "jobs" && "bg-accent text-foreground"
+            )}
+            onClick={() =>
+              setSection({
+                type: "jobs",
+                cabinetPath: section.cabinetPath || undefined,
+              })
+            }
+          >
+            <Timer className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Settings"
+            title="Settings"
+            className={cn(
+              "h-7 w-7 shrink-0",
+              section.type === "settings" && "bg-accent text-foreground"
             )}
             onClick={() => setSection({ type: "settings" })}
           >
