@@ -52,8 +52,8 @@ import {
   findRootCabinetNode,
 } from "@/lib/cabinets/tree";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { getDataDir } from "@/lib/data-dir-cache";
-import type { CabinetOverview } from "@/types/cabinets";
 import { DepthDropdown } from "@/components/cabinets/depth-dropdown";
 
 interface AgentSummary {
@@ -159,40 +159,34 @@ export function TreeView() {
 
   const loadAgents = useCallback(async () => {
     try {
-      const params = new URLSearchParams({
-        path: activeCabinet?.path || ROOT_CABINET_PATH,
-        visibility: cabinetVisibilityMode,
-      });
-      const res = await fetch(`/api/cabinets/overview?${params.toString()}`, {
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const data = (await res.json()) as CabinetOverview;
-        setCabinetAgentScopeName(data.cabinet.name || "Cabinet");
-        setAgents(
-          (data.agents || []).map((agent) => ({
-            scopedId: agent.scopedId,
-            name: agent.name,
-            slug: agent.slug,
-            emoji: agent.emoji,
-            active: agent.active,
-            runningCount: 0,
-            jobCount: agent.jobCount || 0,
-            taskCount: agent.taskCount || 0,
-            heartbeat: agent.heartbeat || "",
-            cabinetPath: agent.cabinetPath,
-            cabinetName: agent.cabinetName,
-            inherited: agent.inherited,
-            displayName: agent.displayName,
-            iconKey: agent.iconKey,
-            color: agent.color,
-            avatar: agent.avatar,
-            avatarExt: agent.avatarExt,
-            role: agent.role,
-          }))
-        );
-        return;
-      }
+      const data = await fetchCabinetOverviewClient(
+        activeCabinet?.path || ROOT_CABINET_PATH,
+        cabinetVisibilityMode,
+        { force: true }
+      );
+      setCabinetAgentScopeName(data.cabinet.name || "Cabinet");
+      setAgents(
+        (data.agents || []).map((agent) => ({
+          scopedId: agent.scopedId,
+          name: agent.name,
+          slug: agent.slug,
+          emoji: agent.emoji,
+          active: agent.active,
+          runningCount: 0,
+          jobCount: agent.jobCount || 0,
+          taskCount: agent.taskCount || 0,
+          heartbeat: agent.heartbeat || "",
+          cabinetPath: agent.cabinetPath,
+          cabinetName: agent.cabinetName,
+          inherited: agent.inherited,
+          displayName: agent.displayName,
+          iconKey: agent.iconKey,
+          color: agent.color,
+          avatar: agent.avatar,
+          avatarExt: agent.avatarExt,
+          role: agent.role,
+        }))
+      );
     } catch {
       if (activeCabinet) {
         setCabinetAgentScopeName(
@@ -210,8 +204,10 @@ export function TreeView() {
     const initialLoad = window.setTimeout(() => {
       void loadAgents();
     }, 0);
+    // Pause polling while the tab is hidden — the sidebar isn't visible, and
+    // each tick would walk the server-side cabinet tree.
     const interval = window.setInterval(() => {
-      void loadAgents();
+      if (document.visibilityState === "visible") void loadAgents();
     }, 5000);
     window.addEventListener("focus", loadAgents);
     return () => {

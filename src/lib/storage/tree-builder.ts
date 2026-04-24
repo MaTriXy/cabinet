@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import matter from "gray-matter";
 import yaml from "js-yaml";
+import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { CABINET_LINK_META_CANDIDATES, CABINET_MANIFEST_FILE } from "@/lib/cabinets/files";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import type { TreeNode, GoogleFrontmatter } from "@/types";
@@ -294,7 +295,21 @@ async function buildTreeRecursive(
   return nodes;
 }
 
+// 5-second TTL cache. buildTree walks the full data/ tree (~6k files including
+// the data/archive dump) and is fired multiple times per page load (sidebar,
+// search, auto-link, composer). Short TTL means freshness after user edits
+// self-heals within a few seconds.
+const treeCache = createTtlCache<TreeNode[]>({ ttlMs: 5000 });
+
+export function invalidateTreeCache() {
+  treeCache.invalidate();
+}
+
 export async function buildTree(showHidden = false): Promise<TreeNode[]> {
+  return treeCache.get(showHidden ? "1" : "0", () => buildTreeUncached(showHidden));
+}
+
+async function buildTreeUncached(showHidden: boolean): Promise<TreeNode[]> {
   const children = await buildTreeRecursive(DATA_DIR, new Set<string>(), showHidden);
   const rootManifest = await readCabinetManifest(DATA_DIR);
 

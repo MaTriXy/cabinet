@@ -61,6 +61,7 @@ import { SchedulePicker } from "@/components/mission-control/schedule-picker";
 import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { openArtifactPath } from "@/lib/navigation/open-artifact-path";
 import { createConversation } from "@/lib/agents/conversation-client";
 import { isAgentProviderSelectable } from "@/lib/agents/provider-filters";
@@ -655,13 +656,10 @@ export function AgentsWorkspace({
   async function refreshAgents() {
     try {
       if (effectiveCabinetPath) {
-        const params = new URLSearchParams({
-          path: effectiveCabinetPath,
-          visibility: effectiveVisibilityMode,
-        });
-        const response = await fetch(`/api/cabinets/overview?${params.toString()}`);
-        if (!response.ok) return;
-        const data = await response.json();
+        const data = await fetchCabinetOverviewClient(
+          effectiveCabinetPath,
+          effectiveVisibilityMode
+        );
         const cabinetAgents = (data.agents || []).map((a: Record<string, unknown>) => ({
           scopedId: a.scopedId as string | undefined,
           name: a.name as string,

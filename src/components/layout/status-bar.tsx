@@ -184,10 +184,19 @@ export function StatusBar() {
       }
     };
     void checkHealth();
-    const interval = setInterval(checkHealth, 10000);
+    // Pause background health checks when the tab is hidden — status bar
+    // isn't visible, so the 10s poll would just heat the server.
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void checkHealth();
+    }, 10000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void checkHealth();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       mounted = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

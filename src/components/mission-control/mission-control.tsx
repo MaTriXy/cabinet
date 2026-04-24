@@ -157,74 +157,84 @@ export function MissionControl() {
   useEffect(() => {
     loadAgents();
 
-    // SSE connection for real-time updates
-    let es: EventSource | null = null;
-    try {
-      es = new EventSource("/api/agents/events");
-      es.addEventListener("agent_status", (e) => {
-        try {
-          const statuses: { slug: string; active: boolean; running?: boolean; lastHeartbeat?: string; nextHeartbeat?: string }[] = JSON.parse(e.data);
-          setAgents((prev) =>
-            prev.map((a) => {
-              const s = statuses.find((st) => st.slug === a.slug);
-              if (!s) return a;
-              return { ...a, active: s.active, running: s.running, lastHeartbeat: s.lastHeartbeat, nextHeartbeat: s.nextHeartbeat };
-            })
-          );
-        } catch { /* ignore parse errors */ }
-      });
-      es.addEventListener("pulse", (e) => {
-        try {
-          const pulse = JSON.parse(e.data);
-          setSchedulerRunning(pulse.scheduledAgents > 0);
-          setScheduledCount(pulse.scheduledAgents);
-        } catch { /* ignore */ }
-      });
-      // Clear responding indicator when no agent_responding event is received
-      // (handled by the agent_responding listener above — when it receives an empty array
-      // or stops receiving events, the typing indicators naturally clear)
-      es.addEventListener("agent_responding", (e) => {
-        try {
-          const agents = JSON.parse(e.data);
-          window.dispatchEvent(new CustomEvent("cabinet:agent-responding", { detail: agents }));
-        } catch { /* ignore */ }
-      });
-      es.addEventListener("slack_activity", (e) => {
-        // Trigger a lightweight refresh of Slack panel
-        window.dispatchEvent(new CustomEvent("cabinet:slack-refresh"));
-
-        // Browser notifications for #alerts and @human mentions
-        try {
-          const data = JSON.parse(e.data);
-          if ("Notification" in window && Notification.permission === "granted") {
-            if (data.channel === "alerts" && data.preview) {
-              new Notification("Cabinet Alert", {
-                body: `${data.agentEmoji || "⚠️"} ${data.agentName || "Agent"}: ${data.preview}`,
-                icon: "/favicon.ico",
-                tag: `cabinet-alert-${Date.now()}`,
-              });
-            } else if (data.hasHumanMention && data.preview) {
-              new Notification("Agent needs your attention", {
-                body: `${data.agentEmoji || "🤖"} ${data.agentName || "Agent"} in #${data.channel}: ${data.preview}`,
-                icon: "/favicon.ico",
-                tag: `cabinet-mention-${Date.now()}`,
-              });
-            }
-          }
-        } catch { /* ignore */ }
-      });
-      es.onerror = () => {
-        // Reconnect on error — EventSource auto-reconnects
+    // SSE events are received by app-shell's single subscription and
+    // re-dispatched as `cabinet:agents/<event>` window events so we can
+    // listen here without opening a second EventSource to the same endpoint.
+    const handleAgentStatus = (e: Event) => {
+      const statuses = (e as CustomEvent).detail as {
+        slug: string;
+        active: boolean;
+        running?: boolean;
+        lastHeartbeat?: string;
+        nextHeartbeat?: string;
+      }[];
+      setAgents((prev) =>
+        prev.map((a) => {
+          const s = statuses.find((st) => st.slug === a.slug);
+          if (!s) return a;
+          return {
+            ...a,
+            active: s.active,
+            running: s.running,
+            lastHeartbeat: s.lastHeartbeat,
+            nextHeartbeat: s.nextHeartbeat,
+          };
+        })
+      );
+    };
+    const handlePulse = (e: Event) => {
+      const pulse = (e as CustomEvent).detail as { scheduledAgents: number };
+      setSchedulerRunning(pulse.scheduledAgents > 0);
+      setScheduledCount(pulse.scheduledAgents);
+    };
+    const handleResponding = (e: Event) => {
+      const agents = (e as CustomEvent).detail;
+      window.dispatchEvent(
+        new CustomEvent("cabinet:agent-responding", { detail: agents })
+      );
+    };
+    const handleSlack = (e: Event) => {
+      window.dispatchEvent(new CustomEvent("cabinet:slack-refresh"));
+      const data = (e as CustomEvent).detail as {
+        channel?: string;
+        preview?: string;
+        agentEmoji?: string;
+        agentName?: string;
+        hasHumanMention?: boolean;
       };
-    } catch {
-      // SSE not supported, fall back to polling
-    }
+      if (
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        if (data.channel === "alerts" && data.preview) {
+          new Notification("Cabinet Alert", {
+            body: `${data.agentEmoji || "⚠️"} ${data.agentName || "Agent"}: ${data.preview}`,
+            icon: "/favicon.ico",
+            tag: `cabinet-alert-${Date.now()}`,
+          });
+        } else if (data.hasHumanMention && data.preview) {
+          new Notification("Agent needs your attention", {
+            body: `${data.agentEmoji || "🤖"} ${data.agentName || "Agent"} in #${data.channel}: ${data.preview}`,
+            icon: "/favicon.ico",
+            tag: `cabinet-mention-${Date.now()}`,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("cabinet:agents/agent_status", handleAgentStatus);
+    window.addEventListener("cabinet:agents/pulse", handlePulse);
+    window.addEventListener("cabinet:agents/agent_responding", handleResponding);
+    window.addEventListener("cabinet:agents/slack_activity", handleSlack);
 
     // Fallback: still poll every 30s as a safety net
     const interval = setInterval(loadAgents, 30000);
     return () => {
       clearInterval(interval);
-      es?.close();
+      window.removeEventListener("cabinet:agents/agent_status", handleAgentStatus);
+      window.removeEventListener("cabinet:agents/pulse", handlePulse);
+      window.removeEventListener("cabinet:agents/agent_responding", handleResponding);
+      window.removeEventListener("cabinet:agents/slack_activity", handleSlack);
     };
   }, [loadAgents]);
 

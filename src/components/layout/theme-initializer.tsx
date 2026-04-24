@@ -25,17 +25,8 @@ export function ThemeInitializer() {
       document.documentElement.classList.add("electron-desktop");
     }
 
-    // Load Google Fonts for all themes
-    if (!document.getElementById("theme-fonts-link")) {
-      const link = document.createElement("link");
-      link.id = "theme-fonts-link";
-      link.rel = "stylesheet";
-      link.href =
-        "https://fonts.googleapis.com/css2?family=Arimo:wght@400;500;600;700&family=Bitter:wght@400;600;700&family=Bricolage+Grotesque:wght@400;600;700&family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Instrument+Serif&family=Libre+Baskerville:wght@400;700&family=Major+Mono+Display&family=Merriweather+Sans:wght@400;500;600;700&family=Montserrat:wght@400;600;700&family=Nunito:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Orbitron:wght@400;600;700&family=Outfit:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Rubik:wght@400;500;600;700&family=Share+Tech+Mono&family=Sora:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;600;700&family=Syne:wght@400;600;700&family=Unbounded:wght@400;600;700&display=swap";
-      document.head.appendChild(link);
-    }
-
-    // Restore or default to Paper/Cabinet theme
+    // Restore or default to Paper/Cabinet theme. applyTheme() loads only the
+    // Google Font families that theme actually uses — see themes.ts.
     const stored = getStoredThemeName();
     const themeName = stored || "paper";
     const themeDef = THEMES.find((t) => t.name === themeName);

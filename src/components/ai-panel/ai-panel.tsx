@@ -21,6 +21,7 @@ import { WebTerminal } from "@/components/terminal/web-terminal";
 import type { ConversationDetail, ConversationMeta } from "@/types/conversations";
 import type { AgentListItem } from "@/types/agents";
 import { createConversation } from "@/lib/agents/conversation-client";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { flattenTree } from "@/lib/tree-utils";
 import { ComposerInput } from "@/components/composer/composer-input";
 import {
@@ -250,18 +251,15 @@ export function AIPanel() {
     if (!isOpen) return;
     const load = async () => {
       try {
-        const res = await fetch("/api/cabinets/overview?path=.&visibility=all");
-        if (res.ok) {
-          const data = await res.json();
-          const overview = (data.agents || []).map((a: Record<string, unknown>) => ({
-            name: a.name as string,
-            slug: a.slug as string,
-            emoji: (a.emoji as string) || "",
-            role: (a.role as string) || "",
-            active: a.active as boolean,
-          })) as AgentListItem[];
-          setAgents(overview);
-        }
+        const data = await fetchCabinetOverviewClient(".", "all");
+        const overview = (data.agents || []).map((a) => ({
+          name: a.name,
+          slug: a.slug,
+          emoji: a.emoji || "",
+          role: a.role || "",
+          active: a.active,
+        })) as AgentListItem[];
+        setAgents(overview);
       } catch {}
     };
     load();

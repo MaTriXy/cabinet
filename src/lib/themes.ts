@@ -668,6 +668,79 @@ export const THEMES: ThemeDefinition[] = [
   },
 ];
 
+// Pull the quoted Google Font family name out of a CSS font-family stack
+// like `'Space Grotesk', var(--font-sans)`. Unquoted generics / `var(...)`
+// fallbacks never need loading — they're already available.
+function extractGoogleFontFamily(stack: string | undefined): string | null {
+  if (!stack) return null;
+  const match = stack.match(/'([^']+)'|"([^"]+)"/);
+  const name = match?.[1] ?? match?.[2];
+  if (!name) return null;
+  // System / already-loaded families that ship with the app.
+  if (name === "Inter" || name === "JetBrains Mono" || name === "Georgia") {
+    return null;
+  }
+  return name;
+}
+
+function buildFontStylesheetUrl(families: string[]): string | null {
+  if (families.length === 0) return null;
+  const encoded = families.map((family) => {
+    const base = family.replace(/\s+/g, "+");
+    // Variable-weight serifs get opsz+wght axes; everything else loads 400/500/600/700.
+    if (family === "Fraunces") {
+      return `family=${base}:opsz,wght@9..144,400;9..144,600;9..144,700`;
+    }
+    if (family === "Source Serif 4") {
+      return `family=${base}:opsz,wght@8..60,400;8..60,600;8..60,700`;
+    }
+    // Display/mono single-weight fonts.
+    if (
+      family === "Major Mono Display" ||
+      family === "Share Tech Mono" ||
+      family === "Instrument Serif"
+    ) {
+      return `family=${base}`;
+    }
+    return `family=${base}:wght@400;500;600;700`;
+  });
+  return `https://fonts.googleapis.com/css2?${encoded.join("&")}&display=swap`;
+}
+
+// Swap the active Google Fonts <link> to only the families the current theme
+// actually uses. Previously we loaded every theme's fonts (30+ families) on
+// every page load, blocking LCP for seconds.
+function loadThemeFonts(theme: ThemeDefinition | null) {
+  if (typeof document === "undefined") return;
+  const families = theme
+    ? Array.from(
+        new Set(
+          [
+            extractGoogleFontFamily(theme.font),
+            extractGoogleFontFamily(theme.headingFont),
+          ].filter((f): f is string => !!f)
+        )
+      )
+    : [];
+
+  const link = document.getElementById("theme-fonts-link") as HTMLLinkElement | null;
+  const url = buildFontStylesheetUrl(families);
+
+  if (!url) {
+    link?.remove();
+    return;
+  }
+  if (link) {
+    if (link.href !== url) link.href = url;
+    return;
+  }
+  const el = document.createElement("link");
+  el.id = "theme-fonts-link";
+  el.rel = "stylesheet";
+  el.href = url;
+  document.head.appendChild(el);
+}
+
 // Apply a custom theme by setting CSS variables on the root element
 export function applyTheme(theme: ThemeDefinition | null) {
   const root = document.documentElement;
@@ -682,6 +755,7 @@ export function applyTheme(theme: ThemeDefinition | null) {
         root.style.removeProperty(key);
       });
     }
+    loadThemeFonts(null);
     return;
   }
 
@@ -707,6 +781,7 @@ export function applyTheme(theme: ThemeDefinition | null) {
   }
 
   root.setAttribute("data-custom-theme", theme.name);
+  loadThemeFonts(theme);
 }
 
 // Get the stored theme name from localStorage

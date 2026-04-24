@@ -28,12 +28,7 @@ const PptxViewer = dynamic(
   { ssr: false }
 );
 import { HomeScreen } from "@/components/home/home-screen";
-import { AgentsWorkspace } from "@/components/agents/agents-workspace";
-import { AgentDetailV2 } from "@/components/agents/agent-detail-v2";
 import type { ConversationMeta } from "@/types/conversations";
-import { TasksBoard } from "@/components/tasks/board";
-import { TaskConversationPage } from "@/components/tasks/conversation/task-conversation-page";
-import { SettingsPage } from "@/components/settings/settings-page";
 import { TerminalTabs } from "@/components/terminal/terminal-tabs";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
 import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
@@ -42,15 +37,56 @@ import { ConfirmDialogHost } from "@/components/ui/confirm-dialog-host";
 import { useGlobalHotkeys } from "@/hooks/use-global-hotkeys";
 import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { StatusBar } from "@/components/layout/status-bar";
-import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { TourModal } from "@/components/onboarding/tour/tour-modal";
 import { useTour } from "@/components/onboarding/tour/use-tour";
 import { UpdateDialog } from "@/components/layout/update-dialog";
 import { BreakingChangesWarning } from "@/components/layout/breaking-changes-warning";
 import { NotificationToasts } from "@/components/layout/notification-toasts";
 import { SystemToasts } from "@/components/layout/system-toasts";
-import { CabinetView } from "@/components/cabinets/cabinet-view";
-import { RegistryBrowser } from "@/components/registry/registry-browser";
+
+// Section components are only rendered when the user navigates to them —
+// load them on demand to keep the first-paint bundle small. Previously all of
+// these (together ~15k lines of code including AgentsWorkspace and
+// OnboardingWizard) shipped in the home-page chunk.
+const AgentsWorkspace = dynamic(
+  () => import("@/components/agents/agents-workspace").then((m) => m.AgentsWorkspace),
+  { ssr: false }
+);
+const AgentDetailV2 = dynamic(
+  () => import("@/components/agents/agent-detail-v2").then((m) => m.AgentDetailV2),
+  { ssr: false }
+);
+const TasksBoard = dynamic(
+  () => import("@/components/tasks/board").then((m) => m.TasksBoard),
+  { ssr: false }
+);
+const TaskConversationPage = dynamic(
+  () =>
+    import("@/components/tasks/conversation/task-conversation-page").then(
+      (m) => m.TaskConversationPage
+    ),
+  { ssr: false }
+);
+const SettingsPage = dynamic(
+  () => import("@/components/settings/settings-page").then((m) => m.SettingsPage),
+  { ssr: false }
+);
+const CabinetView = dynamic(
+  () => import("@/components/cabinets/cabinet-view").then((m) => m.CabinetView),
+  { ssr: false }
+);
+const RegistryBrowser = dynamic(
+  () =>
+    import("@/components/registry/registry-browser").then((m) => m.RegistryBrowser),
+  { ssr: false }
+);
+const OnboardingWizard = dynamic(
+  () =>
+    import("@/components/onboarding/onboarding-wizard").then(
+      (m) => m.OnboardingWizard
+    ),
+  { ssr: false }
+);
 import { findNodeByPath } from "@/lib/cabinets/tree";
 import { useCabinetUpdate } from "@/hooks/use-cabinet-update";
 import { useHashRoute } from "@/hooks/use-hash-route";
@@ -127,12 +163,42 @@ export function AppShell() {
     void loadProviders();
   }, [loadProviders]);
 
-  // Auto-refresh sidebar when /data changes (detected via SSE)
+  // Single /api/agents/events subscription for the whole app. Re-dispatches
+  // each SSE event as a `cabinet:agents/<event>` window event so other panels
+  // (mission control, tree view, slack) can listen without each opening their
+  // own EventSource. Previously both app-shell and mission-control subscribed
+  // independently, creating two concurrent SSE streams.
   useEffect(() => {
     let es: EventSource | null = null;
     try {
       es = new EventSource("/api/agents/events");
       es.addEventListener("tree_changed", () => loadTree());
+
+      const forward = (name: string) => (e: MessageEvent) => {
+        try {
+          const detail = JSON.parse(e.data);
+          window.dispatchEvent(
+            new CustomEvent(`cabinet:agents/${name}`, { detail })
+          );
+        } catch {
+          /* ignore malformed payload */
+        }
+      };
+
+      const forwardedEvents = [
+        "conversation_completed",
+        "conversation_started",
+        "agent_status",
+        "pulse",
+        "agent_responding",
+        "slack_activity",
+        "goal_update",
+      ] as const;
+      for (const name of forwardedEvents) {
+        es.addEventListener(name, forward(name));
+      }
+
+      // Keep existing conversation events on the legacy name for back-compat.
       es.addEventListener("conversation_completed", (e) => {
         try {
           const data = JSON.parse(e.data);

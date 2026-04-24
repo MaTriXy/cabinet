@@ -1,6 +1,7 @@
 import path from "path";
 import matter from "gray-matter";
 import cron from "node-cron";
+import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { DATA_DIR } from "@/lib/storage/path-utils";
 import { discoverCabinetPaths } from "@/lib/cabinets/discovery";
 import { normalizeCabinetPath, ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
@@ -165,32 +166,43 @@ export async function listPersonas(cabinetPath?: string): Promise<AgentPersona[]
   const agentsDir = resolveAgentsDir(cabinetPath);
   await ensureDirectory(agentsDir);
   const entries = await listDirectory(agentsDir);
-  const personas: AgentPersona[] = [];
+  const candidates = entries.filter(
+    (entry) => entry.isDirectory && !entry.name.startsWith(".")
+  );
 
-  for (const entry of entries) {
-    if (entry.isDirectory && !entry.name.startsWith(".")) {
+  const personas = await Promise.all(
+    candidates.map(async (entry) => {
       const personaPath = path.join(agentsDir, entry.name, "persona.md");
-      if (await fileExists(personaPath)) {
-        const persona = await readPersona(entry.name, cabinetPath);
-        if (persona && persona.role) personas.push(persona);
-      }
-    }
-  }
+      if (!(await fileExists(personaPath))) return null;
+      const persona = await readPersona(entry.name, cabinetPath);
+      return persona && persona.role ? persona : null;
+    })
+  );
 
-  return personas;
+  return personas.filter((p): p is AgentPersona => p !== null);
+}
+
+// 5-second TTL. listAllPersonas walks every cabinet's .agents dir and is
+// called every /api/agents/events tick (3s) plus scheduler / gallery routes.
+const allPersonasCache = createTtlCache<AgentPersona[]>({ ttlMs: 5000 });
+
+export function invalidatePersonasCache() {
+  allPersonasCache.invalidate();
 }
 
 export async function listAllPersonas(): Promise<AgentPersona[]> {
-  const cabinetPaths = await discoverCabinetPaths();
-  const personaGroups = await Promise.all(
-    cabinetPaths.map((cabinetPath) => listPersonas(cabinetPath))
-  );
+  return allPersonasCache.get("all", async () => {
+    const cabinetPaths = await discoverCabinetPaths();
+    const personaGroups = await Promise.all(
+      cabinetPaths.map((cabinetPath) => listPersonas(cabinetPath))
+    );
 
-  return personaGroups.flat().sort((left, right) => {
-    if ((left.workdir || "").localeCompare(right.workdir || "") !== 0) {
-      return (left.workdir || "").localeCompare(right.workdir || "");
-    }
-    return left.name.localeCompare(right.name);
+    return personaGroups.flat().sort((left, right) => {
+      if ((left.workdir || "").localeCompare(right.workdir || "") !== 0) {
+        return (left.workdir || "").localeCompare(right.workdir || "");
+      }
+      return left.name.localeCompare(right.name);
+    });
   });
 }
 

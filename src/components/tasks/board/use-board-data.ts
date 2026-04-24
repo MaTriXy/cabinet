@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { conversationMetaToTaskMeta } from "@/lib/agents/conversation-to-task-view";
 import type { ConversationMeta } from "@/types/conversations";
 import type { TaskMeta } from "@/types/tasks";
@@ -78,11 +79,9 @@ export function useBoardData({ cabinetPath, visibilityMode = "own" }: Options): 
   const mountedRef = useRef(true);
 
   const refreshOverview = useCallback(async () => {
-    const params = new URLSearchParams({ path: cabinetPath });
-    if (visibilityMode !== "own") params.set("visibility", visibilityMode);
-    const res = await fetch(`/api/cabinets/overview?${params.toString()}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("overview fetch failed");
-    const data = (await res.json()) as CabinetOverview;
+    const data = await fetchCabinetOverviewClient(cabinetPath, visibilityMode, {
+      force: true,
+    });
     if (mountedRef.current) setOverview(data);
   }, [cabinetPath, visibilityMode]);
 

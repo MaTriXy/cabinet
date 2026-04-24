@@ -15,13 +15,18 @@ import {
   updateProviderSettingsWithMigrations,
 } from "@/lib/agents/provider-management";
 
-export async function GET() {
-  try {
-    const providers = providerRegistry.listAll();
-    const settings = await readProviderSettings();
-    const usage = await getProviderUsage();
+// Short in-memory cache: the GET response is driven by spawning 8 CLI probes,
+// and the page fires this endpoint on every mount. Cache shared across requests.
+const RESPONSE_TTL_MS = 15_000;
+let cachedResponse: { body: unknown; expiresAt: number } | null = null;
+let inflightBuild: Promise<unknown> | null = null;
 
-    const results = await Promise.all(
+async function buildResponse() {
+  const providers = providerRegistry.listAll();
+  const settings = await readProviderSettings();
+  const usage = await getProviderUsage();
+
+  const results = await Promise.all(
       providers.map(async (p) => {
         const status = await p.healthCheck();
         const defaultAdapterType = defaultAdapterTypeForProvider(p.id);
@@ -79,12 +84,28 @@ export async function GET() {
       })
     );
 
-    return NextResponse.json({
-      providers: results,
-      defaultProvider: getConfiguredDefaultProviderId(settings),
-      defaultModel: settings.defaultModel || null,
-      defaultEffort: settings.defaultEffort || null,
-    });
+  return {
+    providers: results,
+    defaultProvider: getConfiguredDefaultProviderId(settings),
+    defaultModel: settings.defaultModel || null,
+    defaultEffort: settings.defaultEffort || null,
+  };
+}
+
+export async function GET() {
+  try {
+    const now = Date.now();
+    if (cachedResponse && cachedResponse.expiresAt > now) {
+      return NextResponse.json(cachedResponse.body);
+    }
+    if (!inflightBuild) {
+      inflightBuild = buildResponse().finally(() => {
+        inflightBuild = null;
+      });
+    }
+    const body = await inflightBuild;
+    cachedResponse = { body, expiresAt: Date.now() + RESPONSE_TTL_MS };
+    return NextResponse.json(body);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -93,6 +114,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   try {
+    cachedResponse = null;
     const body = await req.json();
     const result = await updateProviderSettingsWithMigrations({
       defaultProvider:

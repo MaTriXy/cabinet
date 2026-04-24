@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { Users, Download, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { flattenTree } from "@/lib/tree-utils";
@@ -310,8 +311,7 @@ export function HomeScreen() {
       })
       .catch(() => {});
 
-    fetch("/api/cabinets/overview?path=.&visibility=all")
-      .then((r) => r.json())
+    fetchCabinetOverviewClient(".", "all")
       .then((data) => {
         setAgents((data.agents || []) as CabinetAgentSummary[]);
       })

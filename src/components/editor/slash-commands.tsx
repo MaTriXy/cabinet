@@ -22,12 +22,19 @@ import {
   Smile,
   Type,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor-store";
 import { MediaPopover, type MediaKind } from "./media-popover";
 import { EmbedPopover } from "./embed-popover";
-import { EmojiPicker } from "./emoji-picker";
+
+// Defer emoji-mart (~1 MB of emoji data + picker runtime) until the user
+// actually opens the emoji popover from the slash menu.
+const EmojiPicker = dynamic(
+  () => import("./emoji-picker").then((m) => m.EmojiPicker),
+  { ssr: false }
+);
 
 type PopoverKind = null | { type: "media"; kind: MediaKind } | { type: "embed" } | { type: "emoji" };
 

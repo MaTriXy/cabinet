@@ -105,13 +105,22 @@ export function RecentTasks({
 
     void loadTasks();
 
-    // Auto-refresh via the global conversation SSE.
+    // Auto-refresh via the global conversation SSE. Debounce so a burst of
+    // messages (common during a run) collapses into one reload instead of N.
     const es = new EventSource("/api/agents/conversations/events");
+    let reloadTimer: number | null = null;
+    const scheduleReload = () => {
+      if (reloadTimer !== null) return;
+      reloadTimer = window.setTimeout(() => {
+        reloadTimer = null;
+        void loadTasks();
+      }, 200);
+    };
     es.onmessage = (msg) => {
       try {
         const event = JSON.parse(msg.data) as { type: string };
         if (event.type === "ping") return;
-        void loadTasks();
+        scheduleReload();
       } catch {
         // ignore
       }
@@ -124,6 +133,7 @@ export function RecentTasks({
     return () => {
       cancelled = true;
       es.close();
+      if (reloadTimer !== null) window.clearTimeout(reloadTimer);
       clearInterval(tick);
     };
   }, [active, cabinetPath]);

@@ -63,3 +63,56 @@ export async function checkCliProviderAvailable(provider: AgentProvider): Promis
     }, 5000);
   });
 }
+
+// Async replacement for execSync-based CLI probes. Keeps the event loop free
+// so Promise.all over N providers actually runs in parallel.
+export async function execCli(
+  command: string,
+  args: string[],
+  options: { timeout?: number; captureStderr?: boolean } = {}
+): Promise<string> {
+  const timeoutMs = options.timeout ?? 5000;
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args, {
+      env: withAdapterRuntimeEnv(process.env),
+      stdio: ["ignore", "pipe", options.captureStderr ? "pipe" : "ignore"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    if (options.captureStderr) {
+      proc.stderr?.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+    }
+
+    const settle = (err: Error | null, output: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(output);
+    };
+
+    proc.on("close", (code) => {
+      if (code === 0) {
+        const combined = options.captureStderr ? `${stdout}${stderr}` : stdout;
+        settle(null, combined.trim());
+      } else {
+        settle(new Error(`${command} exited with code ${code}`), "");
+      }
+    });
+
+    proc.on("error", (err) => settle(err, ""));
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      settle(new Error(`${command} timed out`), "");
+    }, timeoutMs);
+  });
+}

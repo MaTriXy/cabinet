@@ -20,6 +20,7 @@ import { HeartbeatDialog } from "@/components/agents/heartbeat-dialog";
 import type { JobConfig } from "@/types/jobs";
 import { ActivityFeed } from "@/components/cabinets/activity-feed";
 import { DepthDropdown } from "@/components/cabinets/depth-dropdown";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
 import { useEditorStore } from "@/stores/editor-store";
@@ -109,13 +110,11 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ path: cabinetPath, visibility: cabinetVisibilityMode });
-      const response = await fetch(`/api/cabinets/overview?${params.toString()}`, { cache: "no-store" });
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error || "Failed to load cabinet overview");
-      }
-      const data = (await response.json()) as CabinetOverview;
+      const data = await fetchCabinetOverviewClient(
+        cabinetPath,
+        cabinetVisibilityMode,
+        { force: true }
+      );
       setOverview(data);
       setError(null);
     } catch (err) {

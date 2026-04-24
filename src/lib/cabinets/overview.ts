@@ -1,6 +1,7 @@
 import path from "path";
 import matter from "gray-matter";
 import yaml from "js-yaml";
+import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { CABINET_MANIFEST_FILE } from "@/lib/cabinets/files";
 import {
   buildCabinetScopedId,
@@ -381,6 +382,20 @@ function toCabinetReference(entry: CabinetDiscoveryEntry): CabinetReference {
   };
 }
 
+// 3-second TTL cache with in-flight dedupe. readCabinetOverview walks the
+// full descendant-cabinet tree, reads agents/jobs for each, and is called by
+// the overview route, the tasks route, and the inbox-drafts route — so a
+// single page load often triggers it 2-5× with identical args.
+const overviewCache = createTtlCache<CabinetOverview>({ ttlMs: 3000 });
+
+export function invalidateCabinetOverviewCache(prefix?: string) {
+  if (!prefix) {
+    overviewCache.invalidate();
+    return;
+  }
+  overviewCache.invalidateWhere((key) => key.startsWith(`${prefix}::`));
+}
+
 export async function readCabinetOverview(
   virtualPath: string,
   options: { visibilityMode?: CabinetVisibilityMode } = {}
@@ -389,7 +404,17 @@ export async function readCabinetOverview(
   if (!cabinetPath) {
     throw new Error("Cabinet path is required");
   }
+  const visibilityMode = options.visibilityMode || "own";
+  const key = `${cabinetPath}::${visibilityMode}`;
+  return overviewCache.get(key, () =>
+    readCabinetOverviewUncached(cabinetPath, visibilityMode)
+  );
+}
 
+async function readCabinetOverviewUncached(
+  cabinetPath: string,
+  visibilityMode: CabinetVisibilityMode
+): Promise<CabinetOverview> {
   const cabinetDir = resolveCabinetDir(cabinetPath);
   const manifest = await readCabinetManifestAtDir(cabinetDir);
 
@@ -397,7 +422,6 @@ export async function readCabinetOverview(
     throw new Error(`Cabinet not found: ${cabinetPath}`);
   }
 
-  const visibilityMode = options.visibilityMode || "own";
   const descendantDepth = cabinetVisibilityModeToDepth(visibilityMode);
   const currentCabinet: CabinetDiscoveryEntry = {
     path: cabinetPath,

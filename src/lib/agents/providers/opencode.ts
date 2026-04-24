@@ -1,6 +1,9 @@
-import { execSync } from "child_process";
 import type { AgentProvider, ProviderStatus } from "../provider-interface";
-import { checkCliProviderAvailable, resolveCliCommand, RUNTIME_PATH } from "../provider-cli";
+import {
+  checkCliProviderAvailable,
+  execCli,
+  resolveCliCommand,
+} from "../provider-cli";
 
 const OPENCODE_VARIANT_LEVELS = [
   { id: "minimal", name: "Minimal", description: "Skip extra reasoning" },
@@ -91,12 +94,7 @@ export const openCodeProvider: AgentProvider = {
   async listModels() {
     try {
       const cmd = resolveCliCommand(this);
-      const out = execSync(`${cmd} models`, {
-        encoding: "utf8",
-        env: { ...process.env, PATH: RUNTIME_PATH },
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 10_000,
-      }).trim();
+      const out = await execCli(cmd, ["models"], { timeout: 10_000 });
       if (!out) return [...OPENCODE_FALLBACK_MODELS].map((m) => ({ ...m, effortLevels: [...OPENCODE_VARIANT_LEVELS] }));
       return out
         .split(/\r?\n/)
@@ -129,12 +127,7 @@ export const openCodeProvider: AgentProvider = {
 
       try {
         const cmd = resolveCliCommand(this);
-        const version = execSync(`${cmd} --version`, {
-          encoding: "utf8",
-          env: { ...process.env, PATH: RUNTIME_PATH },
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 5_000,
-        }).trim();
+        const version = await execCli(cmd, ["--version"], { timeout: 5000 });
 
         return {
           available: true,

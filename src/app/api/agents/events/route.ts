@@ -115,56 +115,60 @@ export async function GET() {
             }
           }
 
-          // Goal progress (only for agents with goals)
-          const goalUpdates: { slug: string; goals: Record<string, { current: number; target: number }> }[] = [];
-          for (const p of personas) {
-            if (p.goals && p.goals.length > 0) {
-              const state = await getGoalState(p.slug);
-              const goals: Record<string, { current: number; target: number }> = {};
-              for (const g of p.goals) {
-                const s = state[g.metric];
-                goals[g.metric] = {
-                  current: s?.current ?? g.current ?? 0,
-                  target: g.target,
-                };
-              }
-              goalUpdates.push({ slug: p.slug, goals });
+          // Goal progress (only for agents with goals) — parallelize reads.
+          const personasWithGoals = personas.filter(
+            (p) => p.goals && p.goals.length > 0
+          );
+          const goalStates = await Promise.all(
+            personasWithGoals.map((p) => getGoalState(p.slug))
+          );
+          const goalUpdates = personasWithGoals.map((p, i) => {
+            const state = goalStates[i];
+            const goals: Record<string, { current: number; target: number }> = {};
+            for (const g of p.goals!) {
+              const s = state[g.metric];
+              goals[g.metric] = {
+                current: s?.current ?? g.current ?? 0,
+                target: g.target,
+              };
             }
-          }
+            return { slug: p.slug, goals };
+          });
           if (goalUpdates.length > 0) {
             send("goal_update", goalUpdates);
           }
 
-          // New Slack messages (check for new messages per channel)
+          // New Slack messages — fetch all channels in parallel and reuse the
+          // message list for both the count diff and the @human preview.
           const channels = ["general", "marketing", "engineering", "operations", "alerts"];
-          const newSlackCounts: Record<string, number> = {};
-          for (const ch of channels) {
-            try {
-              const msgs = await getMessages(ch, 1);
-              newSlackCounts[ch] = msgs.length > 0 ? msgs.length : 0;
-            } catch {
-              newSlackCounts[ch] = 0;
-            }
-          }
-
-          // Detect if any channel has new messages
-          for (const ch of channels) {
-            if (lastSlackCounts[ch] !== undefined && newSlackCounts[ch] > lastSlackCounts[ch]) {
-              // Include latest message content for @human detection
+          const slackResults = await Promise.all(
+            channels.map(async (ch) => {
               try {
-                const latestMsgs = await getMessages(ch, 1);
-                const latest = latestMsgs[latestMsgs.length - 1];
-                const hasHumanMention = latest?.content?.includes("@human") || latest?.mentions?.includes("human");
-                send("slack_activity", {
-                  channel: ch,
-                  hasHumanMention,
-                  agentName: latest?.displayName || latest?.agent,
-                  agentEmoji: latest?.emoji,
-                  preview: latest?.content?.slice(0, 120),
-                });
+                return { ch, msgs: await getMessages(ch, 1) };
               } catch {
-                send("slack_activity", { channel: ch });
+                return { ch, msgs: [] };
               }
+            })
+          );
+          const newSlackCounts: Record<string, number> = {};
+          for (const { ch, msgs } of slackResults) {
+            const count = msgs.length > 0 ? msgs.length : 0;
+            newSlackCounts[ch] = count;
+            if (
+              lastSlackCounts[ch] !== undefined &&
+              count > lastSlackCounts[ch]
+            ) {
+              const latest = msgs[msgs.length - 1];
+              const hasHumanMention =
+                latest?.content?.includes("@human") ||
+                latest?.mentions?.includes("human");
+              send("slack_activity", {
+                channel: ch,
+                hasHumanMention,
+                agentName: latest?.displayName || latest?.agent,
+                agentEmoji: latest?.emoji,
+                preview: latest?.content?.slice(0, 120),
+              });
             }
           }
           lastSlackCounts = newSlackCounts;
