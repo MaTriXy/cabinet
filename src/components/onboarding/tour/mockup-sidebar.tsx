@@ -25,13 +25,24 @@ interface MockupSidebarProps {
    */
   tabsPopIn?: boolean;
   /**
+   * Base delay (ms) applied to the tabsPopIn sequence so the intro slide
+   * can line it up with the width-expansion + title animations.
+   */
+  tabsPopInDelay?: number;
+  /**
    * Cabinet header title. Defaults to "Hila's Cabinet" to match the
    * sidebar; the intro slide overrides to the generic "Cabinet".
    */
   title?: string;
   /**
+   * Delay (ms) before the title text inside the header fades in. When 0
+   * (default), the title is visible on first paint.
+   */
+  titleDelay?: number;
+  /**
    * Right-side chip in the Cabinet header (e.g. "+1", "All"). Matches the
-   * `DepthDropdown` slot in the real sidebar.
+   * `DepthDropdown` slot in the real sidebar. Pass an empty string to
+   * hide the chip entirely.
    */
   headerBadge?: string;
   /**
@@ -53,7 +64,9 @@ export function MockupSidebar({
   hideTabs = false,
   hideBody = false,
   tabsPopIn = false,
+  tabsPopInDelay = 900,
   title = "Hila's Cabinet",
+  titleDelay = 0,
   headerBadge = "+1",
   viewTransitionName,
 }: MockupSidebarProps) {
@@ -62,16 +75,21 @@ export function MockupSidebar({
     ...(viewTransitionName ? { viewTransitionName } : {}),
   };
 
+  const titleAnimStyle: CSSProperties = titleDelay
+    ? {
+        opacity: 0,
+        animation: "cabinet-tour-fade-up 0.45s ease-out forwards",
+        animationDelay: `${titleDelay}ms`,
+      }
+    : {};
+
   return (
     <div
       className="cabinet-tour-animated relative flex h-full w-full flex-col px-2 pt-3"
       aria-hidden="true"
       style={rootStyle}
     >
-      {/* ── Container 1: Cabinet header rail ───────────────────────
-          Mirrors the sidebar's Cabinet pill: rounded-lg, warm cream
-          background, thin mocha ring, deep-mocha archive glyph,
-          muted-brown label. */}
+      {/* ── Container 1: Cabinet header rail ─────────────────────── */}
       <div
         className="flex items-center gap-2 rounded-lg px-2.5 py-1.5"
         style={{
@@ -81,11 +99,11 @@ export function MockupSidebar({
       >
         <Archive
           className="h-[18px] w-[18px] shrink-0"
-          style={{ color: P.accent }}
+          style={{ color: P.iconAmber }}
         />
         <span
           className="min-w-0 flex-1 truncate text-sm font-medium"
-          style={{ color: P.textSecondary }}
+          style={{ color: P.textSecondary, ...titleAnimStyle }}
         >
           {title}
         </span>
@@ -100,9 +118,7 @@ export function MockupSidebar({
         )}
       </div>
 
-      {/* ── Container 2: Drawer tabs ───────────────────────────────
-          Inset by mx-[9px] so the header above reads as a wider crown.
-          Each tab renders a "drawer pull" handle at the top. */}
+      {/* ── Container 2: Drawer tabs ─────────────────────────────── */}
       {!hideTabs && (
         <div
           role="tablist"
@@ -125,7 +141,7 @@ export function MockupSidebar({
                     ? {
                         opacity: 0,
                         animation: "cabinet-tour-pop-in 0.45s ease-out forwards",
-                        animationDelay: `${900 + i * 180}ms`,
+                        animationDelay: `${tabsPopInDelay + i * 180}ms`,
                       }
                     : undefined
                 }
@@ -145,13 +161,13 @@ export function MockupSidebar({
                         }
                   }
                 >
-                  {/* drawer pull handle */}
+                  {/* drawer pull handle — amber when active, muted when not */}
                   <span
                     aria-hidden
                     className="absolute left-1/2 top-1 h-[2px] w-4 -translate-x-1/2 rounded-full"
                     style={{
                       background: active
-                        ? "rgba(139, 94, 60, 0.55)"
+                        ? P.iconAmberSoft
                         : "rgba(168, 152, 136, 0.45)",
                     }}
                   />
@@ -166,9 +182,7 @@ export function MockupSidebar({
         </div>
       )}
 
-      {/* ── Tree / body area ───────────────────────────────
-          Rendered as a sibling below the two containers, matching the
-          sidebar where the tree lives outside the cabinet chrome. */}
+      {/* ── Tree / body area ─────────────────────────────────────── */}
       {!hideBody && (
         <div className="relative flex-1 overflow-hidden cabinet-tour-no-scrollbar pt-1">
           {children}

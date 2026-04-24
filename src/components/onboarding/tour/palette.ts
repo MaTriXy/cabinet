@@ -18,4 +18,11 @@ export const TOUR_PALETTE = {
   border: "#E8DDD0",
   borderLight: "#F0E8DD",
   borderDark: "#D4C4B0",
+  /**
+   * Warm yellow amber for the Archive glyph and the active drawer
+   * pull-handle — matches the real sidebar's `text-amber-400` accent
+   * rather than the mocha brown used for copy / borders.
+   */
+  iconAmber: "#FBBF24",
+  iconAmberSoft: "rgba(251, 191, 36, 0.6)",
 } as const;
