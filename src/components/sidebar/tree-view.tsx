@@ -355,7 +355,7 @@ export function TreeView() {
 
   return (
     <>
-    <ScrollArea className="flex-1 min-h-0 [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-scrollbar]]:py-0 [&_[data-slot=scroll-area-scrollbar]]:pr-0 [&_[data-slot=scroll-area-scrollbar]]:pl-1 [&_[data-slot=scroll-area-scrollbar]]:border-l-0">
+    <ScrollArea className="flex-1 min-h-0 [&_[data-slot=scroll-area-scrollbar]]:w-1.5 [&_[data-slot=scroll-area-scrollbar]]:py-0 [&_[data-slot=scroll-area-scrollbar]]:pr-0 [&_[data-slot=scroll-area-scrollbar]]:pl-0.5 [&_[data-slot=scroll-area-scrollbar]]:border-l-0">
       <div className="py-1">
         {/* ── Back to parent cabinet ────────────────────── */}
         {activeCabinet && parentCabinet ? (
