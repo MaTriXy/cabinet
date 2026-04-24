@@ -75,15 +75,7 @@ import type { ConversationDetail, ConversationMeta } from "@/types/conversations
 import type { JobConfig } from "@/types/jobs";
 import type { AgentListItem, ProviderInfo } from "@/types/agents";
 import { flattenTree } from "@/lib/tree-utils";
-import { CABINET_VISIBILITY_OPTIONS } from "@/lib/cabinets/visibility";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DepthDropdown } from "@/components/cabinets/depth-dropdown";
 import { ComposerInput } from "@/components/composer/composer-input";
 import {
   TaskRuntimePicker,
@@ -1887,43 +1879,14 @@ export function AgentsWorkspace({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Select
-            items={CABINET_VISIBILITY_OPTIONS.map((opt) => ({
-              label: opt.shortLabel,
-              value: opt.value,
-            }))}
-            value={effectiveVisibilityMode}
-            onValueChange={(value) => {
+          <DepthDropdown
+            mode={effectiveVisibilityMode}
+            onChange={(mode) => {
               if (effectiveCabinetPath) {
-                setCabinetVisibilityMode(
-                  effectiveCabinetPath,
-                  value as CabinetVisibilityMode
-                );
+                setCabinetVisibilityMode(effectiveCabinetPath, mode);
               }
             }}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-7 min-w-0 w-auto gap-1 rounded-md border-border/60 bg-transparent px-2 text-[11px] font-medium text-muted-foreground shadow-none hover:text-foreground"
-            >
-              <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Depth
-              </span>
-              <SelectValue placeholder="All" />
-            </SelectTrigger>
-            <SelectContent align="end" className="min-w-[200px]">
-              <SelectGroup>
-                {CABINET_VISIBILITY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    <span className="font-medium">{opt.shortLabel}</span>
-                    <span className="ml-1.5 text-xs text-muted-foreground">
-                      {opt.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          />
           <Button size="sm" className="h-8 gap-1 text-xs" onClick={openAddAgentDialog}>
             <Plus className="h-3.5 w-3.5" />
             Add agent
@@ -3031,30 +2994,14 @@ export function AgentsWorkspace({
                 </span>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-0.5">
-                  {CABINET_VISIBILITY_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => {
-                        if (effectiveCabinetPath) {
-                          setCabinetVisibilityMode(
-                            effectiveCabinetPath,
-                            option.value as CabinetVisibilityMode
-                          );
-                        }
-                      }}
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
-                        effectiveVisibilityMode === option.value
-                          ? "bg-foreground text-background"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                      title={option.label}
-                    >
-                      {option.shortLabel}
-                    </button>
-                  ))}
-                </div>
+                <DepthDropdown
+                  mode={effectiveVisibilityMode}
+                  onChange={(mode) => {
+                    if (effectiveCabinetPath) {
+                      setCabinetVisibilityMode(effectiveCabinetPath, mode);
+                    }
+                  }}
+                />
                 <Button
                   variant="ghost"
                   size="sm"

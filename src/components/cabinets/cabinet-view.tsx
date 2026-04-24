@@ -19,11 +19,10 @@ import {
 import { HeartbeatDialog } from "@/components/agents/heartbeat-dialog";
 import type { JobConfig } from "@/types/jobs";
 import { ActivityFeed } from "@/components/cabinets/activity-feed";
-import { CABINET_VISIBILITY_OPTIONS } from "@/lib/cabinets/visibility";
+import { DepthDropdown } from "@/components/cabinets/depth-dropdown";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
 import { useEditorStore } from "@/stores/editor-store";
-import { cn } from "@/lib/utils";
 import type { ConversationMeta } from "@/types/conversations";
 import type {
   CabinetAgentSummary,
@@ -226,23 +225,10 @@ export function CabinetView({ cabinetPath }: { cabinetPath: string }) {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-0.5">
-              {CABINET_VISIBILITY_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setCabinetVisibilityMode(cabinetPath, option.value)}
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
-                    cabinetVisibilityMode === option.value
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  title={option.label}
-                >
-                  {option.shortLabel}
-                </button>
-              ))}
-            </div>
+            <DepthDropdown
+              mode={cabinetVisibilityMode}
+              onChange={(mode) => setCabinetVisibilityMode(cabinetPath, mode)}
+            />
 
             <Button
               variant="ghost"
