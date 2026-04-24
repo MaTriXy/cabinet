@@ -31,17 +31,23 @@ export function useFileImport() {
       const list = Array.from(files);
       if (list.length === 0) return;
       setImporting(true);
+      let error: unknown = null;
       try {
         for (const file of list) {
           await uploadOne(targetVirtualPath, file);
         }
+      } catch (err) {
+        error = err;
+      }
+      try {
         if (targetVirtualPath) expandPath(targetVirtualPath);
         await loadTree();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        alert(`Import failed: ${msg}`);
       } finally {
         setImporting(false);
+      }
+      if (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        alert(`Import failed: ${msg}`);
       }
     },
     [loadTree, expandPath]
