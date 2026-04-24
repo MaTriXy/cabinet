@@ -30,6 +30,7 @@ import {
   TriangleAlert,
   ArrowRightLeft,
   Loader2,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TreeNode as TreeNodeType } from "@/types";
@@ -55,6 +56,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { LinkRepoDialog } from "./link-repo-dialog";
 import { NewCabinetDialog } from "./new-cabinet-dialog";
+import { useFileImport } from "./use-file-import";
 import { getDataDir } from "@/lib/data-dir-cache";
 
 interface TreeNodeProps {
@@ -192,6 +194,15 @@ export function TreeNode({
   const isContainer =
     node.type === "directory" || node.type === "cabinet";
 
+  const isDirLike =
+    isContainer || node.type === "app" || node.type === "website";
+
+  const importTargetPath = isDirLike
+    ? node.path
+    : node.path.split("/").slice(0, -1).join("/");
+
+  const { importFiles, importFilesList, importing } = useFileImport();
+
   const computeZone = useCallback(
     (e: React.DragEvent): "before" | "into" | "after" => {
       const el = rowRef.current;
@@ -251,6 +262,14 @@ export function TreeNode({
     (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      const isFileDrag = e.dataTransfer.types.includes("Files");
+      if (isFileDrag) {
+        e.dataTransfer.dropEffect = "copy";
+        if (dragOverPath !== node.path || dragOverZone !== "into") {
+          setDragOver(node.path, "into");
+        }
+        return;
+      }
       e.dataTransfer.dropEffect = "move";
       const zone = computeZone(e);
       if (dragOverPath !== node.path || dragOverZone !== zone) {
@@ -277,6 +296,11 @@ export function TreeNode({
       e.stopPropagation();
       const zone = computeZone(e);
       setDragOver(null);
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        void importFilesList(importTargetPath, e.dataTransfer.files);
+        return;
+      }
 
       const fromPath = e.dataTransfer.getData("text/plain");
       if (!fromPath || fromPath === node.path) return;
@@ -322,6 +346,8 @@ export function TreeNode({
       setDragOver,
       computeZone,
       siblings,
+      importFilesList,
+      importTargetPath,
     ]
   );
 
@@ -456,6 +482,17 @@ export function TreeNode({
           <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
             <GitBranch className="h-4 w-4 mr-2" />
             Load Knowledge
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={importing}
+            onClick={() => importFiles(importTargetPath)}
+          >
+            {importing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
+            Import File…
           </ContextMenuItem>
           <ContextMenuItem onClick={() => setCreateCabinetOpen(true)}>
             <Archive className="h-4 w-4 mr-2" />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import { resolveContentPath } from "@/lib/storage/path-utils";
 import { ensureDirectory, fileExists } from "@/lib/storage/fs-operations";
+import { autoCommit } from "@/lib/git/git-service";
 import fs from "fs/promises";
 
 type RouteParams = { params: Promise<{ path: string[] }> };
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(filePath, buffer);
+    autoCommit(`${virtualPath}/${filename}`, "Add");
 
     const mimeType = file.type || "";
     let markdown: string;
