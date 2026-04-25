@@ -46,6 +46,11 @@ import {
 } from "@/components/ui/dialog";
 import { getSuggestedProviderEffort } from "@/lib/agents/runtime-options";
 import { sendTelemetry } from "@/lib/telemetry/browser";
+import {
+  recordWaitlistView,
+  recordWaitlistStart,
+  submitWaitlistEmail,
+} from "@/lib/telemetry/waitlist-client";
 
 type OnboardingVerifyStatus =
   | "pass"
@@ -123,7 +128,6 @@ const DISCORD_SUPPORT_URL = "https://discord.gg/hJa5TRTbTH";
 const GITHUB_REPO_URL = "https://github.com/hilash/cabinet";
 const GITHUB_STATS_URL = "/api/github/repo";
 const GITHUB_STARS_FALLBACK = 393;
-const CABINET_CLOUD_URL = "https://runcabinet.com/waitlist";
 // Typewritten on the Welcome home step after the blueprint finishes drawing.
 const WELCOME_PARAGRAPH =
   "Your Home is yours. Inside it, you'll set up rooms for different parts of your life: work, second brain, research, family. And every room has cabinets: your notes, your files, and an AI team quietly getting things done in the background.";
@@ -1475,6 +1479,43 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
     sendTelemetry("onboarding.step", { step: stepName });
   }, [step]);
 
+  // Cabinet Cloud waitlist (replaces Tally form). View event fires when the
+  // cloud step is reached; start fires on first input; submit fires on success.
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudStatus, setCloudStatus] = useState<
+    "idle" | "submitting" | "success" | "already" | "error"
+  >("idle");
+  const cloudStartedRef = useRef(false);
+  const cloudViewedRef = useRef(false);
+  useEffect(() => {
+    if (step === 7 && !cloudViewedRef.current) {
+      cloudViewedRef.current = true;
+      recordWaitlistView("cabinet-onboarding");
+    }
+  }, [step]);
+  const handleCloudInput = useCallback((value: string) => {
+    setCloudEmail(value);
+    if (cloudStatus === "error" || cloudStatus === "already") setCloudStatus("idle");
+    if (!cloudStartedRef.current && value.length > 0) {
+      cloudStartedRef.current = true;
+      recordWaitlistStart("cabinet-onboarding");
+    }
+  }, [cloudStatus]);
+  const handleCloudSubmit = useCallback(async () => {
+    const trimmed = cloudEmail.trim();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setCloudStatus("error");
+      return;
+    }
+    setCloudStatus("submitting");
+    const result = await submitWaitlistEmail(trimmed, "cabinet-onboarding");
+    if (!result.ok) {
+      setCloudStatus("error");
+      return;
+    }
+    setCloudStatus(result.alreadyOnList ? "already" : "success");
+  }, [cloudEmail]);
+
   const [answers, setAnswers] = useState<OnboardingAnswers>({
     name: "",
     role: "",
@@ -1812,9 +1853,8 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
         {
           title: "Join the Cabinet Cloud waitlist",
           description:
-            "Raise your hand if you want the hosted version first when it is ready.",
-          cta: "Register for Cabinet Cloud",
-          href: CABINET_CLOUD_URL,
+            "Raise your hand if you want the hosted version first when it is ready. Drop your email below — we'll be in touch.",
+          cta: "",
           icon: <Cloud className="size-4" />,
           iconClassName: "",
         },
@@ -2733,26 +2773,82 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
 
                 {communityStep.eyebrow === "Cabinet Cloud" && (
                   <div className="pt-6">
-                    <a
-                      href={CABINET_CLOUD_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex w-full items-center justify-between gap-4 rounded-full px-5 py-5 sm:px-6 sm:py-6 transition-all hover:-translate-y-0.5"
+                    <div
+                      className="flex w-full flex-col gap-3 rounded-3xl px-5 py-5 sm:px-6 sm:py-6"
                       style={{ background: WEB.accentBg, border: `1px solid ${WEB.border}` }}
                     >
-                      <span className="flex min-w-0 items-center gap-4">
+                      <div className="flex min-w-0 items-center gap-4">
                         <span className="flex size-11 shrink-0 items-center justify-center rounded-full shadow-sm" style={{ background: WEB.bgCard }}>
                           <Cloud className="size-5" style={{ color: WEB.accent }} />
                         </span>
-                        <span className="flex min-w-0 flex-col items-start gap-0.5 text-left">
+                        <div className="flex min-w-0 flex-col items-start gap-0.5 text-left">
                           <span className="truncate text-base font-semibold sm:text-lg" style={{ color: WEB.text }}>Join the Cabinet Cloud waitlist</span>
                           <span className="text-sm" style={{ color: WEB.textSecondary }}>Get the hosted version when it&apos;s ready</span>
-                        </span>
-                      </span>
-                      <span className="hidden shrink-0 rounded-full px-3 py-1 text-sm font-semibold sm:inline-flex" style={{ background: WEB.bgWarm, color: WEB.accent }}>
-                        Waitlist
-                      </span>
-                    </a>
+                        </div>
+                      </div>
+                      {cloudStatus === "success" || cloudStatus === "already" ? (
+                        <div
+                          className="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm"
+                          style={{ background: WEB.bgCard, border: `1px solid ${WEB.border}`, color: WEB.text }}
+                        >
+                          <CheckCircle2 className="size-4 shrink-0" style={{ color: WEB.accent }} />
+                          <span>
+                            {cloudStatus === "already"
+                              ? "You're already on the list — we'll be in touch."
+                              : "You're on the list. We'll email you when Cabinet Cloud opens up."}
+                          </span>
+                        </div>
+                      ) : (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void handleCloudSubmit();
+                          }}
+                          className="flex flex-col gap-2 sm:flex-row"
+                        >
+                          <input
+                            type="email"
+                            inputMode="email"
+                            autoComplete="email"
+                            placeholder="you@company.com"
+                            value={cloudEmail}
+                            onChange={(e) => handleCloudInput(e.target.value)}
+                            disabled={cloudStatus === "submitting"}
+                            className="flex-1 rounded-full px-4 text-sm outline-none"
+                            style={{
+                              background: WEB.bgCard,
+                              border: `1px solid ${cloudStatus === "error" ? "#dc2626" : WEB.border}`,
+                              color: WEB.text,
+                              height: 44,
+                              fontFamily: "inherit",
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            disabled={cloudStatus === "submitting" || cloudEmail.trim().length === 0}
+                            className="inline-flex items-center justify-center gap-2 rounded-full px-6 text-sm font-medium text-white transition-all disabled:opacity-60"
+                            style={{ background: WEB.accent, height: 44, minWidth: 130 }}
+                          >
+                            {cloudStatus === "submitting" ? (
+                              <>
+                                <Loader2 className="size-4 animate-spin" />
+                                Sending…
+                              </>
+                            ) : (
+                              <>
+                                Join waitlist
+                                <ArrowRight className="size-3.5" />
+                              </>
+                            )}
+                          </button>
+                        </form>
+                      )}
+                      {cloudStatus === "error" && (
+                        <div className="text-xs" style={{ color: "#dc2626" }}>
+                          Something went wrong. Check the email and try again.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

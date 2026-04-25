@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-25] Replaced the external Cabinet Cloud waitlist link in onboarding with an inline opt-in email form. Adds a small browser-side waitlist client (`src/lib/telemetry/waitlist-client.ts`) that records anonymous view/start events alongside the explicit email submit, all keyed by a per-tab visit id.
+
 [2026-04-25] Tightened TELEMETRY.md: opt-out instructions now appear in the first paragraph, and the `install_id` / `session_id` descriptions are more precise about cross-machine and cross-process behavior.
 
 [2026-04-25] Extended anonymous telemetry with per-event payload-key enforcement, shared session id across daemon + Next.js, and additional events (`provider.verified`, `cabinet.switched`, `template.installed`, `theme.changed`, `task.created`, `task.completed`, and onboarding sub-steps). TELEMETRY.md updated.
@@ -1190,3 +1192,7 @@
 [2026-04-25] Added song 'Payphone on Fillmore' (Songs/22) — original lyrics with verses, choruses, and bridge about a forgotten payphone as a metaphor for connections that outlast their infrastructure.
 
 [2026-04-25] Added Song 2 "The Long Way Home" as a melancholy folk ballad counterweight to the Song 1 dance-pop track, saved under data/marketing/drafts/.
+
+[2026-04-25] Copywriter wrote 10 new songs (23–32) to data/Songs/, expanding the americana/folk catalog with character vignettes and slow-burn ballads.
+
+[2026-04-25] Added 10 haiku songs (33–42) to Songs/ as a multi-task creative writing run.
