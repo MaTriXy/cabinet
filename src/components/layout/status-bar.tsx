@@ -8,6 +8,11 @@ import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
+import {
+  selectAppLevel,
+  selectDaemonLevel,
+  useHealthStore,
+} from "@/stores/health-store";
 import { createConversation } from "@/lib/agents/conversation-client";
 import {
   TaskRuntimePicker,
@@ -137,9 +142,19 @@ export function StatusBar() {
   const starsAnimRef = useRef<number | null>(null);
   const starsAnimated = useRef(false);
   const didAutoPullRef = useRef(false);
-  const [appAlive, setAppAlive] = useState(true);
-  const [daemonAlive, setDaemonAlive] = useState(true);
-  const [installKind, setInstallKind] = useState<"source-managed" | "source-custom" | "electron-macos">("source-custom");
+  const appLevel = useHealthStore(selectAppLevel);
+  const daemonLevel = useHealthStore(selectDaemonLevel);
+  const installKind = useHealthStore((s) => s.installKind);
+  const startHealthPolling = useHealthStore((s) => s.startPolling);
+
+  // Pill is honest about uncertainty: until the first health poll lands we
+  // show "Checking…" rather than flashing green. After that, daemon needs
+  // two consecutive misses to flip — single dropped polls during fast
+  // refresh used to thrash the indicator.
+  const checkingHealth = appLevel === "unknown" || daemonLevel === "unknown";
+  const appAlive = appLevel !== "down";
+  const daemonAlive = daemonLevel !== "down";
+
   const [showServerPopup, setShowServerPopup] = useState(false);
   const [providerStatuses, setProviderStatuses] = useState<
     { id: string; name: string; available: boolean; authenticated: boolean }[]
@@ -164,41 +179,7 @@ export function StatusBar() {
     } catch { /* ignore */ }
   }, []);
 
-  // Poll both server health endpoints
-  useEffect(() => {
-    let mounted = true;
-    const checkHealth = async () => {
-      const [appRes, daemonRes] = await Promise.allSettled([
-        dedupFetch("/api/health", { cache: "no-store" }),
-        dedupFetch("/api/health/daemon", { cache: "no-store" }),
-      ]);
-      if (!mounted) return;
-      const appOk = appRes.status === "fulfilled" && appRes.value.ok;
-      setAppAlive(appOk);
-      setDaemonAlive(daemonRes.status === "fulfilled" && daemonRes.value.ok);
-      if (appOk && appRes.status === "fulfilled") {
-        try {
-          const data = await appRes.value.json();
-          if (data.installKind) setInstallKind(data.installKind);
-        } catch { /* ignore */ }
-      }
-    };
-    void checkHealth();
-    // Pause background health checks when the tab is hidden — status bar
-    // isn't visible, so the 10s poll would just heat the server.
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") void checkHealth();
-    }, 10000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void checkHealth();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
+  useEffect(() => startHealthPolling(), [startHealthPolling]);
 
   // Fetch provider status once on mount
   useEffect(() => {
@@ -373,14 +354,18 @@ export function StatusBar() {
               });
             }}
             className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors cursor-pointer ${
-              appAlive && daemonAlive && anyProviderReady
+              checkingHealth
+                ? "text-muted-foreground hover:bg-muted/40"
+                : appAlive && daemonAlive && anyProviderReady
                 ? "text-green-500 hover:bg-green-500/10"
                 : !appAlive
                 ? "text-red-500 hover:bg-red-500/10"
                 : "text-amber-500 hover:bg-amber-500/10"
             }`}
             title={
-              appAlive && daemonAlive && anyProviderReady
+              checkingHealth
+                ? "Checking server status…"
+                : appAlive && daemonAlive && anyProviderReady
                 ? "All systems running"
                 : !appAlive
                 ? "App server is not responding"
@@ -394,7 +379,9 @@ export function StatusBar() {
           >
             <span
               className={`inline-block h-2 w-2 rounded-full ${
-                appAlive && daemonAlive && anyProviderReady
+                checkingHealth
+                  ? "bg-muted-foreground/60"
+                  : appAlive && daemonAlive && anyProviderReady
                   ? "bg-green-500"
                   : !appAlive
                   ? "bg-red-500 animate-pulse"
@@ -402,7 +389,9 @@ export function StatusBar() {
               }`}
             />
             <span>
-              {appAlive && daemonAlive && anyProviderReady
+              {checkingHealth
+                ? "Checking…"
+                : appAlive && daemonAlive && anyProviderReady
                 ? "Online"
                 : !appAlive
                 ? "Offline"

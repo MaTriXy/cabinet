@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
+import { selectDaemonLevel, useHealthStore } from "@/stores/health-store";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { Users, Download, Loader2 } from "lucide-react";
@@ -491,6 +492,15 @@ export function HomeScreen() {
   const greeting = getGreeting();
   const headline = userName ? `${greeting}, ${userName}.` : `${greeting}.`;
 
+  // Daemon owns agent execution — if it's confirmed down (≥2 missed polls)
+  // disable the prompt and surface why, instead of letting the user fire a
+  // request that will silently fail.
+  const daemonLevel = useHealthStore(selectDaemonLevel);
+  const daemonDown = daemonLevel === "down";
+  const composerPlaceholder = daemonDown
+    ? "Agent daemon offline — restart to send"
+    : "I want to create...";
+
   return (
     <div className="flex-1 flex flex-col items-center px-4 overflow-hidden">
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-xl space-y-8">
@@ -500,11 +510,12 @@ export function HomeScreen() {
 
         <ComposerInput
           composer={composer}
-          placeholder="I want to create..."
+          placeholder={composerPlaceholder}
           variant="card"
           items={mentionItems}
           attachments={attachments}
           autoFocus
+          disabled={daemonDown}
           className="w-full"
           minHeight="44px"
           maxHeight="160px"
@@ -528,7 +539,7 @@ export function HomeScreen() {
 
         <div className="flex flex-wrap items-center justify-center gap-2">
           {visibleActions.map((action) => {
-            const disabled = composer.submitting || quickRunning;
+            const disabled = composer.submitting || quickRunning || daemonDown;
             return (
               <button
                 key={action.label}

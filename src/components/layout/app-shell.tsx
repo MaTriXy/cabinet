@@ -38,6 +38,7 @@ import { ConfirmDialogHost } from "@/components/ui/confirm-dialog-host";
 import { useGlobalHotkeys } from "@/hooks/use-global-hotkeys";
 import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { StatusBar } from "@/components/layout/status-bar";
+import { DaemonHealthBanner } from "@/components/layout/daemon-health-banner";
 import { TourModal } from "@/components/onboarding/tour/tour-modal";
 import { useTour } from "@/components/onboarding/tour/use-tour";
 import { UpdateDialog } from "@/components/layout/update-dialog";
@@ -573,6 +574,7 @@ export function AppShell() {
         className="flex-1 flex flex-col overflow-hidden"
         style={{ '--sidebar-toggle-offset': sidebarCollapsed ? '2.25rem' : '0px' } as React.CSSProperties}
       >
+        <DaemonHealthBanner />
         <main className="flex-1 flex flex-col overflow-hidden">
           {renderContent()}
         </main>
