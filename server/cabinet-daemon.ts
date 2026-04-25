@@ -10,6 +10,12 @@
  * Usage: npx tsx server/cabinet-daemon.ts
  */
 
+// Boot-time native-binary check: rebuild better-sqlite3 if it was prebuilt
+// against a different NODE_MODULE_VERSION, otherwise the daemon would crash
+// silently on first DB access while Next.js stays up.
+import { ensureBetterSqlite3 } from "../src/lib/system/preflight-sqlite";
+ensureBetterSqlite3();
+
 import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
 import http from "http";
