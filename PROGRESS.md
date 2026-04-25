@@ -1,5 +1,13 @@
 # Progress
 
+[2026-04-25] Pinned Node 22 as the dev runtime via `.nvmrc`. Silences the `EBADENGINE` warning from transitive `chevrotain@12` (pulled in by `mermaid → langium`) which declares `engines: ">=22"`. README "Requirements" updated to recommend Node 22 LTS with `nvm use`.
+
+[2026-04-25] Removed unused `@emoji-mart/react` dependency from `package.json`. The package was never imported — the emoji picker uses the vanilla `emoji-mart` `Picker` mounted via `useEffect` (`src/components/editor/emoji-picker.tsx`). This also fixes a fresh `npm install` ERESOLVE error since `@emoji-mart/react@1.1.1` only declared peer support up to React 18 while the repo is on React 19.
+
+[2026-04-25] Documented the new install/update/uninstall flow in the root `README.md` (new "Install, update, uninstall" section) and `cabinetai/README.md` (expanded uninstall section with the `remove` alias, `--yes` flag, and per-platform telemetry paths removed by `--all`).
+
+[2026-04-25] `cabinetai uninstall` now prints a summary of what will be deleted and asks for confirmation, with a `remove` alias and a `-y/--yes` flag to skip the prompt. `--all` additionally removes the platform-specific telemetry directory (`~/Library/Application Support/cabinet-telemetry` on macOS, `%APPDATA%\cabinet-telemetry` on Windows, `$XDG_CONFIG_HOME/cabinet` on Linux). New `cabinetai/src/lib/prompt.ts` confirm helper; telemetry path resolution mirrored in `cabinetai/src/lib/paths.ts`.
+
 [2026-04-25] Added Daily Review folder (`data/Daily Review/index.md`) and a daily-review scheduled job (`data/.jobs/daily-review.yaml`, cron `0 9 * * *`) that writes a YYYY-MM-DD entry covering yesterday's recap and today's plan.
 
 [2026-04-25] Replaced the external Cabinet Cloud waitlist link in onboarding with an inline opt-in email form. Adds a small browser-side waitlist client (`src/lib/telemetry/waitlist-client.ts`) that records anonymous view/start events alongside the explicit email submit, all keyed by a per-tab visit id.
@@ -1243,3 +1251,6 @@
 [2026-04-25] Added Songs/hp-hagrid-song.md — Hagrid POV song (3 verses + chorus + outro).
 [2026-04-25] Added Songs/hp-neville-song.md — Neville Longbottom POV song (herbology, late bloomer, sword/snake).
 [2026-04-25] Added Songs/hp-mcgonagall-song.md — short song from McGonagall's POV (tartan/tower/transfiguration/stern love).
+[2026-04-25] Created physics-101 curriculum index and dispatched 6 editor LAUNCH_TASKs (one per module: motion, forces, energy, waves, electricity, light) at effort=high to build interactive lesson pages.
+[2026-04-25] Built physics-101/module-1-motion/index.md — algebra-only kinematics lesson with hook, core concepts (position/velocity/acceleration/graphs), velocity-time slider thought experiment + PhET sim link, stoplight-sprint worked example, 5 practice questions with answers, and bridge to Module 2 (Forces).
+[2026-04-25] Built physics-101/module-5-electricity/index.md — algebra-only electricity lesson with 9V-battery hook, core concepts (charge/current/voltage/resistance/Ohm's law/series-parallel), 4-scenario circuit reasoning exercise with reveal answers, series-circuit worked example, 5 practice questions, and bridge to Module 6 (Light) via accelerating charges → EM waves.

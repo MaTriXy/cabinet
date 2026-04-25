@@ -56,6 +56,51 @@ Open [http://localhost:4000](http://localhost:4000). The onboarding wizard build
 
 ---
 
+## Install, update, uninstall
+
+Cabinet runs entirely through `npx` — no global install needed. The CLI is the [`cabinetai`](https://www.npmjs.com/package/cabinetai) package; `create-cabinet` is a thin wrapper around it.
+
+### Install / create
+
+```bash
+npx create-cabinet@latest          # create a cabinet and start it
+npx cabinetai create my-startup    # just create, don't start
+npx cabinetai run                  # start Cabinet in the current dir
+```
+
+On first run, Cabinet downloads the app to `~/.cabinet/app/v{version}/` and installs its dependencies there. Your cabinet directory is just a folder of markdown files — put it anywhere.
+
+### Update
+
+```bash
+npx cabinetai update               # check for and install a newer app version
+```
+
+The CLI compares your installed app version against `cabinet-release.json` from the latest GitHub Release.
+
+### Uninstall / remove
+
+```bash
+npx cabinetai uninstall            # remove cached app versions only
+npx cabinetai uninstall --all      # also remove global state + telemetry data
+npx cabinetai uninstall --yes      # skip the confirmation prompt
+npx cabinetai remove               # alias for uninstall
+```
+
+The command prints a summary of what will be deleted and asks for confirmation before doing anything. **Your cabinet directories and their data are never touched — those you'd delete manually.**
+
+`--all` additionally removes the platform-specific telemetry directory:
+
+- macOS: `~/Library/Application Support/cabinet-telemetry/`
+- Windows: `%APPDATA%\cabinet-telemetry\`
+- Linux: `$XDG_CONFIG_HOME/cabinet/` (falls back to `~/.config/cabinet/`)
+
+To wipe Cabinet completely, run `uninstall --all` and then `rm -rf` your cabinet directories yourself.
+
+See [docs/CABINETAI.md](docs/CABINETAI.md) for the full CLI reference.
+
+---
+
 ## The problem
 
 Every time you start a new Claude session, it forgets everything. Your project context, your decisions, your research — gone. Scattered docs in Notion. AI sessions with no memory. Manual copy-paste between tools.
@@ -178,7 +223,7 @@ cabinet/
 
 ## Requirements
 
-- **Node.js** 20+
+- **Node.js** 22+ (LTS). The repo ships an `.nvmrc` — run `nvm use` to auto-switch. Node 20 still works but produces an `EBADENGINE` warning from a transitive `chevrotain@12` pulled in by mermaid.
 - At least one supported CLI provider:
   - **Claude Code CLI** (`npm install -g @anthropic-ai/claude-code`)
   - **Codex CLI** (`npm install -g @openai/codex` or `brew install --cask codex`)
