@@ -10,7 +10,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-const STORAGE_KEY = "cabinet.breaking-changes-warning-ack:v2";
+// Bump when the disclaimer text materially changes — older acks become
+// invalid and the user gets re-prompted with the new copy. The literal
+// suffix is preserved (`:v2`) so existing users' acks aren't wiped.
+const DISCLAIMER_VERSION = "v2";
+const STORAGE_KEY = `cabinet.breaking-changes-warning-ack:${DISCLAIMER_VERSION}`;
+const SERVER_ENDPOINT = "/api/disclaimer";
 
 // Fired after the user explicitly accepts the disclaimer. Other surfaces
 // (e.g. the tour auto-open) listen for this so they can sequence behind the
@@ -18,6 +23,10 @@ const STORAGE_KEY = "cabinet.breaking-changes-warning-ack:v2";
 export const DISCLAIMER_ACKED_EVENT = "cabinet:disclaimer-acked";
 
 export function isDisclaimerAcknowledged(): boolean {
+  // Synchronous check for callers that need an immediate answer (e.g. the
+  // tour-gate in app-shell). Server-side state is mirrored to localStorage
+  // by the dialog component on mount, so this stays the source of truth
+  // for downstream consumers.
   if (typeof window === "undefined") return false;
   try {
     return !!window.localStorage.getItem(STORAGE_KEY);
@@ -32,19 +41,74 @@ export function BreakingChangesWarning() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
+    let local: string | null = null;
     try {
-      if (!localStorage.getItem(STORAGE_KEY)) setOpen(true);
+      local = localStorage.getItem(STORAGE_KEY);
     } catch {
-      // localStorage unavailable (private mode, SSR); skip silently
+      // localStorage unavailable (private mode, SSR); fall through to server
     }
+
+    if (local) return;
+
+    // No local ack — check server before showing. Survives browser-storage
+    // clears, browser switches on the same install, and "Forget this site"
+    // accidents. A server miss (404/500/network) falls back to "show the
+    // disclaimer" — never silently skip it.
+    void fetch(`${SERVER_ENDPOINT}?v=${DISCLAIMER_VERSION}`, {
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (!res.ok) {
+          setOpen(true);
+          return;
+        }
+        const data = (await res.json()) as { acked?: boolean; acceptedAt?: string };
+        if (data.acked) {
+          // Mirror to localStorage so future loads are sync-fast; also tell
+          // the tour gate it can proceed (otherwise it would still wait
+          // forever on a missing local ack).
+          try {
+            localStorage.setItem(
+              STORAGE_KEY,
+              data.acceptedAt || new Date().toISOString(),
+            );
+          } catch {
+            /* ignore */
+          }
+          window.dispatchEvent(new CustomEvent(DISCLAIMER_ACKED_EVENT));
+        } else {
+          setOpen(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOpen(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const acknowledge = () => {
+    const acceptedAt = new Date().toISOString();
     try {
-      localStorage.setItem(STORAGE_KEY, new Date().toISOString());
+      localStorage.setItem(STORAGE_KEY, acceptedAt);
     } catch {
       // noop
     }
+    // Fire-and-forget: the server-side persistence is a backup so future
+    // "I cleared my browser storage" reloads stay quiet; the local ack is
+    // the source of truth for *this* session, so we don't block UX on it.
+    void fetch(SERVER_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: DISCLAIMER_VERSION, acceptedAt }),
+    }).catch(() => {
+      /* server unreachable — local ack still holds */
+    });
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent(DISCLAIMER_ACKED_EVENT));
     }
