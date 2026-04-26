@@ -22,11 +22,13 @@ import {
 } from "./help-visuals";
 import { DemoModal, type DemoConfig } from "./demo-modal";
 import { buildAiTeamDemo } from "./demos/ai-team-demo";
+import { buildByoaiDemo } from "./demos/byoai-demo";
 import { buildCabinetsDemo } from "./demos/cabinets-demo";
 import { buildConversationsDemo } from "./demos/conversations-demo";
 import { buildKnowledgeDemo } from "./demos/knowledge-demo";
 import { buildRoutinesDemo } from "./demos/routines-demo";
 import { buildTaskBoardDemo } from "./demos/task-board-demo";
+import { buildThemesDemo } from "./demos/themes-demo";
 
 type DemoId =
   | "ai-team"
@@ -34,7 +36,9 @@ type DemoId =
   | "knowledge"
   | "cabinets"
   | "routines"
-  | "conversations";
+  | "conversations"
+  | "themes"
+  | "byoai";
 
 const DISCORD_SUPPORT_URL = "https://discord.gg/hJa5TRTbTH";
 
@@ -153,9 +157,9 @@ const HELP_ITEMS: HelpItem[] = [
     ),
     description:
       "Pick from a curated set of light and dark themes — Paper, Slate, Claude, Ink, and more.",
-    cta: "Try a theme",
+    cta: "Watch the demo",
     visual: <ThemesVisual />,
-    action: { kind: "navigate", section: { type: "settings", slug: "appearance" } },
+    action: { kind: "demo", demoId: "themes" },
   },
   {
     id: "providers",
@@ -166,9 +170,9 @@ const HELP_ITEMS: HelpItem[] = [
     ),
     description:
       "Claude, GPT, Gemini, Grok, Codex, Cursor — bring whichever providers you already pay for. Pick a default, or override per task.",
-    cta: "Configure providers",
+    cta: "Watch the demo",
     visual: <ProvidersVisual />,
-    action: { kind: "navigate", section: { type: "settings", slug: "providers" } },
+    action: { kind: "demo", demoId: "byoai" },
   },
   {
     id: "skills",
@@ -319,6 +323,14 @@ export function HelpPage() {
     }
     if (demoId === "conversations") {
       setActiveDemo(buildConversationsDemo());
+      return;
+    }
+    if (demoId === "themes") {
+      setActiveDemo(buildThemesDemo());
+      return;
+    }
+    if (demoId === "byoai") {
+      setActiveDemo(buildByoaiDemo());
       return;
     }
   };
