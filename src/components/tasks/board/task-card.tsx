@@ -70,6 +70,12 @@ export function TaskCard({
     <button
       type="button"
       onClick={(e) => onClick(e)}
+      // Audit #065: without an explicit aria-label, the card's accessible
+      // name concatenates the title + status icon + agent pill + provider
+      // glyph + relative time + action buttons into one 50-word string.
+      // Override with just the title; the metadata pieces remain
+      // separately readable but no longer inflate the card's name.
+      aria-label={task.title}
       className={cn(
         "relative w-full rounded-md border bg-card text-left transition-all",
         "hover:border-foreground/30 hover:shadow-sm",
