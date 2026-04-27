@@ -275,7 +275,7 @@ export function ComposerInput({
               className="h-8 gap-2 text-xs"
               onClick={() => void composer.submit()}
               disabled={sendDisabled}
-              title={isUploading ? "Uploading attachments…" : undefined}
+              title={isUploading ? "Uploading attachments…" : !composer.input.trim() ? "Type a prompt to send" : undefined}
             >
               {composer.submitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
