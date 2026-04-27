@@ -77,7 +77,8 @@ export const editorExtensions = [
     allowBase64: false,
   }),
   Table.configure({
-    resizable: false,
+    resizable: true,
+    lastColumnResizable: false,
     HTMLAttributes: {
       class: "border-collapse w-full",
     },
