@@ -142,6 +142,7 @@ function StarExplosion() {
 
 export function StatusBar() {
   const { saveStatus, currentPath } = useEditorStore();
+  const retrySave = useEditorStore((s) => s.save);
   const loadTree = useTreeStore((s) => s.loadTree);
   const selectedPath = useTreeStore((s) => s.selectedPath);
   const section = useAppStore((s) => s.section);
@@ -644,15 +645,28 @@ export function StatusBar() {
           )}
         </div>
         {currentPath && (
-          <span>
-            {saveStatus === "saving"
-              ? "Saving..."
-              : saveStatus === "saved"
-              ? "Saved"
-              : saveStatus === "error"
-              ? "Save failed"
-              : "Ready"}
-          </span>
+          saveStatus === "error" ? (
+            // Audit #126: clickable retry instead of forcing the user to
+            // type a character to re-trigger autosave. Successful retry
+            // flashes "Saved" via the existing 2s status flow.
+            <button
+              type="button"
+              onClick={() => void retrySave()}
+              title="Click to retry the failed save"
+              aria-label="Save failed — click to retry"
+              className="rounded-md px-1.5 py-0.5 text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            >
+              Save failed — retry
+            </button>
+          ) : (
+            <span>
+              {saveStatus === "saving"
+                ? "Saving..."
+                : saveStatus === "saved"
+                ? "Saved"
+                : "Ready"}
+            </span>
+          )
         )}
         {pullStatus === "pulling" && (
           <span className="flex items-center gap-1 text-blue-400">
