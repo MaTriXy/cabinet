@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { GitBranch, RefreshCw, Check, CloudDownload, Star, X, ArrowRight, HelpCircle, AlertTriangle, XCircle, CircleDot, Loader2 } from "lucide-react";
+import { GitBranch, RefreshCw, Check, CloudDownload, Star, X, ArrowRight, HelpCircle, AlertTriangle, XCircle, CircleDot, Loader2, Terminal } from "lucide-react";
 import { useCabinetUpdate } from "@/hooks/use-cabinet-update";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
@@ -148,6 +148,8 @@ export function StatusBar() {
   const section = useAppStore((s) => s.section);
   const setSection = useAppStore((s) => s.setSection);
   const setAiPanelCollapsed = useAppStore((s) => s.setAiPanelCollapsed);
+  const terminalOpen = useAppStore((s) => s.terminalOpen);
+  const toggleTerminal = useAppStore((s) => s.toggleTerminal);
   const { open, addEditorSession } = useAIPanelStore();
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiSubmitting, setAiSubmitting] = useState(false);
@@ -786,6 +788,15 @@ export function StatusBar() {
         >
           <RefreshCw className={`h-3 w-3 ${pulling ? "animate-spin" : ""}`} />
           Sync
+        </button>
+        <button
+          onClick={toggleTerminal}
+          aria-label={terminalOpen ? "Hide terminal" : "Open terminal"}
+          title={terminalOpen ? "Hide terminal" : "Open terminal"}
+          className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-1 ${terminalOpen ? "text-primary" : ""}`}
+        >
+          <Terminal className="h-3 w-3" />
+          Terminal
         </button>
       </div>
       {/* Audit #018: status-bar carries live state on the left (status pill,

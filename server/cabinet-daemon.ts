@@ -243,10 +243,13 @@ const completedOutput = new Map<string, CompletedOutputEntry>();
 function resolveSessionCwd(input?: string): string {
   if (!input) return DATA_DIR;
 
-  const resolved = path.resolve(input);
-  if (resolved.startsWith(DATA_DIR)) {
-    return resolved;
-  }
+  const asAbsolute = path.resolve(input);
+  if (asAbsolute.startsWith(DATA_DIR)) return asAbsolute;
+
+  // Also accept DATA_DIR-relative paths (e.g. passed from the frontend
+  // which doesn't know the absolute DATA_DIR prefix).
+  const relative = path.join(DATA_DIR, input);
+  if (relative.startsWith(DATA_DIR)) return relative;
 
   return DATA_DIR;
 }
@@ -493,6 +496,7 @@ function handlePtyConnection(ws: WebSocket, req: http.IncomingMessage): void {
   const prompt = url.searchParams.get("prompt");
   const providerId = url.searchParams.get("providerId") || undefined;
   const adapterType = url.searchParams.get("adapterType") || undefined;
+  const cwd = url.searchParams.get("cwd") || undefined;
   const reconnectOnly = url.searchParams.get("reconnect") === "1";
 
   // Check if this is a reconnection to an existing session
@@ -600,6 +604,7 @@ function handlePtyConnection(ws: WebSocket, req: http.IncomingMessage): void {
         providerId,
         adapterType,
         prompt: prompt || undefined,
+        cwd,
         trigger,
       });
     } catch (err: unknown) {
@@ -857,6 +862,11 @@ function createSession(input: {
    */
   trigger?: import("../src/types/tasks").TaskTrigger;
 }): ActiveSession {
+  // Plain shell sessions bypass the adapter/provider system entirely.
+  if (input.adapterType === "shell") {
+    return ptyManager.spawn({ ...input });
+  }
+
   const adapter = input.adapterType
     ? agentAdapterRegistry.get(input.adapterType)
     : undefined;

@@ -1,9 +1,8 @@
 "use client";
 
-import { Sparkles, Search, Terminal } from "lucide-react";
+import { Sparkles, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
-import { useAppStore } from "@/stores/app-store";
 import { ThemePicker } from "@/components/layout/theme-picker";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +12,6 @@ import { cn } from "@/lib/utils";
  */
 export function HeaderActions() {
   const { isOpen, toggle } = useAIPanelStore();
-  const { terminalOpen, toggleTerminal } = useAppStore();
 
   return (
     <>
@@ -32,16 +30,6 @@ export function HeaderActions() {
         <kbd className="pointer-events-none text-[10px] font-mono bg-muted px-1 py-0.5 rounded">
           ⌘K
         </kbd>
-      </Button>
-
-      {/* Terminal toggle */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className={cn("h-7 w-7", terminalOpen && "text-primary")}
-        onClick={toggleTerminal}
-      >
-        <Terminal className="h-4 w-4" />
       </Button>
 
       {/* AI toggle */}
