@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey, NodeSelection, type Transaction } from "@tiptap/pm/state";
+import { Plugin, PluginKey, NodeSelection, TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 /**
@@ -60,6 +60,46 @@ function moveCurrentBlock(
 }
 
 const HANDLE_ID = "cabinet-drag-handle";
+const ADD_BTN_ID = "cabinet-gutter-add";
+
+function getOrCreateAddButton(): HTMLButtonElement {
+  let el = document.getElementById(ADD_BTN_ID) as HTMLButtonElement | null;
+  if (!el) {
+    el = document.createElement("button");
+    el.id = ADD_BTN_ID;
+    el.type = "button";
+    el.setAttribute("aria-label", "Add block");
+    el.title = "Add block";
+    el.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 1V9M1 5H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    Object.assign(el.style, {
+      position: "absolute",
+      display: "none",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "18px",
+      height: "18px",
+      cursor: "pointer",
+      borderRadius: "4px",
+      color: "var(--muted-foreground)",
+      opacity: "0.55",
+      zIndex: "40",
+      transition: "opacity 120ms ease, background 120ms ease",
+      background: "transparent",
+      border: "none",
+      padding: "0",
+    } as Partial<CSSStyleDeclaration>);
+    el.addEventListener("mouseenter", () => {
+      el!.style.opacity = "1";
+      el!.style.background = "var(--muted)";
+    });
+    el.addEventListener("mouseleave", () => {
+      el!.style.opacity = "0.55";
+      el!.style.background = "transparent";
+    });
+    document.body.appendChild(el);
+  }
+  return el;
+}
 
 function findBlockAt(view: EditorView, coords: { left: number; top: number }) {
   const pos = view.posAtCoords(coords);
@@ -131,9 +171,11 @@ export const DragHandle = Extension.create({
     let currentBlock: { pos: number; node: { nodeSize: number }; dom: HTMLElement } | null = null;
 
     const handle = typeof document !== "undefined" ? getOrCreateHandle() : null;
+    const addBtn = typeof document !== "undefined" ? getOrCreateAddButton() : null;
 
     const hide = () => {
       if (handle) handle.style.display = "none";
+      if (addBtn) addBtn.style.display = "none";
       currentBlock = null;
     };
 
@@ -167,9 +209,34 @@ export const DragHandle = Extension.create({
             handle.style.display = "flex";
             handle.style.top = `${window.scrollY + domRect.top + 4}px`;
             handle.style.left = `${window.scrollX + domRect.left - 22}px`;
+            if (addBtn) {
+              addBtn.style.display = "flex";
+              addBtn.style.top = `${window.scrollY + domRect.top + 4}px`;
+              addBtn.style.left = `${window.scrollX + domRect.left - 44}px`;
+            }
           };
 
           const onMouseLeave = () => hide();
+
+          const onAddClick = () => {
+            if (!currentBlock) return;
+            // Insert a new empty paragraph after the current block, then open slash menu
+            const afterPos = currentBlock.pos + currentBlock.node.nodeSize;
+            const insertable = afterPos <= view.state.doc.content.size;
+            const tr = view.state.tr;
+            if (insertable) {
+              // Place cursor at end of current block content (before node closing mark)
+              const endContent = afterPos - 1;
+              const sel = TextSelection.create(view.state.doc, Math.min(endContent, view.state.doc.content.size));
+              view.dispatch(tr.setSelection(sel));
+            }
+            view.focus();
+            // Split the block to create a new paragraph, then trigger slash menu
+            const splitTr = view.state.tr.split(view.state.selection.from);
+            view.dispatch(splitTr);
+            // Notify SlashCommands component (listens on window for "/" keydown)
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true, cancelable: true }));
+          };
 
           const onDragStart = (event: DragEvent) => {
             if (!currentBlock || !event.dataTransfer) return;
@@ -201,12 +268,14 @@ export const DragHandle = Extension.create({
           window.addEventListener("mousemove", onMouseMove);
           view.dom.addEventListener("mouseleave", onMouseLeave);
           handle.addEventListener("dragstart", onDragStart);
+          if (addBtn) addBtn.addEventListener("click", onAddClick);
 
           return {
             destroy() {
               window.removeEventListener("mousemove", onMouseMove);
               view.dom.removeEventListener("mouseleave", onMouseLeave);
               handle.removeEventListener("dragstart", onDragStart);
+              if (addBtn) addBtn.removeEventListener("click", onAddClick);
               hide();
             },
           };

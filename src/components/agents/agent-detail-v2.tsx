@@ -65,7 +65,8 @@ import {
 import { ICON_CATALOG, ICON_PICKER_KEYS } from "@/lib/agents/icon-catalog";
 import { AVATAR_PRESETS } from "@/lib/agents/avatar-catalog";
 import type { AgentPersona } from "@/lib/agents/persona-manager";
-import type { AgentTask } from "@/types/agents";
+import type { AgentTask, ProviderInfo } from "@/types/agents";
+import { isAgentProviderSelectable } from "@/lib/agents/provider-filters";
 import type { ConversationMeta } from "@/types/conversations";
 import type {
   CabinetAgentSummary,
@@ -1500,6 +1501,15 @@ function DetailsSection({
   onSaveField: (field: string, value: string) => void;
   onSaveSkills: (slugs: string[]) => void;
 }) {
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  useEffect(() => {
+    fetch("/api/agents/providers")
+      .then((r) => r.json())
+      .then((d) => setProviders((d.providers as ProviderInfo[]) ?? []))
+      .catch(() => {});
+  }, []);
+  const selectableProviders = providers.filter(isAgentProviderSelectable);
+
   return (
     <Section title="Details">
       {persona.scope === "global" && (
@@ -1546,13 +1556,26 @@ function DetailsSection({
           className="col-span-4"
           onSave={(v) => onSaveField("tags", v)}
         />
-        <Field
-          label="Provider"
-          value={persona.provider}
-          className="col-span-2"
-          mono
-          readOnly
-        />
+        <div className="col-span-2 flex flex-col gap-1 min-w-0">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+            Provider
+          </label>
+          <select
+            value={persona.provider}
+            onChange={(e) => onSaveField("provider", e.target.value)}
+            className="bg-muted/30 border border-transparent rounded-md px-2.5 py-1.5 text-[12px] font-mono text-foreground outline-none transition-colors hover:border-border/60 focus:border-border focus:bg-background focus:ring-1 focus:ring-primary/30"
+          >
+            {selectableProviders.length === 0 ? (
+              <option value={persona.provider}>{persona.provider}</option>
+            ) : (
+              selectableProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.available ? "" : " (not installed)"}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
         <div className="col-span-6">
           <SkillsMultiSelect
             selected={persona.skills ?? []}
