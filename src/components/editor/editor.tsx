@@ -402,7 +402,7 @@ export function KBEditor() {
           }`}
         >
           <Code2 className="h-3 w-3" />
-          {sourceMode ? "Preview" : "Source"}
+          {sourceMode ? "Preview" : "Markdown"}
         </button>
       </div>
 

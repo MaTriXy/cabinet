@@ -23,6 +23,7 @@ export function TriggerChip({
   icon,
   tone,
   count,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
@@ -30,11 +31,13 @@ export function TriggerChip({
   icon?: React.ReactNode;
   tone?: "sky" | "emerald" | "pink";
   count?: React.ReactNode;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] transition-colors",
         active

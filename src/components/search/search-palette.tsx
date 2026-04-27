@@ -489,11 +489,6 @@ export function SearchPalette() {
                 <kbd className="rounded border border-border px-1 py-[1px]">esc</kbd> close
               </span>
             </div>
-            <div className="flex items-center gap-1 text-[10px]">
-              <kbd className="rounded border border-border px-1 py-[1px]">⌘</kbd>
-              <kbd className="rounded border border-border px-1 py-[1px]">K</kbd>
-              <span className="ml-1">anywhere</span>
-            </div>
           </div>
         </Dialog.Popup>
       </Dialog.Portal>

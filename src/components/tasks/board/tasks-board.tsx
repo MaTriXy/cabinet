@@ -295,6 +295,7 @@ export function TasksBoard({
               onClick={() => setTriggerFilter("manual")}
               icon={<Bot className="size-3" />}
               tone="sky"
+              title="Manual — tasks you launched directly"
             >
               Manual
             </TriggerChip>
@@ -303,6 +304,7 @@ export function TasksBoard({
               onClick={() => setTriggerFilter("job")}
               icon={<Clock3 className="size-3" />}
               tone="emerald"
+              title="Jobs — scheduled recurring runs"
             >
               Jobs
             </TriggerChip>
@@ -311,6 +313,7 @@ export function TasksBoard({
               onClick={() => setTriggerFilter("heartbeat")}
               icon={<HeartPulse className="size-3" />}
               tone="pink"
+              title="Heartbeat — self-directed agent runs"
             >
               Heartbeat
             </TriggerChip>
