@@ -88,7 +88,7 @@ export function DetailPanel({
           type="button"
           onClick={toggleFullscreen}
           className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          title={fullscreen ? "Shrink (Esc)" : "Enlarge"}
+          title={fullscreen ? "Exit fullscreen" : "Enlarge"}
         >
           {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
         </button>

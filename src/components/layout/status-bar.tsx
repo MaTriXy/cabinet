@@ -396,6 +396,7 @@ export function StatusBar() {
               // "needs id/name" warning on every page surface.
               name="status-bar-ai-prompt"
               aria-label="Ask AI to edit this page"
+              title="↵ to send"
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => {
