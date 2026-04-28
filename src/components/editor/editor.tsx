@@ -6,6 +6,7 @@ import { Sparkles, Code2, Loader2, FilePlus } from "lucide-react";
 import { editorExtensions } from "./extensions";
 import { EditorToolbar } from "./editor-toolbar";
 import { SlashCommands } from "./slash-commands";
+import { EditorMentionPicker } from "./mention-picker";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { TableMenu } from "./table-menu";
 import { useEditorStore } from "@/stores/editor-store";
@@ -443,6 +444,7 @@ export function KBEditor() {
             <EditorBubbleMenu editor={editor} />
             <TableMenu editor={editor} />
             <SlashCommands editor={editor} />
+            <EditorMentionPicker editor={editor} />
 
             {/* AI Edit Prompt + slash hint */}
             <div className="max-w-3xl mx-auto px-8 pb-8 flex items-center gap-4">

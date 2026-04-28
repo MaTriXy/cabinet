@@ -208,6 +208,8 @@ The numbering is stable; click the ID to jump to the issue page.
 | [138](issues/138-schedule-list-view-redundant.md) | P3 | SCHED | Tasks schedule tab has a Calendar/List toggle — list view is redundant | 🟢 Done |
 | [139](issues/139-no-dynamic-tab-title.md) | P3 | NAV | Browser tab always shows "Cabinet" regardless of current page/section | 🟢 Done |
 | [140](issues/140-inbox-add-button-hidden-when-tasks-exist.md) | P3 | TASKS | "Add task" affordance disappears once Inbox has any tasks | 🟢 Done |
+| [141](issues/141-navigation-url-rethink.md) | P1 | NAV/URL | Navigation & URL rethink — page restoration + clean URL scheme (#122, #124, #137) | 🟢 Done |
+| [142](issues/142-at-mention-editor.md) | P2 | EDIT | @ mention in KB editor — agents, pages, skills picker with inline chip | 🟡 In Progress |
 
 ## Suggested next steps
 

@@ -416,6 +416,10 @@ html[data-custom-theme] .font-logo,
   text-decoration: underline;
 }
 
+.editor-mention {
+  @apply inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0 text-[0.85em] font-medium text-primary ring-1 ring-primary/20 select-none cursor-default;
+}
+
 /* Table styles */
 .tiptap table {
   border-collapse: collapse;

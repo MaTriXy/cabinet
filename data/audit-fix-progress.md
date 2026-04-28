@@ -1,7 +1,7 @@
 ---
 title: Audit Fix Progress — 2026-04-28
 created: '2026-04-28T00:00:00.000Z'
-modified: '2026-04-28T16:07:07.706Z'
+modified: '2026-04-28T16:33:56.723Z'
 tags:
   - audit
   - progress
@@ -11,9 +11,11 @@ tags:
 
 **Audit source:** `data/audit-2026-04-25/index.md` — 135 findings from the pre-release UX/product audit. **Session date:** 2026-04-28 **Final tally:** 🟢 123 Done · ⚪ 4 Open · 🟡 7 Deferred · ✱ 1 Skipped
 
-**#136 — @ mention in the markdown editor not working.** Added as a new audit finding. The status bar hinted `@` mention but no mention extension exists in the editor. The hint has been removed to avoid misleading users. Implementation tracked as #136 in the audit.
+**#142 — @ mention in the KB editor.** The user wants `@` in the prose editor to open a picker (agents + pages; skills/tasks planned) that inserts an inline styled chip. The @ hint was removed from the status bar in the previous session. Now being implemented as a TipTap suggestion plugin + floating picker component (tracked as #142 in audit index).
 
-**#137 — Navigating to Agents/Tasks loses the open KB page.** When users leave the editor (go to Agents or Tasks section) and use the back/return chip to come back, the editor should re-show the page they had open. Added as new finding #137 in the audit. `document.title` now also reflects the current page/section name so the tab gives context.
+**#141 — Navigation & URL rethink (#122 + #124 + #137 consolidated).**
+- **Page restoration (#137):** `openCabinetDataPage()` in `tree-view.tsx` gained a `restoreLastPage` flag. The Data drawer tab passes `true`, so switching back from Tasks/Agents reopens the last KB page the user had open. Works in-memory only — no localStorage or URL parsing needed.
+- **Clean URL scheme (#122, #124):** Root-cabinet URLs are now short and readable: `#/p/data/audit-fix-progress` (pages), `#/a/harel` (agent detail), `#/agents`, `#/tasks`. Sub-cabinets keep `#/cabinet/<name>/...`. Old `#/cabinet/./...` and `#/page/...` forms parse as legacy back-compat and rewrite on next navigation. Full write-up in `issues/141-navigation-url-rethink.md`.
 
 **#138 — Tasks schedule tab had a Calendar/List toggle.** The list subview added unnecessary complexity — the calendar is the primary affordance. Calendar-only view is now the default; list subview and its toggle button have been removed from `schedule-view.tsx`.
 

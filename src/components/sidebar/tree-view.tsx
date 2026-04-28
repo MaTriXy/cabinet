@@ -285,7 +285,18 @@ export function TreeView() {
     });
   };
 
-  const openCabinetDataPage = (targetCabinetPath = cabinetPath) => {
+  const openCabinetDataPage = (targetCabinetPath = cabinetPath, restoreLastPage = false) => {
+    if (restoreLastPage) {
+      // When switching back to the Data drawer in-session, preserve the last
+      // open page rather than jumping to the cabinet root. selectedPath is
+      // never cleared on section switch, so it still holds the last page.
+      const currentSelected = useTreeStore.getState().selectedPath;
+      if (currentSelected && currentSelected !== targetCabinetPath) {
+        setSection({ type: "page", cabinetPath: targetCabinetPath });
+        void loadPage(currentSelected);
+        return;
+      }
+    }
     selectPage(targetCabinetPath);
     void loadPage(targetCabinetPath);
     setSection({
@@ -485,7 +496,7 @@ export function TreeView() {
                     addIcon: FilePlus,
                     onOpen: () => {
                       if (activeCabinet) {
-                        openCabinetDataPage(activeCabinet.path);
+                        openCabinetDataPage(activeCabinet.path, true);
                         return;
                       }
                       if (
