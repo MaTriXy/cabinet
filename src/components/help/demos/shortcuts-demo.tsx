@@ -67,12 +67,13 @@ const MOD = "⌘";
 
 function SlideGlobal() {
   const rows: { keys: React.ReactNode[]; label: string }[] = [
+    { keys: [`${MOD}N`], label: "New task" },
     { keys: [`${MOD}K`], label: "Open search palette" },
     { keys: ["/"], label: "Open search (when idle)" },
     { keys: [`${MOD}S`], label: "Save current page" },
     { keys: [`${MOD}M`], label: "Toggle Agents view" },
     { keys: [`${MOD}⇧A`], label: "Toggle AI panel" },
-    { keys: ["`", `${MOD}\``], label: "Toggle terminal" },
+    { keys: [`${MOD}\``], label: "Toggle terminal" },
     { keys: [`${MOD}1`], label: "Sidebar → Data" },
     { keys: [`${MOD}2`], label: "Sidebar → Agents" },
     { keys: [`${MOD}3`], label: "Sidebar → Tasks" },

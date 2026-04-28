@@ -525,25 +525,25 @@ export function ShortcutsVisual() {
   return (
     <Stage>
       <div className="flex flex-col gap-3">
-        {/* row 1 */}
+        {/* row 1 — most important */}
         <div className="flex items-center gap-2">
-          <KbdChip delay={100}>⌘K</KbdChip>
-          <span className="text-[10px]" style={{ color: P.textTertiary }}>Search</span>
+          <KbdChip delay={100}>⌘N</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>New task</span>
         </div>
         {/* row 2 */}
         <div className="flex items-center gap-2">
-          <KbdChip delay={220}>⌘S</KbdChip>
-          <span className="text-[10px]" style={{ color: P.textTertiary }}>Save</span>
+          <KbdChip delay={220}>⌘K</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>Search</span>
         </div>
         {/* row 3 */}
         <div className="flex items-center gap-2">
-          <KbdChip delay={340}>⌘⇧A</KbdChip>
-          <span className="text-[10px]" style={{ color: P.textTertiary }}>AI panel</span>
+          <KbdChip delay={340}>⌘S</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>Save</span>
         </div>
         {/* row 4 */}
         <div className="flex items-center gap-2">
-          <KbdChip delay={460}>/</KbdChip>
-          <span className="text-[10px]" style={{ color: P.textTertiary }}>Slash menu</span>
+          <KbdChip delay={460}>⌘⇧A</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>AI panel</span>
         </div>
         {/* row 5 */}
         <div className="flex items-center gap-2">
