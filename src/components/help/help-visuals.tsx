@@ -501,3 +501,58 @@ export function SkillsVisual() {
 export function IntegrationsVisual() {
   return <ComingSoonVisual icon={Plug} />;
 }
+
+/* ─── Keyboard shortcuts preview ───────────────────────────────────── */
+function KbdChip({ children, delay }: { children: React.ReactNode; delay: number }) {
+  return (
+    <kbd
+      className="inline-flex items-center rounded px-2 py-1 font-mono text-[11px] font-semibold leading-none opacity-0"
+      style={{
+        background: P.bgCard,
+        border: `1px solid ${P.borderDark}`,
+        color: P.text,
+        boxShadow: `0 1px 0 ${P.borderDark}`,
+        animation: "cabinet-tour-fade-up 0.35s ease-out forwards",
+        animationDelay: `${delay}ms`,
+      }}
+    >
+      {children}
+    </kbd>
+  );
+}
+
+export function ShortcutsVisual() {
+  return (
+    <Stage>
+      <div className="flex flex-col gap-3">
+        {/* row 1 */}
+        <div className="flex items-center gap-2">
+          <KbdChip delay={100}>⌘K</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>Search</span>
+        </div>
+        {/* row 2 */}
+        <div className="flex items-center gap-2">
+          <KbdChip delay={220}>⌘S</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>Save</span>
+        </div>
+        {/* row 3 */}
+        <div className="flex items-center gap-2">
+          <KbdChip delay={340}>⌘⇧A</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>AI panel</span>
+        </div>
+        {/* row 4 */}
+        <div className="flex items-center gap-2">
+          <KbdChip delay={460}>/</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>Slash menu</span>
+        </div>
+        {/* row 5 */}
+        <div className="flex items-center gap-2">
+          <KbdChip delay={580}>⌘1</KbdChip>
+          <KbdChip delay={660}>⌘2</KbdChip>
+          <KbdChip delay={740}>⌘3</KbdChip>
+          <span className="text-[10px]" style={{ color: P.textTertiary }}>Drawers</span>
+        </div>
+      </div>
+    </Stage>
+  );
+}
