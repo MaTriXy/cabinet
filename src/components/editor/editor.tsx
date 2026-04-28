@@ -9,9 +9,11 @@ import { SlashCommands } from "./slash-commands";
 import { EditorMentionPicker } from "./mention-picker";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { TableMenu } from "./table-menu";
+import { FolderIndex } from "./folder-index";
 import { useEditorStore } from "@/stores/editor-store";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useTreeStore } from "@/stores/tree-store";
+import { findNodeByPath } from "@/lib/cabinets/tree";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
 import { detectEmbed } from "@/lib/embeds/detect";
@@ -114,6 +116,7 @@ function resolveInternalLink(
 
 export function KBEditor() {
   const { currentPath, content, saveStatus, frontmatter, isLoading, loadStatus, createMissingPage } = useEditorStore();
+  const nodes = useTreeStore((s) => s.nodes);
   const isRtl = frontmatter?.dir === "rtl";
   const { open: openAI, clearMessages } = useAIPanelStore();
   const isLoadingRef = useRef(false);
@@ -370,22 +373,38 @@ export function KBEditor() {
     const inferredTitle = slug
       .replace(/[-_]+/g, " ")
       .replace(/\b\w/g, (c) => c.toUpperCase());
+    const folderNode = findNodeByPath(nodes, currentPath);
+    const folderChildren = folderNode?.children ?? [];
+    const hasChildren = folderChildren.length > 0;
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="max-w-md text-center space-y-4 px-6">
-          <p className="text-lg font-medium tracking-[-0.02em] text-foreground">
-            This folder doesn&apos;t have an <code className="px-1 py-0.5 rounded bg-muted text-[12px]">index.md</code>
-          </p>
-          <p className="text-sm text-muted-foreground/80">
-            <code className="px-1 py-0.5 rounded bg-muted text-[12px]">{currentPath}</code> exists, but there&apos;s no page to show. Create one to start writing — sub-pages will be listed automatically.
-          </p>
-          <button
-            onClick={() => void createMissingPage(inferredTitle)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <FilePlus className="h-3.5 w-3.5" />
-            Create page
-          </button>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-6 py-10 space-y-6">
+          <div className="space-y-3">
+            <p className="text-lg font-medium tracking-[-0.02em] text-foreground">
+              {inferredTitle}
+            </p>
+            <p className="text-sm text-muted-foreground/80">
+              This folder doesn&apos;t have an{" "}
+              <code className="px-1 py-0.5 rounded bg-muted text-[12px]">index.md</code>
+              {hasChildren
+                ? " yet — its contents are listed below."
+                : " yet."}
+            </p>
+            <button
+              onClick={() => void createMissingPage(inferredTitle)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <FilePlus className="h-3.5 w-3.5" />
+              Create page
+            </button>
+          </div>
+          {hasChildren && (
+            <FolderIndex
+              key={currentPath}
+              folderPath={currentPath}
+              entries={folderChildren}
+            />
+          )}
         </div>
       </div>
     );
