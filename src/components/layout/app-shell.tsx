@@ -41,7 +41,6 @@ import { StatusBar } from "@/components/layout/status-bar";
 import { DaemonHealthBanner } from "@/components/layout/daemon-health-banner";
 import { TourModal } from "@/components/onboarding/tour/tour-modal";
 import { useTour } from "@/components/onboarding/tour/use-tour";
-import { RestartOnboardingButton } from "@/components/dev/restart-onboarding-button";
 import { StartWorkDialog, type StartWorkMode } from "@/components/composer/start-work-dialog";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
@@ -668,12 +667,7 @@ export function AppShell() {
 
   // Show onboarding wizard for first-time users
   if (showWizard) {
-    return (
-      <>
-        <OnboardingWizard onComplete={handleWizardComplete} />
-        <RestartOnboardingButton />
-      </>
-    );
+    return <OnboardingWizard onComplete={handleWizardComplete} />;
   }
 
   return (
@@ -722,7 +716,6 @@ export function AppShell() {
       />
       <NotificationToasts />
       <SystemToasts />
-      <RestartOnboardingButton />
       <TourModal
         open={tour.open}
         onClose={tour.close}
