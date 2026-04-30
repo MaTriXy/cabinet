@@ -12,6 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { Button } from "@/components/ui/button";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
@@ -21,9 +22,19 @@ import { WebTerminal } from "@/components/terminal/web-terminal";
 import type { ConversationDetail, ConversationMeta } from "@/types/conversations";
 import type { AgentListItem } from "@/types/agents";
 import { createConversation } from "@/lib/agents/conversation-client";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { flattenTree } from "@/lib/tree-utils";
 import { ComposerInput } from "@/components/composer/composer-input";
+import {
+  TaskRuntimePicker,
+  type TaskRuntimeSelection,
+} from "@/components/composer/task-runtime-picker";
+import {
+  AgentPicker,
+  type AgentPickerOption,
+} from "@/components/composer/agent-picker";
 import { useComposer, type MentionableItem } from "@/hooks/use-composer";
+import { useSkillMentionItems } from "@/hooks/use-skill-mention-items";
 
 interface PastSession {
   id: string;
@@ -96,7 +107,9 @@ export function AIPanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const previousCurrentPathRef = useRef<string | null>(null);
 
-  // Build mentionable items from tree + agents
+  const skillItems = useSkillMentionItems({ enabled: isOpen });
+
+  // Build mentionable items from tree + agents + skills
   const mentionItems: MentionableItem[] = [
     ...agents
       .filter((a) => a.slug !== "editor")
@@ -107,6 +120,7 @@ export function AIPanel() {
         sublabel: a.role || "",
         icon: a.emoji,
       })),
+    ...skillItems,
     ...flattenTree(treeNodes).map((p) => ({
       type: "page" as const,
       id: p.path,
@@ -206,9 +220,12 @@ export function AIPanel() {
     const restore = async () => {
       useAIPanelStore.getState().restoreSessionsFromStorage();
 
-      // Check which restored sessions are still alive on the terminal server
+      // Check which restored sessions are still alive on the terminal server.
+      // Audit #104: route through dedupFetch so React 18 StrictMode's
+      // double-mount in dev (and any sibling caller racing on the same
+      // tick) collapses to one network request.
       try {
-        const res = await fetch("/api/daemon/sessions");
+        const res = await dedupFetch("/api/daemon/sessions", undefined, { ttlMs: 1500 });
         if (res.ok) {
           const serverSessions: { id: string; exited: boolean }[] = await res.json();
           const aliveIds = new Set(serverSessions.filter((s) => !s.exited).map((s) => s.id));
@@ -246,18 +263,15 @@ export function AIPanel() {
     if (!isOpen) return;
     const load = async () => {
       try {
-        const res = await fetch("/api/cabinets/overview?path=.&visibility=all");
-        if (res.ok) {
-          const data = await res.json();
-          const overview = (data.agents || []).map((a: Record<string, unknown>) => ({
-            name: a.name as string,
-            slug: a.slug as string,
-            emoji: (a.emoji as string) || "",
-            role: (a.role as string) || "",
-            active: a.active as boolean,
-          })) as AgentListItem[];
-          setAgents(overview);
-        }
+        const data = await fetchCabinetOverviewClient(".", "all");
+        const overview = (data.agents || []).map((a) => ({
+          name: a.name,
+          slug: a.slug,
+          emoji: a.emoji || "",
+          role: a.role || "",
+          active: a.active,
+        })) as AgentListItem[];
+        setAgents(overview);
       } catch {}
     };
     load();
@@ -287,14 +301,44 @@ export function AIPanel() {
     }
   }, [currentPath, liveSessions]);
 
+  const [taskRuntime, setTaskRuntime] = useState<TaskRuntimeSelection>({});
+  const [pickedAgentSlug, setPickedAgentSlug] = useState<string>("editor");
+
+  const agentPickerOptions = useMemo<AgentPickerOption[]>(
+    () => [
+      {
+        slug: "editor",
+        name: "Editor",
+        role: "Edits the current page",
+      },
+      ...agents
+        .filter((a) => a.slug !== "editor")
+        .map((a) => ({
+          slug: a.slug,
+          name: a.name,
+          role: a.role,
+          cabinetPath: a.cabinetPath,
+          iconKey: (a as { iconKey?: string | null }).iconKey,
+          color: (a as { color?: string | null }).color,
+          avatar: (a as { avatar?: string | null }).avatar,
+          avatarExt: (a as { avatarExt?: string | null }).avatarExt,
+        })),
+    ],
+    [agents]
+  );
+
   const composer = useComposer({
     items: mentionItems,
     disabled: !currentPath,
-    onSubmit: async ({ message, mentionedPaths, mentionedAgents }) => {
+    onSubmit: async ({ message, mentionedPaths, mentionedAgents, mentionedSkills }) => {
       if (!currentPath) return;
 
-      // If user @-mentioned an agent, route to that agent instead of editor
-      const targetAgent = mentionedAgents.length > 0 ? mentionedAgents[0] : null;
+      // @-mention takes precedence over the picker (it's the explicit hint
+      // for that turn). Otherwise fall back to whatever the picker has.
+      const mentionTarget = mentionedAgents.length > 0 ? mentionedAgents[0] : null;
+      const targetAgent =
+        mentionTarget ??
+        (pickedAgentSlug && pickedAgentSlug !== "editor" ? pickedAgentSlug : null);
       const nextAgentSlug = targetAgent || "editor";
       const pendingId = `pending-${Date.now()}-${crypto.randomUUID()}`;
 
@@ -323,12 +367,16 @@ export function AIPanel() {
                 agentSlug: targetAgent,
                 userMessage: message,
                 mentionedPaths,
+                mentionedSkills,
+                ...taskRuntime,
               }
             : {
                 source: "editor",
                 pagePath: currentPath,
                 userMessage: message,
                 mentionedPaths,
+                mentionedSkills,
+                ...taskRuntime,
               }
         );
         const conversation = data.conversation as ConversationMeta;
@@ -780,6 +828,16 @@ export function AIPanel() {
           maxHeight="160px"
           items={mentionItems}
           autoFocus={isOpen}
+          actionsStart={
+            <>
+              <AgentPicker
+                agents={agentPickerOptions}
+                selectedSlug={pickedAgentSlug}
+                onSelect={setPickedAgentSlug}
+              />
+              <TaskRuntimePicker value={taskRuntime} onChange={setTaskRuntime} />
+            </>
+          }
         />
       </div>
     </div>

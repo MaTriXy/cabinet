@@ -21,10 +21,26 @@ const command = COMMANDS.includes(firstArg) ? firstArg : "init";
 const dirArg = COMMANDS.includes(firstArg) ? args[1] : firstArg;
 
 function resolveCabinetAI() {
-  // Prefer local cabinetai from node_modules if available
-  const localBin = path.join(__dirname, "..", "node_modules", ".bin", "cabinetai");
-  if (fs.existsSync(localBin)) return localBin;
+  // 1. Sibling install in our own node_modules (when create-cabinet was npm-installed)
+  const ownBin = path.join(__dirname, "node_modules", ".bin", "cabinetai");
+  if (fs.existsSync(ownBin)) return ownBin;
+
+  // 2. Hoisted install one level up
+  const hoistedBin = path.join(__dirname, "..", "node_modules", ".bin", "cabinetai");
+  if (fs.existsSync(hoistedBin)) return hoistedBin;
+
   return null;
+}
+
+function pinnedCabinetAIVersion() {
+  // Pin the npx fallback to the exact cabinetai version this create-cabinet was published against.
+  // Reading from our own dependencies guarantees create-cabinet@N.M.K → cabinetai@N.M.K, never @latest.
+  try {
+    const pkg = require("./package.json");
+    return (pkg.dependencies && pkg.dependencies.cabinetai) || pkg.version;
+  } catch {
+    return null;
+  }
 }
 
 function runCabinetAI(cmdArgs) {
@@ -38,9 +54,12 @@ function runCabinetAI(cmdArgs) {
     return result.status || 0;
   }
 
-  // Fall back to npx — use spawnSync with args array to prevent shell injection
+  // Fall back to npx with an exact-version pin (never @latest, to keep create-cabinet@X
+  // and cabinetai@X moving together).
+  const version = pinnedCabinetAIVersion();
+  const spec = version ? `cabinetai@${version}` : "cabinetai";
   const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(npxBin, ["cabinetai@latest", ...cmdArgs], {
+  const result = spawnSync(npxBin, ["-y", spec, ...cmdArgs], {
     stdio: "inherit",
     cwd: process.cwd(),
   });

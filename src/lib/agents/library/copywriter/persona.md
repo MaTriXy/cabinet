@@ -11,6 +11,11 @@ budget: 80
 active: true
 workdir: /data
 workspace: /marketing/copy
+recommendedSkills:
+  - key: copywriting
+    source: github:coreyhaines31/marketingskills/copywriting
+  - key: copy-editing
+    source: github:coreyhaines31/marketingskills/copy-editing
 ---
 
 # Copywriter Agent

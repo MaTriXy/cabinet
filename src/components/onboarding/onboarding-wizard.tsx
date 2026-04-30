@@ -11,7 +11,7 @@ import {
   ClipboardCheck,
   Copy,
   ExternalLink,
-  Info,
+  House,
   Loader2,
   Rocket,
   ChevronDown,
@@ -24,27 +24,77 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
+import { HomeBlueprintBackground } from "@/components/onboarding/home-blueprint-background";
+import { isAgentProviderSelectable } from "@/lib/agents/provider-filters";
 import { ProviderGlyph } from "@/components/agents/provider-glyph";
 import type { ProviderInfo } from "@/types/agents";
 import type { RegistryTemplate } from "@/lib/registry/registry-manifest";
+import { TiltCard } from "@/components/ui/tilt-card";
+import { showError } from "@/lib/ui/toast";
 import { RegistryBrowser } from "@/components/registry/registry-browser";
+import {
+  ROOMS,
+  ROOM_TYPES,
+  STARTER_TEAMS,
+  type RoomType,
+  type StarterTeam,
+} from "@/lib/onboarding/rooms";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getSuggestedProviderEffort } from "@/lib/agents/runtime-options";
+import { sendTelemetry } from "@/lib/telemetry/browser";
 import {
-  getModelEffortLevels,
-  getSuggestedProviderEffort,
-  resolveProviderEffort,
-  resolveProviderModel,
-} from "@/lib/agents/runtime-options";
+  recordWaitlistView,
+  recordWaitlistStart,
+  submitWaitlistEmail,
+} from "@/lib/telemetry/waitlist-client";
+import { acknowledgeDisclaimer } from "@/components/layout/breaking-changes-warning";
+
+type OnboardingVerifyStatus =
+  | "pass"
+  | "not_installed"
+  | "auth_required"
+  | "payment_required"
+  | "quota_exceeded"
+  | "other_error";
+
+interface OnboardingVerifyResult {
+  status: OnboardingVerifyStatus;
+  failedStepTitle: string;
+  command: string;
+  exitCode: number | null;
+  signal: string | null;
+  output: string;
+  stderr: string;
+  durationMs: number;
+  hint?: string;
+}
+
+type OnboardingVerifyState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | { phase: "done"; result: OnboardingVerifyResult }
+  | { phase: "error"; message: string };
+
+const ONBOARDING_VERIFY_META: Record<OnboardingVerifyStatus, { label: string; color: string; bg: string }> = {
+  pass: { label: "Passed", color: "#16a34a", bg: "rgba(22,163,74,0.1)" },
+  not_installed: { label: "Not installed", color: "#64748b", bg: "rgba(100,116,139,0.12)" },
+  auth_required: { label: "Auth required", color: "#d97706", bg: "rgba(217,119,6,0.12)" },
+  payment_required: { label: "Payment required", color: "#e11d48", bg: "rgba(225,29,72,0.12)" },
+  quota_exceeded: { label: "Quota / rate limit", color: "#ea580c", bg: "rgba(234,88,12,0.12)" },
+  other_error: { label: "Error", color: "#e11d48", bg: "rgba(225,29,72,0.1)" },
+};
 
 interface OnboardingAnswers {
   name: string;
   role: string;
-  companyName: string;
+  homeName: string;
+  roomType: RoomType;
+  workspaceName: string;
   description: string;
   teamSize: string;
   priority: string;
@@ -80,12 +130,22 @@ const DISCORD_SUPPORT_URL = "https://discord.gg/hJa5TRTbTH";
 const GITHUB_REPO_URL = "https://github.com/hilash/cabinet";
 const GITHUB_STATS_URL = "/api/github/repo";
 const GITHUB_STARS_FALLBACK = 393;
-const CABINET_CLOUD_URL = "https://runcabinet.com/waitlist";
-const ROLES = ["CEO", "Marketer", "Engineer", "Designer", "Product", "Other"];
-const TEAM_SIZES = ["Just me", "2-5", "5-20", "20+"];
-const COMMUNITY_START_STEP = 4;
-const COMMUNITY_END_STEP = 6;
-const STEP_COUNT = 8;
+// Typewritten on the Welcome home step after the blueprint finishes drawing.
+const WELCOME_PARAGRAPH =
+  "Your Home is yours. Inside it, you'll set up rooms for different parts of your life: work, second brain, research, family. And every room has cabinets: your notes, your files, and an AI team quietly getting things done in the background.";
+const WELCOME_TYPE_START_MS = 4800; // begin typing shortly after heading fades in
+const WELCOME_TYPE_CHAR_MS = 32;
+
+// Step indices after the compress pass:
+// 0 intro · 1 welcome-home · 2 room-setup (pick + name + describe) ·
+// 3 team · 4 provider · 5 github · 6 discord · 7 cloud · 8 launch
+const COMMUNITY_START_STEP = 5;
+const COMMUNITY_END_STEP = 7;
+const STEP_COUNT = 9;
+const STEP_WELCOME_HOME = 1;
+const STEP_ROOM_SETUP = 2;
+const STEP_TEAM = 3;
+const STEP_PROVIDER = 4;
 
 /* ─── Colors from runcabinet.com ─── */
 const WEB = {
@@ -118,6 +178,7 @@ function DiscordIcon({ className, style }: { className?: string; style?: CSSProp
 }
 
 function formatGithubStars(stars: number) {
+  if (stars >= 10_000) return `${(stars / 1000).toFixed(1)}k`;
   return new Intl.NumberFormat("en-US").format(stars);
 }
 
@@ -183,56 +244,21 @@ function CommunityCardTile({ card }: { card: CommunityCard }) {
   );
 }
 
-/* ─── Keyword → agent pre-check mapping ─── */
-const KEYWORD_CHECKS: [RegExp, string[]][] = [
-  [/content|blog|social|market|brand|newsletter/, ["content-marketer", "social-media", "copywriter"]],
-  [/seo|search|rank|keyword|organic|google/, ["seo"]],
-  [/sales|lead|outreach|revenue|pipeline|deal/, ["sales", "customer-success"]],
-  [/quality|review|proofread|test|audit/, ["qa"]],
-  [/tech|code|engineer|dev|infra|deploy/, ["cto", "devops"]],
-  [/product|feature|roadmap|user research/, ["product-manager"]],
-  [/design|ux|wireframe|prototype/, ["ux-designer"]],
-  [/data|analytics|metrics|dashboard/, ["data-analyst"]],
-  [/finance|budget|runway|fundraise/, ["cfo"]],
-  [/growth|funnel|acquisition|conversion/, ["growth-marketer"]],
-  [/research|competitive|market analysis/, ["researcher"]],
-  [/legal|compliance|contract|privacy/, ["legal"]],
-  [/hiring|culture|hr|onboarding|team health/, ["people-ops"]],
-  [/operations|process|efficiency/, ["coo"]],
-];
+// Agent pre-check + mandatory-lock logic is now room-aware — see getKeywordChecks
+// and getAlwaysChecked below. The old KEYWORD_CHECKS / ALWAYS_CHECKED constants
+// were per-room-type "office" defaults.
 
-const ALWAYS_CHECKED = new Set(["ceo", "editor"]);
-
-interface PreMadeTeam {
-  name: string;
-  description: string;
-  agents: number;
-  domain: string;
+function getKeywordChecksForRoom(roomType: RoomType): [RegExp, string[]][] {
+  return ROOMS[roomType].keywordMap;
 }
 
-const PRE_MADE_TEAMS: PreMadeTeam[] = [
-  { name: "Content Engine", description: "Blog posts, newsletters & social media on autopilot", agents: 5, domain: "Marketing" },
-  { name: "Cold Email Agency", description: "ICP research, list building, copy & sending", agents: 7, domain: "Sales" },
-  { name: "Carousel Factory", description: "Design Instagram, LinkedIn & TikTok carousels", agents: 4, domain: "Marketing" },
-  { name: "SEO War Room", description: "Keyword research, write, optimize & rank", agents: 6, domain: "Marketing" },
-  { name: "LinkedIn Lead Gen Shop", description: "Profile optimization, connections & DM sequences", agents: 5, domain: "Sales" },
-  { name: "Podcast Booking Agency", description: "Research shows, pitch, schedule & prep talking points", agents: 6, domain: "Media" },
-  { name: "TikTok Shop Operator", description: "Product listings, affiliate outreach & live stream", agents: 8, domain: "E-commerce" },
-  { name: "Ghostwriting Studio", description: "LinkedIn posts, Twitter threads & newsletters", agents: 5, domain: "Content" },
-  { name: "PR Pitching Machine", description: "Media list, write pitches, send & track", agents: 5, domain: "Marketing" },
-  { name: "App Store Optimization", description: "Keyword research, screenshots & A/B test", agents: 5, domain: "Marketing" },
-  { name: "Shopify Store Setup", description: "Theme, products, payments & launch checklist", agents: 5, domain: "E-commerce" },
-  { name: "Proposal & RFP Factory", description: "Parse RFPs, draft responses, format & submit", agents: 6, domain: "Services" },
-];
+function getAlwaysCheckedForRoom(roomType: RoomType): Set<string> {
+  return new Set(ROOMS[roomType].mandatoryAgents);
+}
 
-const TEAM_DOMAIN_COLORS: Record<string, { bg: string; text: string }> = {
-  Marketing: { bg: "#EDE7F6", text: "#6B4FA0" },
-  Sales: { bg: "#FCE4EC", text: "#B0475A" },
-  Media: { bg: "#E8EAF6", text: "#4A5899" },
-  "E-commerce": { bg: "#E0F2F1", text: "#3A7A6D" },
-  Content: { bg: "#FFF8E1", text: "#8D7039" },
-  Services: { bg: "#E3F2FD", text: "#4A7FB5" },
-};
+// Starter teams are now defined in src/lib/onboarding/rooms.ts (STARTER_TEAMS)
+// with a `rooms` field so the carousel can filter per room type.
+type PreMadeTeam = StarterTeam;
 
 function TerminalCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
@@ -267,16 +293,20 @@ function TerminalCommand({ command }: { command: string }) {
 
 function TeamCarousel({
   templates,
+  roomType,
   onSelect,
 }: {
   templates: RegistryTemplate[];
+  roomType: RoomType;
   onSelect: (t: RegistryTemplate) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(false);
 
-  // Use real templates if loaded, otherwise fall back to hardcoded placeholders
-  const items = templates.length > 0 ? templates : PRE_MADE_TEAMS;
+  // Use real templates if loaded, otherwise fall back to room-filtered starter teams.
+  const fallbackTeams = STARTER_TEAMS.filter((t) => t.rooms.includes(roomType));
+  const items: (RegistryTemplate | PreMadeTeam)[] =
+    templates.length > 0 ? templates : fallbackTeams;
   const isReal = templates.length > 0;
 
   useEffect(() => {
@@ -304,47 +334,61 @@ function TeamCarousel({
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-xl"
+      className="tilt-carousel relative w-full py-4"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
       <div ref={scrollRef} className="flex gap-2 will-change-transform">
         {doubled.map((item, i) => {
-          const domain = "domain" in item ? item.domain : "";
           const agentCount = "agentCount" in item ? item.agentCount : ("agents" in item ? (item as PreMadeTeam).agents : 0);
-          const colors = TEAM_DOMAIN_COLORS[domain] || { bg: WEB.accentBg, text: WEB.accent };
+          const coverUrl = "coverUrl" in item ? item.coverUrl : null;
           return (
-            <button
+            <TiltCard
               key={`${item.name}-${i}`}
-              className="flex-shrink-0 w-44 rounded-lg p-3 flex flex-col text-left transition-all hover:-translate-y-0.5"
+              className="flex-shrink-0 w-48"
+            >
+            <button
+              className="fancy-card w-48 flex flex-col text-left"
               style={{
                 border: `1px solid ${WEB.border}`,
                 background: WEB.bgCard,
-                height: 88,
                 cursor: isReal ? "pointer" : "default",
               }}
               onClick={() => {
                 if (isReal) onSelect(item as RegistryTemplate);
               }}
             >
-              <p className="text-[11px] font-medium leading-tight" style={{ color: WEB.text }}>
-                {item.name}
-              </p>
-              <p className="text-[10px] mt-1 leading-snug line-clamp-2" style={{ color: WEB.textSecondary }}>
-                {item.description}
-              </p>
-              <div className="flex items-center justify-between mt-auto">
-                <span
-                  className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                  style={{ background: colors.bg, color: colors.text }}
-                >
-                  {domain}
-                </span>
-                <span className="text-[9px]" style={{ color: WEB.textTertiary }}>
-                  {agentCount} agents
-                </span>
+              <div
+                className="relative h-20 w-full"
+                style={{
+                  background: coverUrl ? undefined : WEB.accentBg,
+                  backgroundImage: coverUrl ? `url(${coverUrl})` : undefined,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                }}
+                aria-hidden
+              >
+                {!coverUrl && (
+                  <div className="absolute inset-0 flex items-center justify-center text-xl opacity-40">
+                    📦
+                  </div>
+                )}
+              </div>
+              <div className="p-2.5 flex flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-[11px] font-medium leading-tight line-clamp-1 flex-1 min-w-0" style={{ color: WEB.text }}>
+                    {item.name}
+                  </p>
+                  <span className="text-[9px] shrink-0" style={{ color: WEB.textTertiary }}>
+                    {agentCount} agents
+                  </span>
+                </div>
+                <p className="text-[9px] leading-snug line-clamp-2" style={{ color: WEB.textSecondary }}>
+                  {item.description}
+                </p>
               </div>
             </button>
+            </TiltCard>
           );
         })}
       </div>
@@ -499,12 +543,18 @@ function IntroStep({ onNext }: { onNext: () => void }) {
 function CabinetCreatedScreen({
   cabinetName,
   template,
+  homeName,
+  roomType,
   onContinue,
 }: {
   cabinetName: string;
   template: RegistryTemplate;
+  homeName: string;
+  roomType: RoomType;
   onContinue: () => void;
 }) {
+  const roomConfig = ROOMS[roomType];
+  const RoomIcon = roomConfig.icon;
   const [visibleLines, setVisibleLines] = useState(0);
   const [showButton, setShowButton] = useState(false);
 
@@ -554,10 +604,30 @@ function CabinetCreatedScreen({
         </p>
       </div>
 
+      {/* Home › Room breadcrumb */}
+      <div
+        className="flex items-center gap-2 text-[13px] animate-in fade-in slide-in-from-bottom-1 duration-500"
+        style={{ color: WEB.textSecondary }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <House className="size-3.5" style={{ color: WEB.accent }} />
+          <span style={{ color: WEB.text, fontWeight: 500 }}>{homeName}</span>
+        </span>
+        <ChevronRight className="size-3.5" style={{ color: WEB.textTertiary }} />
+        <span className="inline-flex items-center gap-1.5">
+          <RoomIcon className="size-3.5" style={{ color: WEB.accent }} />
+          <span style={{ color: WEB.text, fontWeight: 500 }}>{roomConfig.label}</span>
+        </span>
+      </div>
+
       {/* Animated tree */}
       <div
-        className="w-full rounded-xl px-6 py-5 font-mono text-[13px] leading-relaxed"
-        style={{ background: WEB.bgCard, border: `1px solid ${WEB.border}` }}
+        className="w-full rounded-xl px-6 py-5 font-mono text-[13px]"
+        style={{
+          background: WEB.bgCard,
+          border: `1px solid ${WEB.border}`,
+          lineHeight: 1.25,
+        }}
       >
         {treeLines.map((line, i) => {
           const isVisible = i < visibleLines;
@@ -673,6 +743,9 @@ function TeamBuildStep({
   selectedCount,
   maxAgents,
   toggleAgent,
+  roomType,
+  homeName,
+  mandatoryAgents,
   onBack,
   onNext,
 }: {
@@ -683,6 +756,9 @@ function TeamBuildStep({
   selectedCount: number;
   maxAgents: number;
   toggleAgent: (slug: string) => void;
+  roomType: RoomType;
+  homeName: string;
+  mandatoryAgents: Set<string>;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -692,6 +768,77 @@ function TeamBuildStep({
   // phase 2: carousel visible
   // phase 3: (reserved)
   // phase 4: "or pick" label + agents
+
+  // Department-columns drag-to-scroll. The columns row has hidden scrollbars
+  // by design; click-and-drag horizontally to pan. A small movement threshold
+  // (DRAG_THRESHOLD_PX) keeps real clicks on column items from being eaten by
+  // the drag handler — only sustained motion counts as a drag.
+  const columnsScrollRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startScrollLeft: number;
+    moved: boolean;
+  } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const DRAG_THRESHOLD_PX = 5;
+
+  const onColumnsPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // Ignore secondary buttons and touches that aren't primary contact.
+    if (e.button !== 0 && e.pointerType !== "touch") return;
+    const el = columnsScrollRef.current;
+    if (!el) return;
+    dragStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startScrollLeft: el.scrollLeft,
+      moved: false,
+    };
+  }, []);
+
+  const onColumnsPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current;
+    const el = columnsScrollRef.current;
+    if (!state || state.pointerId !== e.pointerId || !el) return;
+    const dx = e.clientX - state.startX;
+    if (!state.moved && Math.abs(dx) >= DRAG_THRESHOLD_PX) {
+      state.moved = true;
+      setIsDragging(true);
+      // Capture so we keep getting move/up events even if cursor leaves the
+      // container, and so text selection is suppressed for the duration.
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* some browsers reject capture on synthetic events; degrade gracefully */
+      }
+    }
+    if (state.moved) {
+      el.scrollLeft = state.startScrollLeft - dx;
+    }
+  }, []);
+
+  const onColumnsPointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current;
+    if (!state || state.pointerId !== e.pointerId) return;
+    const wasDrag = state.moved;
+    dragStateRef.current = null;
+    if (wasDrag) {
+      setIsDragging(false);
+      // Suppress the click that would otherwise fire on whatever was under
+      // the cursor at pointer-up — the user was dragging, not clicking.
+      const swallow = (ev: MouseEvent) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      // Belt-and-braces: if no click materializes (drag ended off any
+      // element), drop the listener on the next frame so we don't eat a
+      // legitimate click later.
+      window.requestAnimationFrame(() => {
+        window.removeEventListener("click", swallow, { capture: true });
+      });
+    }
+  }, []);
 
   const [registryTemplates, setRegistryTemplates] = useState<RegistryTemplate[]>([]);
   const [importTemplate, setImportTemplate] = useState<RegistryTemplate | null>(null);
@@ -757,6 +904,8 @@ function TeamBuildStep({
       <CabinetCreatedScreen
         cabinetName={importedCabinet.name}
         template={importedCabinet.template}
+        homeName={homeName}
+        roomType={roomType}
         onContinue={onNext}
       />
     );
@@ -808,6 +957,7 @@ function TeamBuildStep({
         >
           <TeamCarousel
             templates={registryTemplates}
+            roomType={roomType}
             onSelect={(t) => {
               setImportTemplate(t);
               setImportName(t.name);
@@ -909,7 +1059,13 @@ function TeamBuildStep({
             </button>
           </div>
           <div className="flex-1 overflow-auto">
-            <RegistryBrowser />
+            <RegistryBrowser
+              onImported={(template, importedName) => {
+                setImportedSlugs((prev) => new Set(prev).add(template.slug));
+                setRegistryOpen(false);
+                setImportedCabinet({ name: importedName, template });
+              }}
+            />
           </div>
         </div>
       )}
@@ -938,22 +1094,35 @@ function TeamBuildStep({
             <Loader2 className="size-5 animate-spin" style={{ color: WEB.textTertiary }} />
           </div>
         ) : (
-          <div className="flex gap-3 overflow-x-auto px-6 pb-2 scrollbar-hide" style={{ scrollbarWidth: "none", msOverflowStyle: "none" } as React.CSSProperties}>
-            {groupByDepartment(suggestedAgents, libraryTemplates).map(([label, agents]) => (
+          <div
+            ref={columnsScrollRef}
+            onPointerDown={onColumnsPointerDown}
+            onPointerMove={onColumnsPointerMove}
+            onPointerUp={onColumnsPointerEnd}
+            onPointerCancel={onColumnsPointerEnd}
+            className="flex items-start justify-center gap-3 overflow-x-auto px-6 pb-2 scrollbar-hide select-none"
+            style={{
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              cursor: isDragging ? "grabbing" : "grab",
+              touchAction: "pan-y",
+            } as React.CSSProperties}
+          >
+            {groupByDepartment(suggestedAgents, libraryTemplates, roomType).map(([label, agents]) => (
               <div
                 key={label}
-                className="rounded-xl p-3 shrink-0"
-                style={{ background: WEB.bgWarm, width: 180 }}
+                className="flex flex-col rounded-xl p-3 shrink-0"
+                style={{ background: WEB.bgWarm, width: 180, maxHeight: 260 }}
               >
                 <p
-                  className="mb-2 text-[10px] font-semibold uppercase tracking-wider"
+                  className="mb-2 text-[10px] font-semibold uppercase tracking-wider shrink-0"
                   style={{ color: WEB.textTertiary }}
                 >
                   {label}
                 </p>
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5 overflow-y-auto scrollbar-thin pr-1">
                   {agents.map((agent) => {
-                    const isMandatory = ALWAYS_CHECKED.has(agent.slug);
+                    const isMandatory = mandatoryAgents.has(agent.slug);
                     const atLimit = selectedCount >= maxAgents && !agent.checked;
                     return (
                       <button
@@ -1024,40 +1193,131 @@ function TeamBuildStep({
   );
 }
 
-const DEPARTMENT_ORDER: [string, string][] = [
+// Room-aware grouping: each room has its own vocabulary for organising the
+// agent picker. A department not mapped for the active room falls to "Other".
+type DepartmentOrder = [string, string][];
+
+const OFFICE_ORDER: DepartmentOrder = [
   ["leadership", "Leadership"],
   ["marketing", "Marketing"],
+  ["content", "Content"],
+  ["publishing", "Content"],
   ["engineering", "Engineering"],
   ["product", "Product & Design"],
   ["design", "Product & Design"],
   ["sales", "Business"],
   ["support", "Business"],
   ["analytics", "Business"],
-  ["research", "Business"],
+  ["research", "Research"],
   ["finance", "Finance & Ops"],
   ["legal", "Finance & Ops"],
   ["hr", "Finance & Ops"],
+  ["personal", "Personal"],
+  ["household", "Personal"],
 ];
 
-function getDepartmentLabel(dept: string): string {
-  const entry = DEPARTMENT_ORDER.find(([key]) => key === dept);
+const STUDY_ORDER: DepartmentOrder = [
+  ["leadership", "Leadership"],
+  ["personal", "Second brain"],
+  ["content", "Writing"],
+  ["publishing", "Writing"],
+  ["research", "Research"],
+  ["engineering", "Tools"],
+  ["household", "Life admin"],
+  ["finance", "Life admin"],
+  ["marketing", "From the Office"],
+  ["sales", "From the Office"],
+  ["support", "From the Office"],
+  ["product", "From the Office"],
+  ["design", "From the Office"],
+  ["analytics", "From the Office"],
+  ["legal", "From the Office"],
+  ["hr", "From the Office"],
+];
+
+const LAB_ORDER: DepartmentOrder = [
+  ["leadership", "Leadership"],
+  ["research", "Research"],
+  ["personal", "Writing & notes"],
+  ["content", "Writing & notes"],
+  ["publishing", "Writing & notes"],
+  ["engineering", "Tools"],
+  ["household", "Other"],
+  ["finance", "Other"],
+  ["marketing", "From the Office"],
+  ["sales", "From the Office"],
+  ["support", "From the Office"],
+  ["product", "From the Office"],
+  ["design", "From the Office"],
+  ["analytics", "From the Office"],
+  ["legal", "From the Office"],
+  ["hr", "From the Office"],
+];
+
+const FAMILY_ROOM_ORDER: DepartmentOrder = [
+  ["leadership", "Leadership"],
+  ["household", "Household"],
+  ["personal", "Admin"],
+  ["finance", "Money"],
+  ["engineering", "Tools"],
+  ["research", "Other"],
+  ["content", "Other"],
+  ["publishing", "Other"],
+  ["marketing", "From the Office"],
+  ["sales", "From the Office"],
+  ["support", "From the Office"],
+  ["product", "From the Office"],
+  ["design", "From the Office"],
+  ["analytics", "From the Office"],
+  ["legal", "From the Office"],
+  ["hr", "From the Office"],
+];
+
+// Blank room has no opinion — just show everything in one flat list, leadership first.
+const BLANK_ORDER: DepartmentOrder = [
+  ["leadership", "Leadership"],
+  ["marketing", "Marketing"],
+  ["content", "Content"],
+  ["publishing", "Content"],
+  ["engineering", "Engineering"],
+  ["product", "Product"],
+  ["design", "Design"],
+  ["sales", "Sales"],
+  ["support", "Support"],
+  ["analytics", "Analytics"],
+  ["research", "Research"],
+  ["finance", "Finance"],
+  ["legal", "Legal"],
+  ["hr", "People"],
+  ["personal", "Personal"],
+  ["household", "Household"],
+];
+
+const DEPARTMENT_ORDERS: Record<RoomType, DepartmentOrder> = {
+  office: OFFICE_ORDER,
+  study: STUDY_ORDER,
+  lab: LAB_ORDER,
+  "family-room": FAMILY_ROOM_ORDER,
+  blank: BLANK_ORDER,
+};
+
+function getDepartmentLabel(dept: string, roomType: RoomType): string {
+  const order = DEPARTMENT_ORDERS[roomType];
+  const entry = order.find(([key]) => key === dept);
   return entry ? entry[1] : "Other";
 }
 
 function computeChecked(answers: OnboardingAnswers): Set<string> {
-  const checked = new Set(ALWAYS_CHECKED);
+  const roomConfig = ROOMS[answers.roomType];
+  const checked = new Set<string>(roomConfig.mandatoryAgents);
+  // Pre-check the room's default suggestions.
+  for (const s of roomConfig.suggestedAgents) checked.add(s);
   const desc = (answers.description + " " + answers.role + " " + answers.priority).toLowerCase();
 
-  for (const [pattern, slugs] of KEYWORD_CHECKS) {
+  for (const [pattern, slugs] of roomConfig.keywordMap) {
     if (pattern.test(desc)) {
       for (const s of slugs) checked.add(s);
     }
-  }
-
-  // Fallback: ensure at least 3 agents are pre-checked
-  if (checked.size < 3) {
-    checked.add("content-marketer");
-    if (checked.size < 3) checked.add("product-manager");
   }
 
   return checked;
@@ -1072,19 +1332,35 @@ interface LibraryTemplate {
   type: string;
 }
 
-function groupByDepartment(agents: SuggestedAgent[], templates: LibraryTemplate[]): [string, SuggestedAgent[]][] {
+function groupByDepartment(
+  agents: SuggestedAgent[],
+  templates: LibraryTemplate[],
+  roomType: RoomType
+): [string, SuggestedAgent[]][] {
   const deptMap = new Map<string, string>();
   for (const t of templates) deptMap.set(t.slug, t.department);
 
   const groups = new Map<string, SuggestedAgent[]>();
   for (const agent of agents) {
-    const label = getDepartmentLabel(deptMap.get(agent.slug) || "general");
+    const label = getDepartmentLabel(deptMap.get(agent.slug) || "general", roomType);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label)!.push(agent);
   }
 
-  // Sort groups by the predefined order
-  const labelOrder = Array.from(new Set(DEPARTMENT_ORDER.map(([, l]) => l))).concat("Other");
+  // Sort groups by the predefined order. Some rooms already map departments
+  // to "Other" (e.g. LAB maps household+finance → "Other"), so we must dedup
+  // the final list before returning to avoid duplicate React keys.
+  const order = DEPARTMENT_ORDERS[roomType];
+  const seen = new Set<string>();
+  const labelOrder: string[] = [];
+  for (const [, label] of order) {
+    if (!seen.has(label)) {
+      seen.add(label);
+      labelOrder.push(label);
+    }
+  }
+  if (!seen.has("Other")) labelOrder.push("Other");
+
   return labelOrder
     .filter((label) => groups.has(label))
     .map((label) => [label, groups.get(label)!]);
@@ -1092,50 +1368,92 @@ function groupByDepartment(agents: SuggestedAgent[], templates: LibraryTemplate[
 
 /* ─── Agent Chat Preview (launch step) ─── */
 
-function AgentChatPreview({ agents, companyName }: { agents: SuggestedAgent[]; companyName: string }) {
+function AgentChatPreview({
+  agents,
+  workspaceName,
+  homeName,
+  roomType,
+}: {
+  agents: SuggestedAgent[];
+  workspaceName: string;
+  homeName: string;
+  roomType: RoomType;
+}) {
   const [visibleCount, setVisibleCount] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Build conversation script from the selected agents
+  // Build conversation script from the selected agents. The lead (first agent
+  // in ROOMS[roomType].mandatoryAgents) speaks first with a room-specific
+  // greeting; followups come from the specialists.
   const messages = useMemo(() => {
-    const ceo = agents.find((a) => a.slug === "ceo") || agents[0];
-    const others = agents.filter((a) => a.slug !== ceo?.slug);
-    if (!ceo) return [];
+    const config = ROOMS[roomType];
+    const leadSlug = config.mandatoryAgents[0];
+    const lead = agents.find((a) => a.slug === leadSlug) || agents[0];
+    const others = agents.filter((a) => a.slug !== lead?.slug);
+    if (!lead) return [];
 
     const script: { agent: SuggestedAgent; text: string }[] = [
-      { agent: ceo, text: `Good morning team! Welcome to ${companyName || "the company"}. Let's hit the ground running.` },
+      { agent: lead, text: config.greetingTemplate(homeName, workspaceName) },
     ];
 
-    if (others[0]) {
-      script.push(
-        { agent: ceo, text: `${others[0].name}, can you start on competitor research?` },
-        { agent: others[0], text: "On it. I'll have a landscape overview ready by end of day." },
-      );
-    }
-    if (others[1]) {
-      script.push(
-        { agent: ceo, text: `${others[1].name}, let's get our content calendar set up.` },
-        { agent: others[1], text: "Already drafting a plan. I'll share it in #content shortly." },
-      );
-    }
-    if (others[0] && others[1]) {
-      script.push(
-        { agent: others[0], text: `${others[1].name}, I found some gaps in our positioning. Want to sync?` },
-        { agent: others[1], text: "Yes! Let's coordinate. I can weave the insights into our first blog post." },
-      );
-    }
-    if (others[2]) {
-      script.push(
-        { agent: ceo, text: `${others[2].name}, what's the status on your side?` },
-        { agent: others[2], text: "Setting up the foundational workflows now. Looking good so far." },
-      );
-    }
-    script.push(
-      { agent: ceo, text: "Great energy everyone. Let's make this a strong first week." },
-    );
+    const roomReplies: Record<RoomType, string[]> = {
+      office: [
+        "On it. I'll have a landscape overview ready by end of day.",
+        "Already drafting a plan. I'll share it in #content shortly.",
+        "Setting up the foundational workflows now. Looking good so far.",
+      ],
+      study: [
+        "I'll triage the inbox and surface what needs you.",
+        "Calendar looks clear until 3pm — good window for writing.",
+        "I've linked three new notes to the 'Daily' index already.",
+      ],
+      lab: [
+        "Pulling the latest paper on this now — draft summary in an hour.",
+        "I'll sync the bibliography after this and flag duplicates.",
+        "Lecture outline for Thursday is almost ready for review.",
+      ],
+      "family-room": [
+        "Schedule looks clear after 4. Flagging overlapping drop-offs.",
+        "Menu drafted for the week — grocery list is ready to review.",
+        "Kids' activities synced. DnD night is still on for Friday.",
+      ],
+      blank: [
+        "Got it. Ready whenever you are.",
+        "Standing by.",
+        "I'll wait for direction.",
+      ],
+    };
+
+    const replies = roomReplies[roomType];
+
+    const topics: Record<RoomType, string[]> = {
+      office: ["competitor research", "the content calendar", "the launch plan"],
+      study: ["today's inbox triage", "this week's writing", "my reading list"],
+      lab: ["the lit review", "Thursday's lecture prep", "the references list"],
+      "family-room": ["today's schedule", "the meal plan", "the kids' activities"],
+      blank: ["the first thing", "whatever's next", "the open question"],
+    };
+    const topicList = topics[roomType];
+
+    others.slice(0, 3).forEach((other, idx) => {
+      const topic = topicList[idx] || "what's next";
+      script.push({ agent: lead, text: `${other.name}, can you take on ${topic}?` });
+      if (replies[idx]) {
+        script.push({ agent: other, text: replies[idx] });
+      }
+    });
+
+    const closing: Record<RoomType, string> = {
+      office: "Great energy everyone. Let's make this a strong first week.",
+      study: "Good. Ping me when anything needs me — otherwise I'll stay out of your way.",
+      lab: "Keep me posted. I'll review whatever you push by end of day.",
+      "family-room": "Thanks all. Ping me if anything shifts during the day.",
+      blank: "Whenever you're ready, tell us what to do.",
+    };
+    script.push({ agent: lead, text: closing[roomType] });
 
     return script;
-  }, [agents, companyName]);
+  }, [agents, workspaceName, homeName, roomType]);
 
   useEffect(() => {
     if (visibleCount >= messages.length) return;
@@ -1226,24 +1544,152 @@ const dotGridStyle: React.CSSProperties = {
   backgroundSize: "32px 32px",
 };
 
+const STEP_NAMES: Record<number, string> = {
+  0: "intro",
+  [STEP_WELCOME_HOME]: "welcome-home",
+  [STEP_ROOM_SETUP]: "room-setup",
+  [STEP_TEAM]: "team",
+  [STEP_PROVIDER]: "provider",
+  5: "github",
+  6: "discord",
+  7: "cloud",
+  8: "launch",
+};
+
 export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const stepName = STEP_NAMES[step] ?? `step-${step}`;
+    sendTelemetry("onboarding.step", { step: stepName });
+  }, [step]);
+
+  // Cabinet Cloud waitlist (replaces Tally form). View event fires when the
+  // cloud step is reached; start fires on first input; submit fires on success.
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudStatus, setCloudStatus] = useState<
+    "idle" | "submitting" | "success" | "already" | "error"
+  >("idle");
+  const cloudStartedRef = useRef(false);
+  const cloudViewedRef = useRef(false);
+  useEffect(() => {
+    if (step === 7 && !cloudViewedRef.current) {
+      cloudViewedRef.current = true;
+      recordWaitlistView("cabinet-onboarding");
+    }
+  }, [step]);
+  const handleCloudInput = useCallback((value: string) => {
+    setCloudEmail(value);
+    if (cloudStatus === "error" || cloudStatus === "already") setCloudStatus("idle");
+    if (!cloudStartedRef.current && value.length > 0) {
+      cloudStartedRef.current = true;
+      recordWaitlistStart("cabinet-onboarding");
+    }
+  }, [cloudStatus]);
+  const handleCloudSubmit = useCallback(async () => {
+    const trimmed = cloudEmail.trim();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setCloudStatus("error");
+      return;
+    }
+    setCloudStatus("submitting");
+    const result = await submitWaitlistEmail(trimmed, "cabinet-onboarding");
+    if (!result.ok) {
+      setCloudStatus("error");
+      return;
+    }
+    setCloudStatus(result.alreadyOnList ? "already" : "success");
+  }, [cloudEmail]);
+
   const [answers, setAnswers] = useState<OnboardingAnswers>({
     name: "",
     role: "",
-    companyName: "",
+    homeName: "",
+    roomType: "study",
+    workspaceName: "",
     description: "",
     teamSize: "",
     priority: "",
   });
+  const mandatoryAgents = useMemo(
+    () => new Set<string>(ROOMS[answers.roomType].mandatoryAgents),
+    [answers.roomType]
+  );
+  const activeRoom = ROOMS[answers.roomType];
+  const descriptionInputRef = useRef<HTMLInputElement>(null);
+
+  // Welcome-home typewriter. Starts after the blueprint-draw delay so the
+  // cursor begins typing inside the freshly-appeared popup.
+  const [welcomeTyped, setWelcomeTyped] = useState(0);
+  useEffect(() => {
+    if (step !== STEP_WELCOME_HOME) {
+      setWelcomeTyped(0);
+      return;
+    }
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const start = window.setTimeout(() => {
+      interval = setInterval(() => {
+        setWelcomeTyped((c) => {
+          if (c >= WELCOME_PARAGRAPH.length) {
+            if (interval) clearInterval(interval);
+            return c;
+          }
+          return c + 1;
+        });
+      }, WELCOME_TYPE_CHAR_MS);
+    }, WELCOME_TYPE_START_MS);
+    return () => {
+      window.clearTimeout(start);
+      if (interval) clearInterval(interval);
+    };
+  }, [step]);
   const [suggestedAgents, setSuggestedAgents] = useState<SuggestedAgent[]>([]);
   const [libraryTemplates, setLibraryTemplates] = useState<LibraryTemplate[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [githubStars, setGithubStars] = useState(GITHUB_STARS_FALLBACK);
   const [providersLoading, setProvidersLoading] = useState(true);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [onboardingVerifyState, setOnboardingVerifyState] = useState<
+    Record<string, OnboardingVerifyState>
+  >({});
+  const runOnboardingVerify = useCallback(async (providerId: string) => {
+    setOnboardingVerifyState((prev) => ({
+      ...prev,
+      [providerId]: { phase: "running" },
+    }));
+    try {
+      const res = await fetch(`/api/agents/providers/${providerId}/verify`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        setOnboardingVerifyState((prev) => ({
+          ...prev,
+          [providerId]: {
+            phase: "error",
+            message: body.error || `HTTP ${res.status}`,
+          },
+        }));
+        return;
+      }
+      const data = (await res.json()) as OnboardingVerifyResult;
+      setOnboardingVerifyState((prev) => ({
+        ...prev,
+        [providerId]: { phase: "done", result: data },
+      }));
+    } catch (err) {
+      setOnboardingVerifyState((prev) => ({
+        ...prev,
+        [providerId]: {
+          phase: "error",
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  }, []);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedEffort, setSelectedEffort] = useState<string | null>(null);
@@ -1251,14 +1697,15 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const [isExistingCabinet, setIsExistingCabinet] = useState(false);
   const readyProviders = providers.filter((p) => p.available && p.authenticated);
   const anyProviderReady = readyProviders.length > 0;
-  const activeProvider = providers.find((p) => p.id === selectedProvider);
-  const activeModel = resolveProviderModel(
-    activeProvider,
-    selectedModel || undefined,
-    undefined
+  const sortedProviders = useMemo(() => {
+    const rank = (p: ProviderInfo) =>
+      p.available && p.authenticated ? 0 : p.available ? 1 : 2;
+    return [...providers].sort((a, b) => rank(a) - rank(b));
+  }, [providers]);
+  const expandedProviderInfo = useMemo(
+    () => (expandedProvider ? providers.find((p) => p.id === expandedProvider) || null : null),
+    [expandedProvider, providers]
   );
-  const activeModels = activeProvider?.models || [];
-  const activeEffortLevels = getModelEffortLevels(activeProvider, activeModel?.id);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1294,7 +1741,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
           if (data.manifest.name) {
             setAnswers((prev) => ({
               ...prev,
-              companyName: prev.companyName || data.manifest.name,
+              workspaceName: prev.workspaceName || data.manifest.name,
             }));
           }
         }
@@ -1309,35 +1756,40 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
       if (!res.ok) throw new Error("Failed to check providers");
       const data = await res.json();
       const cliProviders: ProviderInfo[] = (data.providers ?? []).filter(
-        (p: ProviderInfo) => p.type === "cli"
+        isAgentProviderSelectable
       );
       setProviders(cliProviders);
-      // Auto-select first ready provider if none selected
+      // Auto-select first ready provider if none selected — functional setState
+      // keeps this independent of `selectedProvider` so user clicks don't refire
+      // the fetch via useEffect.
       const ready = cliProviders.filter((p) => p.available && p.authenticated);
-      if (ready.length > 0 && !selectedProvider) {
-        const first = ready[0];
-        const firstModelId = first.models?.[0]?.id ?? null;
-        setSelectedProvider(first.id);
-        setSelectedModel(firstModelId);
-        setSelectedEffort(
-          getSuggestedProviderEffort(first, firstModelId || undefined)?.id || null
-        );
+      if (ready.length > 0) {
+        setSelectedProvider((current) => {
+          if (current) return current;
+          const first = ready[0];
+          const firstModelId = first.models?.[0]?.id ?? null;
+          setSelectedModel(firstModelId);
+          setSelectedEffort(
+            getSuggestedProviderEffort(first, firstModelId || undefined)?.id || null
+          );
+          return first.id;
+        });
       }
     } catch {
       setProviders([]);
     } finally {
       setProvidersLoading(false);
     }
-  }, [selectedProvider]);
+  }, []);
 
   useEffect(() => {
-    if (step === 3) {
+    if (step === STEP_PROVIDER) {
       void checkProvider();
     }
   }, [step, checkProvider]);
 
   const goToTeamSuggestion = async () => {
-    setStep(2);
+    setStep(STEP_TEAM);
     setAgentsLoading(true);
     try {
       const res = await fetch("/api/agents/library");
@@ -1355,10 +1807,11 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
         }))
       );
     } catch {
-      // Fallback: at least offer CEO + Editor
+      // Fallback: at least offer the room's mandatory pair
+      const [leadSlug, editorSlug] = ROOMS[answers.roomType].mandatoryAgents;
       setSuggestedAgents([
-        { slug: "ceo", name: "CEO Agent", emoji: "\u{1F3AF}", role: "Strategic planning, goal tracking, task delegation", checked: true },
-        { slug: "editor", name: "Editor", emoji: "\u{1F4DD}", role: "KB content, documentation, formatting", checked: true },
+        { slug: leadSlug, name: leadSlug, emoji: "\u{1F916}", role: "Lead", checked: true },
+        { slug: editorSlug, name: editorSlug, emoji: "\u{1F4DD}", role: "Support", checked: true },
       ]);
     } finally {
       setAgentsLoading(false);
@@ -1368,8 +1821,8 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const MAX_AGENTS = 5;
 
   const toggleAgent = (slug: string) => {
-    // CEO and Editor are mandatory — cannot be unchecked
-    if (ALWAYS_CHECKED.has(slug)) return;
+    // The room's mandatory agents cannot be unchecked.
+    if (mandatoryAgents.has(slug)) return;
 
     setSuggestedAgents((prev) => {
       const target = prev.find((a) => a.slug === slug);
@@ -1408,10 +1861,28 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          answers,
+          homeName: answers.homeName || (answers.name ? `${answers.name}'s Home` : "Home"),
+          roomType: answers.roomType,
+          answers: {
+            name: answers.name,
+            workspaceName: answers.workspaceName,
+            description: answers.description,
+            teamSize: answers.teamSize,
+            priority: answers.priority,
+          },
           selectedAgents: selected,
         }),
       });
+
+      sendTelemetry("onboarding.completed", {
+        roomType: answers.roomType ?? null,
+        provider: selectedProvider ?? null,
+      });
+
+      // Persist the disclaimer acknowledgment so the standalone
+      // BreakingChangesWarning modal short-circuits on the next mount and
+      // the tour can flow seamlessly after the wizard.
+      acknowledgeDisclaimer();
 
       onComplete();
     } catch (e) {
@@ -1464,25 +1935,24 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
     },
     {
       eyebrow: "Cabinet Cloud",
-      title: "Cabinet Cloud is for people who want the magic without babysitting the plumbing.",
+      title: "Your Cabinet, anywhere. Your AI team, always on.",
       description:
-        "Self-hosting is great until you're explaining ports, sync, and local setup to a teammate who just wanted the doc to open.",
+        "Open your Cabinet from any device while your AI agents keep working — drafting, researching, organizing — even when your laptop is closed.",
       aside:
-        "Cloud is the future easy button: easier sharing, less setup, and fewer heroic acts of yak shaving before coffee.",
+        "Cabinet Cloud is coming soon. Same product, none of the self-hosting plumbing.",
       cards: [
         {
-          title: "Join the Cabinet Cloud waitlist",
+          title: "Connect from anywhere",
           description:
-            "Raise your hand if you want the hosted version first when it is ready.",
-          cta: "Register for Cabinet Cloud",
-          href: CABINET_CLOUD_URL,
+            "One Cabinet across phone, laptop, and browser. Pick up exactly where you left off, no setup required.",
+          cta: "",
           icon: <Cloud className="size-4" />,
           iconClassName: "",
         },
         {
-          title: "Why people want it",
+          title: "Agents that don't sleep",
           description:
-            "Less setup, easier sharing, faster onboarding for teams, and a much lower chance of explaining terminal tabs before lunch.",
+            "Your AI team keeps running 24/7 in the background. Wake up to drafts written, inboxes triaged, and research done.",
           cta: "",
           icon: <Rocket className="size-4" />,
           iconClassName: "",
@@ -1496,6 +1966,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
       : null;
   const isGitHubCommunityStep = communityStep?.eyebrow === "GitHub";
   const launchDisabled = launching || selectedAgentCount === 0;
+  const finalLaunchDisabled = launchDisabled || !disclaimerAccepted;
   const starsLabel = `${formatGithubStars(githubStars)} GitHub stars`;
 
   /* ─── Shared inline styles (website tokens) ─── */
@@ -1513,131 +1984,300 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   };
 
   return (
-    <div className="min-h-screen" style={{ background: WEB.bg, color: WEB.text }}>
+    <div
+      className="relative min-h-screen overflow-hidden"
+      style={{ background: WEB.bg, color: WEB.text }}
+    >
+      {step === STEP_WELCOME_HOME && (
+        <div className="pointer-events-none absolute inset-0">
+          <HomeBlueprintBackground
+            accent={WEB.accent}
+            accentSoft={WEB.accentBg}
+            paper={WEB.bgWarm}
+          />
+        </div>
+      )}
       <div
-        className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-6 py-10"
-        style={dotGridStyle}
+        className={`relative mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center ${
+          step === STEP_WELCOME_HOME ? "px-4 py-4" : "px-6 py-10"
+        }`}
+        style={step === STEP_WELCOME_HOME ? undefined : dotGridStyle}
       >
         <div className="w-full">
-          {/* Progress indicator */}
-          <div className="mb-10 flex items-center justify-center gap-2">
-            {Array.from({ length: STEP_COUNT }, (_, i) => i).map((i) => (
-              <div
-                key={i}
-                className="rounded-full transition-all duration-300"
-                style={{
-                  height: 8,
-                  width: i <= step ? 40 : 24,
-                  background: i <= step ? WEB.accent : WEB.borderLight,
-                }}
-              />
-            ))}
-          </div>
+          {/* Progress indicator — hidden on Welcome home so the popup truly
+              centers over the blueprint's patio. */}
+          {step !== STEP_WELCOME_HOME && (
+            <div className="mb-10 flex items-center justify-center gap-2">
+              {Array.from({ length: STEP_COUNT }, (_, i) => i).map((i) => (
+                <div
+                  key={i}
+                  className="rounded-full transition-all duration-300"
+                  style={{
+                    height: 8,
+                    width: i <= step ? 40 : 24,
+                    background: i <= step ? WEB.accent : WEB.borderLight,
+                  }}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Step 0: Welcome — Dictionary card */}
           {step === 0 && (
             <IntroStep onNext={() => setStep(1)} />
           )}
 
-          {/* Step 1: Welcome — About you */}
-          {step === 1 && (
-            <div className="mx-auto flex max-w-xl flex-col gap-8 animate-in fade-in duration-300">
-              <div className="text-center space-y-2">
-                <h1 className="font-logo text-2xl tracking-tight italic">
-                  Welcome to <span style={{ color: WEB.accent }}>your</span> Cabinet
-                </h1>
-              </div>
+          {/* Step 1: Welcome home — appears after the blueprint finishes drawing */}
+          {step === STEP_WELCOME_HOME && (
+            <div className="relative">
+              <style>{`
+                @keyframes wh-popup-in {
+                  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+                  to   { opacity: 1; transform: translateY(0)   scale(1); }
+                }
+                @keyframes wh-item-in {
+                  from { opacity: 0; transform: translateY(6px); }
+                  to   { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes wh-caret-blink {
+                  0%, 100% { opacity: 1; }
+                  50%      { opacity: 0; }
+                }
+                .wh-popup {
+                  opacity: 0;
+                  animation: wh-popup-in 0.75s cubic-bezier(0.2, 0.9, 0.2, 1) var(--wh-d, 4.3s) forwards;
+                }
+                .wh-item {
+                  opacity: 0;
+                  animation: wh-item-in 0.55s ease-out var(--wh-d, 4.5s) forwards;
+                }
+                .wh-caret {
+                  display: inline-block;
+                  margin-left: 1px;
+                  font-weight: 400;
+                  animation: wh-caret-blink 0.9s steps(2) infinite;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                  .wh-popup, .wh-item, .wh-caret { opacity: 1; transform: none; animation: none; }
+                }
+              `}</style>
+              <div
+                className="wh-popup relative z-10 mx-auto flex w-full max-w-xl flex-col gap-5 rounded-2xl px-7 py-7"
+                style={{
+                  background: "rgba(253, 250, 244, 0.88)",
+                  backdropFilter: "blur(10px) saturate(1.2)",
+                  WebkitBackdropFilter: "blur(10px) saturate(1.2)",
+                  border: `1px solid ${WEB.accent}33`,
+                  boxShadow:
+                    "0 20px 60px -20px rgba(139, 94, 60, 0.28), 0 0 0 1px rgba(255,255,255,0.6) inset",
+                  ["--wh-d" as string]: "4.3s",
+                } as React.CSSProperties}
+              >
+                <div className="text-center space-y-2.5">
+                  <h1
+                    className="wh-item font-logo text-2xl tracking-tight italic"
+                    style={{ ["--wh-d" as string]: "4.6s" } as React.CSSProperties}
+                  >
+                    Welcome <span style={{ color: WEB.accent }}>home</span>
+                  </h1>
+                  {/* Typewriter paragraph — reserves its full final height via a
+                      transparent clone of the remaining text so the layout
+                      doesn't jump while characters are being revealed. */}
+                  <p
+                    className="text-sm leading-relaxed text-center"
+                    style={{ color: WEB.textSecondary, minHeight: "5.5em" }}
+                  >
+                    <span>{WELCOME_PARAGRAPH.slice(0, welcomeTyped)}</span>
+                    {welcomeTyped < WELCOME_PARAGRAPH.length && (
+                      <span
+                        className="wh-caret"
+                        aria-hidden="true"
+                        style={{ color: WEB.accent }}
+                      >
+                        |
+                      </span>
+                    )}
+                    <span aria-hidden="true" style={{ color: "transparent" }}>
+                      {WELCOME_PARAGRAPH.slice(welcomeTyped)}
+                    </span>
+                  </p>
+                </div>
 
-              <div className="space-y-5">
-                <div className="space-y-2">
+                <div
+                  className="wh-item space-y-2"
+                  style={{ ["--wh-d" as string]: "5.0s" } as React.CSSProperties}
+                >
                   <label className="text-sm font-medium" style={{ color: WEB.text }}>
                     What&apos;s your name?
                   </label>
                   <input
                     value={answers.name}
-                    onChange={(e) =>
-                      setAnswers({ ...answers, name: e.target.value })
-                    }
+                    onChange={(e) => setAnswers({ ...answers, name: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && answers.name.trim()) {
+                        e.preventDefault();
+                        setStep(STEP_ROOM_SETUP);
+                      }
+                    }}
                     placeholder="Jane"
                     style={inputStyle}
                     autoFocus
                   />
                 </div>
 
+                <div
+                  className="wh-item flex items-center justify-between pt-1"
+                  style={{ ["--wh-d" as string]: "5.15s" } as React.CSSProperties}
+                >
+                  <button
+                    onClick={() => setStep(0)}
+                    className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors"
+                    style={{ color: WEB.textSecondary }}
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back
+                  </button>
+                  <button
+                    onClick={() => setStep(STEP_ROOM_SETUP)}
+                    disabled={!answers.name.trim()}
+                    className="inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-medium text-white transition-all hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0"
+                    style={{ background: WEB.accent }}
+                  >
+                    Next
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Pick a room + name + describe the cabinet (merged) */}
+          {step === STEP_ROOM_SETUP && (
+            <div className="mx-auto flex max-w-4xl flex-col gap-7 animate-in fade-in duration-300">
+              <div className="text-center space-y-2">
+                <h1 className="font-logo text-2xl tracking-tight italic">
+                  Pick a <span style={{ color: WEB.accent }}>room</span>
+                </h1>
+                <p className="text-sm leading-relaxed" style={{ color: WEB.textSecondary }}>
+                  What&apos;s this cabinet for? Each room comes with its own AI team.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                {ROOM_TYPES.map((id) => {
+                  const room = ROOMS[id];
+                  const Icon = room.icon;
+                  const isSelected = answers.roomType === id;
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setAnswers({ ...answers, roomType: id })}
+                      className="group relative flex flex-col gap-2.5 rounded-xl p-4 text-left transition-all hover:-translate-y-0.5 overflow-hidden"
+                      style={{
+                        background: isSelected ? WEB.accentBg : WEB.bgCard,
+                        border: `1px solid ${isSelected ? WEB.accent : WEB.border}`,
+                        boxShadow: isSelected
+                          ? "0 4px 14px rgba(139, 94, 60, 0.15)"
+                          : "0 1px 2px rgba(59, 47, 47, 0.03)",
+                        minHeight: 170,
+                      }}
+                    >
+                      {/* Vague background glyph — blurred, tiny-opacity, bleeds off the card */}
+                      <Icon
+                        aria-hidden="true"
+                        className="pointer-events-none absolute transition-opacity duration-300"
+                        style={{
+                          right: -40,
+                          bottom: -40,
+                          width: 190,
+                          height: 190,
+                          color: WEB.accent,
+                          opacity: isSelected ? 0.09 : 0.045,
+                          strokeWidth: 1,
+                          filter: "blur(1.5px)",
+                        }}
+                      />
+                      <div className="relative space-y-1">
+                        <p className="text-sm font-semibold" style={{ color: WEB.text }}>
+                          {room.label}
+                        </p>
+                        <p className="text-[11px] leading-relaxed" style={{ color: WEB.textSecondary }}>
+                          {room.tagline}
+                        </p>
+                      </div>
+                      <div
+                        className="relative mt-auto flex flex-wrap items-center gap-1 pt-2"
+                        style={{ borderTop: `1px solid ${WEB.borderLight}` }}
+                      >
+                        {room.exampleAgents.slice(0, 2).map((ex) => (
+                          <span
+                            key={ex}
+                            className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+                            style={{
+                              background: isSelected ? WEB.bgCard : WEB.bgWarm,
+                              color: WEB.textSecondary,
+                            }}
+                          >
+                            {ex}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Cabinet name + description inputs, adaptive to the active room */}
+              <div
+                className="space-y-5 rounded-2xl p-5"
+                style={{ background: WEB.bgCard, border: `1px solid ${WEB.border}` }}
+              >
                 <div className="space-y-2">
                   <label className="text-sm font-medium" style={{ color: WEB.text }}>
-                    What&apos;s your company or project name?
+                    {activeRoom.workspaceLabel}
                   </label>
                   <input
-                    value={answers.companyName}
+                    value={answers.workspaceName}
                     onChange={(e) =>
-                      setAnswers({ ...answers, companyName: e.target.value })
+                      setAnswers({ ...answers, workspaceName: e.target.value })
                     }
-                    placeholder="Acme Corp"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        descriptionInputRef.current?.focus();
+                      }
+                    }}
+                    placeholder={activeRoom.workspacePlaceholder}
                     style={inputStyle}
                   />
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium" style={{ color: WEB.text }}>
-                    What do you do?
+                    {activeRoom.descriptionLabel}
                   </label>
                   <input
+                    ref={descriptionInputRef}
                     value={answers.description}
                     onChange={(e) =>
                       setAnswers({ ...answers, description: e.target.value })
                     }
-                    placeholder="We make a podcast about AI startups"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && answers.workspaceName.trim()) {
+                        e.preventDefault();
+                        void goToTeamSuggestion();
+                      }
+                    }}
+                    placeholder={activeRoom.descriptionPlaceholder}
                     style={inputStyle}
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" style={{ color: WEB.text }}>
-                    How big is your team?
-                  </label>
-                  <div className="flex gap-2">
-                    {TEAM_SIZES.map((size) => (
-                      <button
-                        key={size}
-                        onClick={() =>
-                          setAnswers({ ...answers, teamSize: size })
-                        }
-                        className="flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-all"
-                        style={{
-                          border: `1px solid ${answers.teamSize === size ? WEB.accent : WEB.border}`,
-                          background: answers.teamSize === size ? WEB.accentBg : WEB.bgCard,
-                          color: answers.teamSize === size ? WEB.accent : WEB.textSecondary,
-                        }}
-                      >
-                        {size}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span
-                      className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full"
-                      style={{
-                        color: WEB.textSecondary,
-                        background: `${WEB.bg}`,
-                        border: `1px solid ${WEB.border}`,
-                      }}
-                    >
-                      Coming soon
-                    </span>
-                    <span
-                      className="text-[11px] font-semibold uppercase tracking-wider"
-                      style={{ color: WEB.textTertiary }}
-                    >
-                      Pre-made multi-human multi-agent teams
-                    </span>
-                  </div>
-                </div>
               </div>
 
-              <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between pt-1">
                 <button
-                  onClick={() => setStep(0)}
+                  onClick={() => setStep(STEP_WELCOME_HOME)}
                   className="inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-medium transition-colors"
                   style={{ color: WEB.textSecondary }}
                 >
@@ -1646,7 +2286,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                 </button>
                 <button
                   onClick={goToTeamSuggestion}
-                  disabled={!answers.name.trim() || !answers.companyName.trim()}
+                  disabled={!answers.workspaceName.trim()}
                   className="inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-medium text-white transition-all hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0"
                   style={{ background: WEB.accent }}
                 >
@@ -1657,8 +2297,8 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
             </div>
           )}
 
-          {/* Step 2: Team Suggestion — carousel + agent picker */}
-          {step === 2 && (
+          {/* Step 4: Team Suggestion — carousel + agent picker */}
+          {step === STEP_TEAM && (
             <TeamBuildStep
               agentsLoading={agentsLoading}
               suggestedAgents={suggestedAgents}
@@ -1667,13 +2307,16 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
               selectedCount={selectedAgentCount}
               maxAgents={MAX_AGENTS}
               toggleAgent={toggleAgent}
-              onBack={() => setStep(1)}
-              onNext={() => setStep(3)}
+              roomType={answers.roomType}
+              homeName={answers.homeName || (answers.name ? `${answers.name}'s Home` : "Home")}
+              mandatoryAgents={mandatoryAgents}
+              onBack={() => setStep(STEP_ROOM_SETUP)}
+              onNext={() => setStep(STEP_PROVIDER)}
             />
           )}
 
-          {/* Step 3: AI Provider Check */}
-          {step === 3 && (
+          {/* Step 5: AI Provider Check */}
+          {step === STEP_PROVIDER && (
             <div className="mx-auto flex max-w-xl flex-col gap-6 animate-in fade-in duration-300">
               <div className="text-center space-y-2">
                 <h1 className="font-logo text-2xl tracking-tight italic">
@@ -1690,174 +2333,142 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                   <Loader2 className="size-6 animate-spin" style={{ color: WEB.textTertiary }} />
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {providers.map((p) => {
-                    const isReady = !!(p.available && p.authenticated);
-                    const isInstalled = !!p.available;
-                    const isExpanded = expandedProvider === p.id;
-                    const isSelected = selectedProvider === p.id;
-                    const statusColor = isReady ? "#16a34a" : isInstalled ? "#d97706" : WEB.textTertiary;
-                    const statusText = isReady
-                      ? `Ready ${p.version ? `\u2014 ${p.version}` : ""}`
-                      : isInstalled
-                        ? "Installed but not logged in"
-                        : "Not detected on this machine";
-                    const setupSteps: { title: string; detail: string; cmd?: string; openTerminal?: boolean; link?: { label: string; url: string } }[] = [
-                      { title: "Open a terminal", detail: "You'll need a terminal to run the next steps.", openTerminal: true },
-                      ...((p.installSteps || []).map((step) => {
-                        return {
-                          title: step.title,
-                          detail: step.detail,
-                          cmd: step.command,
-                          link: step.link,
-                        };
-                      })),
-                    ];
-                    return (
-                      <div
-                        key={p.id}
-                        className="group rounded-xl p-4 space-y-3 transition-all cursor-pointer"
-                        style={{
-                          background: isSelected && isReady ? WEB.accentBg : WEB.bgCard,
-                          border: `1px solid ${isSelected && isReady ? WEB.borderDark : WEB.borderLight}`,
-                        }}
-                        onClick={() => {
-                          if (!isReady) return;
-                          const nextModelId = p.models?.[0]?.id ?? null;
-                          setSelectedProvider(p.id);
-                          setSelectedModel(nextModelId);
-                          setSelectedEffort(
-                            getSuggestedProviderEffort(
-                              p,
-                              nextModelId || undefined
-                            )?.id || null
-                          );
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          {/* Radio selector for ready providers */}
-                          {isReady && (
-                            <div
-                              className="flex size-4 shrink-0 items-center justify-center rounded-full"
-                              style={{
-                                border: `1.5px solid ${isSelected ? WEB.accent : WEB.borderDark}`,
-                                background: isSelected ? WEB.accent : "transparent",
-                              }}
-                            >
-                              {isSelected && <Check className="size-2.5 text-white" />}
-                            </div>
-                          )}
-                          <div
-                            className="flex size-9 items-center justify-center rounded-lg"
-                            style={{ background: WEB.bgWarm, color: WEB.accent }}
-                          >
-                            <ProviderGlyph icon={p.icon} className="size-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium" style={{ color: WEB.text }}>
-                              {p.name}
-                            </p>
-                            <p className="text-[11px]" style={{ color: statusColor }}>
-                              {statusText}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setExpandedProvider(isExpanded ? null : p.id); }}
-                              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all"
-                              style={{
-                                background: isExpanded ? WEB.bgWarm : "transparent",
-                                color: WEB.textTertiary,
-                              }}
-                            >
-                              <Info className="size-3" />
-                              Guide
-                              <ChevronDown
-                                className="size-3 transition-transform duration-300"
-                                style={{ transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-                              />
-                            </button>
-                            {isReady && (
-                              <CheckCircle2 className="size-5" style={{ color: "#16a34a" }} />
-                            )}
-                            {isInstalled && !isReady && (
-                              <XCircle className="size-5" style={{ color: "#d97706" }} />
-                            )}
-                            {!isInstalled && (
-                              <XCircle className="size-5" style={{ color: WEB.textTertiary }} />
-                            )}
-                          </div>
-                        </div>
-
-                        <div
-                          className="overflow-hidden transition-all duration-300 ease-in-out"
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+                    {sortedProviders.map((p) => {
+                      const isReady = !!(p.available && p.authenticated);
+                      const isInstalled = !!p.available;
+                      const isSelected = selectedProvider === p.id;
+                      const isExpanded = expandedProvider === p.id;
+                      const verifyState =
+                        onboardingVerifyState[p.id] ?? { phase: "idle" as const };
+                      const verifyMeta =
+                        verifyState.phase === "done"
+                          ? ONBOARDING_VERIFY_META[verifyState.result.status]
+                          : null;
+                      const statusLabel = isReady
+                        ? "Ready"
+                        : isInstalled
+                          ? "Log in required"
+                          : "Not installed";
+                      const statusColor = isReady
+                        ? "#16a34a"
+                        : isInstalled
+                          ? "#d97706"
+                          : WEB.textTertiary;
+                      const statusBg = isReady
+                        ? "rgba(22,163,74,0.12)"
+                        : isInstalled
+                          ? "rgba(217,119,6,0.12)"
+                          : "rgba(100,116,139,0.12)";
+                      const cardBorder = isReady
+                        ? isSelected
+                          ? WEB.accent
+                          : WEB.borderLight
+                        : isInstalled
+                          ? "rgba(217,119,6,0.45)"
+                          : WEB.borderLight;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            if (isReady) {
+                              const nextModelId = p.models?.[0]?.id ?? null;
+                              setSelectedProvider(p.id);
+                              setSelectedModel(nextModelId);
+                              setSelectedEffort(
+                                getSuggestedProviderEffort(
+                                  p,
+                                  nextModelId || undefined
+                                )?.id || null
+                              );
+                            } else {
+                              setExpandedProvider(isExpanded ? null : p.id);
+                            }
+                          }}
+                          className="group relative flex flex-col items-start gap-2 rounded-xl p-3 text-left transition-all hover:-translate-y-0.5"
                           style={{
-                            maxHeight: isExpanded ? 500 : 0,
-                            opacity: isExpanded ? 1 : 0,
+                            background:
+                              isSelected && isReady ? WEB.accentBg : WEB.bgCard,
+                            border: `1px solid ${cardBorder}`,
+                            boxShadow:
+                              isSelected && isReady
+                                ? `0 0 0 2px ${WEB.accent}22`
+                                : undefined,
+                            opacity: isReady ? 1 : isInstalled ? 0.95 : 0.7,
                           }}
                         >
-                          <div
-                            className="rounded-lg p-3 space-y-3"
-                            style={{ background: WEB.bgWarm }}
-                          >
-                            {setupSteps.map((setupStep, i) => (
-                              <div key={i} className="flex items-start gap-2.5">
-                                <span
-                                  className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold mt-0.5"
-                                  style={{ background: WEB.accent, color: "white" }}
+                          {isSelected && isReady && (
+                            <span
+                              className="absolute right-2 top-2 flex size-4 items-center justify-center rounded-full"
+                              style={{ background: WEB.accent }}
+                            >
+                              <Check className="size-2.5 text-white" />
+                            </span>
+                          )}
+                          <div className="flex w-full items-center gap-2">
+                            <div
+                              className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+                              style={{
+                                background: WEB.bgWarm,
+                                color: WEB.accent,
+                              }}
+                            >
+                              <ProviderGlyph icon={p.icon} className="size-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className="truncate text-[13px] font-medium"
+                                style={{ color: WEB.text }}
+                              >
+                                {p.name}
+                              </p>
+                              {isReady && p.version && (
+                                <p
+                                  className="truncate text-[10px]"
+                                  style={{ color: WEB.textTertiary }}
                                 >
-                                  {i + 1}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[13px] font-medium" style={{ color: WEB.text }}>
-                                    {setupStep.title}
-                                  </p>
-                                  <p className="text-[11px] mt-0.5" style={{ color: WEB.textSecondary }}>
-                                    {setupStep.detail}
-                                  </p>
-                                  {setupStep.cmd && (
-                                    <TerminalCommand command={setupStep.cmd} />
-                                  )}
-                                  {setupStep.openTerminal && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        fetch("/api/terminal/open", { method: "POST" }).catch(() => {
-                                          alert("Could not open terminal automatically. Please open Terminal.app (Mac) or your system terminal manually.");
-                                        });
-                                      }}
-                                      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 mt-1.5 text-[11px] font-medium transition-all hover:-translate-y-0.5"
-                                      style={{ background: "#1e1e1e", color: "#d4d4d4" }}
-                                    >
-                                      <Terminal className="size-3" />
-                                      Open terminal
-                                    </button>
-                                  )}
-                                  {setupStep.link && (
-                                    <a
-                                      href={setupStep.link.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="inline-flex items-center gap-1 text-[11px] font-medium mt-1.5"
-                                      style={{ color: WEB.accent }}
-                                    >
-                                      {setupStep.link.label}
-                                      <ExternalLink className="size-3" />
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-
-                            <p className="text-[11px]" style={{ color: WEB.textTertiary }}>
-                              After setup, click Re-check below. You may need to restart Cabinet if it was already running.
-                            </p>
+                                  {p.version}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                              style={{ background: statusBg, color: statusColor }}
+                            >
+                              {verifyMeta ? verifyMeta.label : statusLabel}
+                            </span>
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-medium"
+                              style={{ color: WEB.textTertiary }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedProvider(isExpanded ? null : p.id);
+                              }}
+                              role="button"
+                            >
+                              {isReady
+                                ? "Guide"
+                                : isInstalled
+                                  ? "Log in"
+                                  : "Install"}
+                              <ChevronDown
+                                className="size-3 transition-transform"
+                                style={{
+                                  transform: isExpanded
+                                    ? "rotate(180deg)"
+                                    : "rotate(0deg)",
+                                }}
+                              />
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
 
                   <button
                     onClick={checkProvider}
@@ -1867,104 +2478,199 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                     <RefreshCw className="size-3" />
                     Re-check providers
                   </button>
+
+                  {/* Install / verify guide drawer */}
+                  {expandedProviderInfo && (() => {
+                    const p = expandedProviderInfo;
+                    const setupSteps: { title: string; detail: string; cmd?: string; openTerminal?: boolean; link?: { label: string; url: string } }[] = [
+                      { title: "Open a terminal", detail: "You'll need a terminal to run the next steps.", openTerminal: true },
+                      ...((p.installSteps || []).map((step) => ({
+                        title: step.title,
+                        detail: step.detail,
+                        cmd: step.command,
+                        link: step.link,
+                      }))),
+                    ];
+                    const verifyState =
+                      onboardingVerifyState[p.id] ?? { phase: "idle" as const };
+                    const verifyResult =
+                      verifyState.phase === "done" ? verifyState.result : null;
+                    const verifyMeta = verifyResult
+                      ? ONBOARDING_VERIFY_META[verifyResult.status]
+                      : null;
+                    return (
+                      <div
+                        className="rounded-xl p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200"
+                        style={{
+                          background: WEB.bgWarm,
+                          border: `1px solid ${WEB.borderLight}`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="flex size-7 items-center justify-center rounded-lg"
+                              style={{ background: WEB.bgCard, color: WEB.accent }}
+                            >
+                              <ProviderGlyph icon={p.icon} className="size-3.5" />
+                            </div>
+                            <p className="text-[13px] font-semibold" style={{ color: WEB.text }}>
+                              {p.name} setup
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setExpandedProvider(null)}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium"
+                            style={{ color: WEB.textTertiary }}
+                          >
+                            Close
+                          </button>
+                        </div>
+
+                        {setupSteps.map((setupStep, i) => {
+                          const isFailedStep =
+                            verifyResult?.status !== undefined &&
+                            verifyResult.status !== "pass" &&
+                            setupStep.title.trim().toLowerCase() ===
+                              verifyResult.failedStepTitle.trim().toLowerCase();
+                          const isPassStep =
+                            verifyResult?.status === "pass" &&
+                            /verify\s+setup/i.test(setupStep.title);
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-start gap-2.5 rounded-md p-1.5"
+                              style={{
+                                background: isFailedStep
+                                  ? "rgba(225,29,72,0.08)"
+                                  : isPassStep
+                                    ? "rgba(22,163,74,0.08)"
+                                    : "transparent",
+                                boxShadow: isFailedStep
+                                  ? "0 0 0 1px rgba(225,29,72,0.3) inset"
+                                  : isPassStep
+                                    ? "0 0 0 1px rgba(22,163,74,0.3) inset"
+                                    : undefined,
+                              }}
+                            >
+                              <span
+                                className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold mt-0.5"
+                                style={{
+                                  background: isFailedStep
+                                    ? "#e11d48"
+                                    : isPassStep
+                                      ? "#16a34a"
+                                      : WEB.accent,
+                                  color: "white",
+                                }}
+                              >
+                                {isFailedStep ? "!" : isPassStep ? "✓" : i + 1}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-medium" style={{ color: WEB.text }}>
+                                  {setupStep.title}
+                                </p>
+                                <p className="text-[11px] mt-0.5" style={{ color: WEB.textSecondary }}>
+                                  {setupStep.detail}
+                                </p>
+                                {setupStep.cmd && (
+                                  <TerminalCommand command={setupStep.cmd} />
+                                )}
+                                {setupStep.openTerminal && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      fetch("/api/terminal/open", { method: "POST" }).catch(() => {
+                                        showError("Could not open terminal automatically. Open your system terminal manually.");
+                                      });
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 mt-1.5 text-[11px] font-medium transition-all hover:-translate-y-0.5"
+                                    style={{ background: "#1e1e1e", color: "#d4d4d4" }}
+                                  >
+                                    <Terminal className="size-3" />
+                                    Open terminal
+                                  </button>
+                                )}
+                                {setupStep.link && (
+                                  <a
+                                    href={setupStep.link.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-medium mt-1.5"
+                                    style={{ color: WEB.accent }}
+                                  >
+                                    {setupStep.link.label}
+                                    <ExternalLink className="size-3" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        <div
+                          className="flex flex-wrap items-center gap-2 pt-2 border-t"
+                          style={{ borderColor: WEB.borderLight }}
+                        >
+                          <button
+                            onClick={() => void runOnboardingVerify(p.id)}
+                            disabled={verifyState.phase === "running"}
+                            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-all hover:-translate-y-0.5 disabled:opacity-50"
+                            style={{ background: WEB.accent, color: "white" }}
+                          >
+                            {verifyState.phase === "running" ? (
+                              <RefreshCw className="size-3 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="size-3" />
+                            )}
+                            {verifyState.phase === "running"
+                              ? "Verifying…"
+                              : verifyState.phase === "done"
+                                ? "Re-run verify"
+                                : "Run verify"}
+                          </button>
+                          {verifyMeta && (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                              style={{ background: verifyMeta.bg, color: verifyMeta.color }}
+                            >
+                              {verifyMeta.label}
+                            </span>
+                          )}
+                          {verifyResult &&
+                            verifyResult.status !== "pass" &&
+                            verifyResult.failedStepTitle && (
+                              <span className="text-[11px]" style={{ color: WEB.textSecondary }}>
+                                Failed at step:{" "}
+                                <strong style={{ color: WEB.text }}>
+                                  {verifyResult.failedStepTitle}
+                                </strong>
+                              </span>
+                            )}
+                          {verifyState.phase === "error" && (
+                            <span className="text-[11px]" style={{ color: "#e11d48" }}>
+                              {verifyState.message}
+                            </span>
+                          )}
+                        </div>
+                        {verifyResult?.hint && verifyResult.status !== "pass" && (
+                          <p className="text-[11px]" style={{ color: WEB.textSecondary }}>
+                            {verifyResult.hint}
+                          </p>
+                        )}
+
+                        <p className="text-[11px]" style={{ color: WEB.textTertiary }}>
+                          Verify runs the provider's headless prompt end-to-end and classifies any failure so you know which step to revisit.
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
-              {/* Model selector — shown when a ready provider is selected */}
-              {activeModels.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: WEB.textTertiary }}>
-                    Default model
-                  </p>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {activeModels.map((m) => {
-                      const isMSelected = selectedModel === m.id;
-                      return (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            const nextEffortId =
-                              resolveProviderEffort(
-                                activeProvider,
-                                m.id,
-                                selectedEffort || undefined,
-                                undefined
-                              )?.id ||
-                              getSuggestedProviderEffort(activeProvider, m.id)?.id ||
-                              null;
-                            setSelectedModel(m.id);
-                            setSelectedEffort(nextEffortId);
-                          }}
-                          className="rounded-xl p-3 text-left transition-all"
-                          style={{
-                            background: isMSelected ? WEB.accentBg : WEB.bgCard,
-                            border: `1px solid ${isMSelected ? WEB.borderDark : WEB.borderLight}`,
-                          }}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <div
-                              className="flex size-3 shrink-0 items-center justify-center rounded-full"
-                              style={{
-                                border: `1.5px solid ${isMSelected ? WEB.accent : WEB.borderDark}`,
-                                background: isMSelected ? WEB.accent : "transparent",
-                              }}
-                            >
-                              {isMSelected && <Check className="size-1.5 text-white" />}
-                            </div>
-                            <p className="text-[13px] font-medium" style={{ color: WEB.text }}>{m.name}</p>
-                          </div>
-                          {m.description && (
-                            <p className="text-[11px] ml-5" style={{ color: WEB.textSecondary }}>{m.description}</p>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Effort level selector — only for providers that support it */}
-              {activeEffortLevels.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: WEB.textTertiary }}>
-                    {activeModel?.name
-                      ? `Reasoning effort · ${activeModel.name}`
-                      : "Reasoning effort"}
-                  </p>
-                  <div className="grid gap-2 sm:grid-cols-4">
-                    {activeEffortLevels.map((e) => {
-                      const isESelected = selectedEffort === e.id;
-                      return (
-                        <button
-                          key={e.id}
-                          onClick={() => setSelectedEffort(e.id)}
-                          className="rounded-xl p-3 text-left transition-all"
-                          style={{
-                            background: isESelected ? WEB.accentBg : WEB.bgCard,
-                            border: `1px solid ${isESelected ? WEB.borderDark : WEB.borderLight}`,
-                          }}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <div
-                              className="flex size-3 shrink-0 items-center justify-center rounded-full"
-                              style={{
-                                border: `1.5px solid ${isESelected ? WEB.accent : WEB.borderDark}`,
-                                background: isESelected ? WEB.accent : "transparent",
-                              }}
-                            >
-                              {isESelected && <Check className="size-1.5 text-white" />}
-                            </div>
-                            <p className="text-[13px] font-medium" style={{ color: WEB.text }}>{e.name}</p>
-                          </div>
-                          {e.description && (
-                            <p className="text-[11px] ml-5" style={{ color: WEB.textSecondary }}>{e.description}</p>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {/* Model + effort selectors are intentionally hidden during onboarding —
+                  the provider tile click seeds the first model + suggested effort,
+                  and both are refinable later from Settings → Providers. */}
 
               {/* Coming soon providers */}
               <div className="space-y-2">
@@ -1973,10 +2679,10 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {[
-                    { name: "Gemini CLI", type: "CLI", icon: "terminal" },
                     { name: "Anthropic API", type: "API", icon: "api" },
                     { name: "OpenAI API", type: "API", icon: "api" },
                     { name: "Google AI API", type: "API", icon: "api" },
+                    { name: "Plugin SDK", type: "SDK", icon: "terminal" },
                   ].map((p) => (
                     <div
                       key={p.name}
@@ -2011,7 +2717,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
 
               <div className="flex items-center justify-between pt-2">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(STEP_TEAM)}
                   className="inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-medium transition-colors"
                   style={{ color: WEB.textSecondary }}
                 >
@@ -2030,7 +2736,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
             </div>
           )}
 
-          {/* Steps 5-7: Community */}
+          {/* Steps 6-8: Community */}
           {communityStep && (
             <div className="relative mx-auto flex max-w-2xl flex-col gap-8 animate-in fade-in duration-300">
               {/* Floating emoji backdrop per community step */}
@@ -2159,26 +2865,82 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
 
                 {communityStep.eyebrow === "Cabinet Cloud" && (
                   <div className="pt-6">
-                    <a
-                      href={CABINET_CLOUD_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex w-full items-center justify-between gap-4 rounded-full px-5 py-5 sm:px-6 sm:py-6 transition-all hover:-translate-y-0.5"
+                    <div
+                      className="flex w-full flex-col gap-3 rounded-3xl px-5 py-5 sm:px-6 sm:py-6"
                       style={{ background: WEB.accentBg, border: `1px solid ${WEB.border}` }}
                     >
-                      <span className="flex min-w-0 items-center gap-4">
+                      <div className="flex min-w-0 items-center gap-4">
                         <span className="flex size-11 shrink-0 items-center justify-center rounded-full shadow-sm" style={{ background: WEB.bgCard }}>
                           <Cloud className="size-5" style={{ color: WEB.accent }} />
                         </span>
-                        <span className="flex min-w-0 flex-col items-start gap-0.5 text-left">
+                        <div className="flex min-w-0 flex-col items-start gap-0.5 text-left">
                           <span className="truncate text-base font-semibold sm:text-lg" style={{ color: WEB.text }}>Join the Cabinet Cloud waitlist</span>
-                          <span className="text-sm" style={{ color: WEB.textSecondary }}>Get the hosted version when it&apos;s ready</span>
-                        </span>
-                      </span>
-                      <span className="hidden shrink-0 rounded-full px-3 py-1 text-sm font-semibold sm:inline-flex" style={{ background: WEB.bgWarm, color: WEB.accent }}>
-                        Waitlist
-                      </span>
-                    </a>
+                          <span className="text-sm" style={{ color: WEB.textSecondary }}>Connect from anywhere. Your AI team works 24/7.</span>
+                        </div>
+                      </div>
+                      {cloudStatus === "success" || cloudStatus === "already" ? (
+                        <div
+                          className="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm"
+                          style={{ background: WEB.bgCard, border: `1px solid ${WEB.border}`, color: WEB.text }}
+                        >
+                          <CheckCircle2 className="size-4 shrink-0" style={{ color: WEB.accent }} />
+                          <span>
+                            {cloudStatus === "already"
+                              ? "You're already on the list — we'll be in touch."
+                              : "You're on the list. We'll email you when Cabinet Cloud opens up."}
+                          </span>
+                        </div>
+                      ) : (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void handleCloudSubmit();
+                          }}
+                          className="flex flex-col gap-2 sm:flex-row"
+                        >
+                          <input
+                            type="email"
+                            inputMode="email"
+                            autoComplete="email"
+                            placeholder="you@company.com"
+                            value={cloudEmail}
+                            onChange={(e) => handleCloudInput(e.target.value)}
+                            disabled={cloudStatus === "submitting"}
+                            className="flex-1 rounded-full px-4 text-sm outline-none"
+                            style={{
+                              background: WEB.bgCard,
+                              border: `1px solid ${cloudStatus === "error" ? "#dc2626" : WEB.border}`,
+                              color: WEB.text,
+                              height: 44,
+                              fontFamily: "inherit",
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            disabled={cloudStatus === "submitting" || cloudEmail.trim().length === 0}
+                            className="inline-flex items-center justify-center gap-2 rounded-full px-6 text-sm font-medium text-white transition-all disabled:opacity-60"
+                            style={{ background: WEB.accent, height: 44, minWidth: 130 }}
+                          >
+                            {cloudStatus === "submitting" ? (
+                              <>
+                                <Loader2 className="size-4 animate-spin" />
+                                Sending…
+                              </>
+                            ) : (
+                              <>
+                                Join waitlist
+                                <ArrowRight className="size-3.5" />
+                              </>
+                            )}
+                          </button>
+                        </form>
+                      )}
+                      {cloudStatus === "error" && (
+                        <div className="text-xs" style={{ color: "#dc2626" }}>
+                          Something went wrong. Check the email and try again.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2234,10 +2996,10 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                 }}
               >
                 {/* Left half — Company + agents */}
-                <div className="p-5 space-y-4 flex-1 overflow-y-auto">
+                <div className="p-5 space-y-4 flex-1 overflow-y-auto scrollbar-thin">
                   <div className="space-y-1">
                     <h2 className="font-logo text-xl tracking-tight italic" style={{ color: WEB.text }}>
-                      {answers.companyName || "Your Cabinet"}
+                      {answers.workspaceName || "Your Cabinet"}
                     </h2>
                     <p
                       className="text-[11px] font-semibold uppercase tracking-wider"
@@ -2291,12 +3053,132 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                     <span className="text-[11px] font-semibold" style={{ color: WEB.textTertiary }}>#</span>
                     <span className="text-[11px] font-semibold" style={{ color: WEB.text }}>general</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3 pb-2 space-y-0.5">
-                    <AgentChatPreview agents={suggestedAgents.filter((a) => a.checked)} companyName={answers.companyName} />
+                  <div className="flex-1 overflow-y-auto scrollbar-thin p-3 pb-2 space-y-0.5">
+                    <AgentChatPreview
+                      agents={suggestedAgents.filter((a) => a.checked)}
+                      workspaceName={answers.workspaceName}
+                      homeName={answers.homeName || (answers.name ? `${answers.name}'s Home` : "Home")}
+                      roomType={answers.roomType}
+                    />
                   </div>
                 </div>
               </div>
 
+
+              <div
+                className="rounded-xl p-4 space-y-3 text-sm"
+                style={{
+                  border: `1px solid ${WEB.border}`,
+                  background: WEB.bgCard,
+                }}
+              >
+                <p className="text-[13px] font-semibold" style={{ color: WEB.text }}>
+                  Before you launch
+                </p>
+                <ul className="space-y-2">
+                  <li className="flex gap-3">
+                    <span
+                      className="mt-2 size-1 shrink-0 rounded-full"
+                      style={{ background: WEB.textTertiary }}
+                      aria-hidden
+                    />
+                    <span style={{ color: WEB.textSecondary }}>
+                      <strong className="font-medium" style={{ color: WEB.text }}>
+                        Agents run with full access.
+                      </strong>{" "}
+                      Cabinet uses{" "}
+                      <code
+                        className="rounded px-1 py-0.5 text-[11px]"
+                        style={{ background: WEB.bgWarm, color: WEB.text }}
+                      >
+                        --dangerously-skip-permissions
+                      </code>{" "}
+                      (Claude Code) and equivalent flags in other providers. This is identical
+                      to running these CLI tools from your own terminal. Any MCP servers or
+                      tools you&apos;ve configured may be invoked automatically by agents.
+                    </span>
+                  </li>
+                  <li className="flex gap-3">
+                    <span
+                      className="mt-2 size-1 shrink-0 rounded-full"
+                      style={{ background: WEB.textTertiary }}
+                      aria-hidden
+                    />
+                    <span style={{ color: WEB.textSecondary }}>
+                      <strong className="font-medium" style={{ color: WEB.text }}>
+                        Back up your data regularly.
+                      </strong>{" "}
+                      Agents can read, write, and delete files across your KB and linked repos.
+                      Cabinet is not responsible for data loss. You are responsible for the AI
+                      providers you choose and their terms of service.
+                    </span>
+                  </li>
+                  <li className="flex gap-3">
+                    <span
+                      className="mt-2 size-1 shrink-0 rounded-full"
+                      style={{ background: WEB.textTertiary }}
+                      aria-hidden
+                    />
+                    <span style={{ color: WEB.textSecondary }}>
+                      <strong className="font-medium" style={{ color: WEB.text }}>
+                        Beta software. Things may break.
+                      </strong>{" "}
+                      We ship fast. Breaking changes can land without notice.
+                    </span>
+                  </li>
+                </ul>
+                <label
+                  className="flex cursor-pointer items-start gap-2 pt-1"
+                  style={{ color: WEB.text }}
+                >
+                  <input
+                    type="checkbox"
+                    name="disclaimer-accept"
+                    aria-label="I have read and I accept"
+                    checked={disclaimerAccepted}
+                    onChange={(e) => setDisclaimerAccepted(e.target.checked)}
+                    className="mt-0.5 size-4 shrink-0 rounded"
+                    style={{ borderColor: WEB.border, accentColor: WEB.accent }}
+                  />
+                  <span>I understand and want to continue.</span>
+                </label>
+                <p
+                  className="text-[11px]"
+                  style={{ color: WEB.textTertiary }}
+                >
+                  By continuing you agree to our{" "}
+                  <a
+                    href="https://runcabinet.com/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2"
+                    style={{ color: WEB.textSecondary }}
+                  >
+                    Terms
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="https://runcabinet.com/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2"
+                    style={{ color: WEB.textSecondary }}
+                  >
+                    Privacy
+                  </a>
+                  . Cabinet is an{" "}
+                  <a
+                    href="https://github.com/hilash/cabinet"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2"
+                    style={{ color: WEB.textSecondary }}
+                  >
+                    open-source project
+                  </a>
+                  .
+                </p>
+              </div>
 
               <div className="flex items-center justify-between pt-2">
                 <button
@@ -2309,7 +3191,7 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                 </button>
                 <button
                   onClick={launch}
-                  disabled={launchDisabled}
+                  disabled={finalLaunchDisabled}
                   className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium text-white transition-all hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0"
                   style={{ background: WEB.accent }}
                 >

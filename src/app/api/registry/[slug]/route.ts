@@ -6,7 +6,7 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
-import { REGISTRY_TEMPLATES } from "@/lib/registry/registry-manifest";
+import { getRegistryTemplates } from "@/lib/registry/registry-manifest";
 
 function stripWikiLinks(markdown: string): string {
   // [[path/to/page]] → last segment as plain text
@@ -187,7 +187,8 @@ export async function GET(
 ) {
   const { slug } = await params;
 
-  const template = REGISTRY_TEMPLATES.find((t) => t.slug === slug);
+  const templates = await getRegistryTemplates();
+  const template = templates.find((t) => t.slug === slug);
   if (!template) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -244,6 +245,7 @@ export async function GET(
       readmeHtml,
       tags,
       domain: template.domain,
+      coverUrl: template.coverUrl,
       stats: {
         totalAgents,
         totalJobs,

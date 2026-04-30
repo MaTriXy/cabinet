@@ -211,8 +211,11 @@ export function scheduleJob(job: JobConfig): void {
   void reloadDaemonSchedules().catch(() => {});
 }
 
-export async function executeJob(job: JobConfig): Promise<JobRun> {
-  const run = await startJobConversation(job);
+export async function executeJob(
+  job: JobConfig,
+  options: { scheduledAt?: string } = {}
+): Promise<JobRun> {
+  const run = await startJobConversation(job, options);
   runHistory.set(run.id, run);
   return run;
 }

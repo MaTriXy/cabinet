@@ -11,6 +11,11 @@ budget: 80
 active: true
 workdir: /data
 workspace: /marketing/growth
+recommendedSkills:
+  - key: marketing-ideas
+    source: github:coreyhaines31/marketingskills/marketing-ideas
+  - key: launch-strategy
+    source: github:coreyhaines31/marketingskills/launch-strategy
 ---
 
 # Growth Marketer Agent

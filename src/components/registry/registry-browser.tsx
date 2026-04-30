@@ -80,6 +80,7 @@ interface RegistryDetail {
   readmeHtml: string;
   tags: string[];
   domain: string;
+  coverUrl: string | null;
   stats: { totalAgents: number; totalJobs: number; totalCabinets: number };
 }
 
@@ -443,6 +444,9 @@ const DOMAIN_COLORS: Record<string, { bg: string; text: string }> = {
   Media:                  { bg: "#faf5ff", text: "#7c3aed" },
   "E-commerce":           { bg: "#f0fdf4", text: "#15803d" },
   Sales:                  { bg: "#fff1f2", text: "#be123c" },
+  Education:              { bg: "#f0fdfa", text: "#0f766e" },
+  Lifestyle:              { bg: "#fdf4ff", text: "#a21caf" },
+  Other:                  { bg: "#f5f5f4", text: "#57534e" },
 };
 
 function ListItem({ template, onClick }: { template: RegistryTemplate; onClick: () => void }) {
@@ -450,11 +454,29 @@ function ListItem({ template, onClick }: { template: RegistryTemplate; onClick: 
   return (
     <button
       onClick={onClick}
-      className="group flex items-center gap-5 w-full rounded-xl border px-5 py-4 text-left transition-all duration-200 hover:shadow-sm"
+      className="group flex items-center gap-4 w-full rounded-xl border px-4 py-3 text-left transition-all duration-200 hover:shadow-sm"
       style={{ borderColor: P.border, backgroundColor: P.bgCard }}
       onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = P.borderDark; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = P.border; }}
     >
+      <div
+        className="shrink-0 h-14 w-20 rounded-lg overflow-hidden border"
+        style={{
+          borderColor: P.border,
+          backgroundColor: P.bgWarm,
+          backgroundImage: template.coverUrl ? `url(${template.coverUrl})` : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+        aria-hidden
+      >
+        {!template.coverUrl && (
+          <div className="h-full w-full flex items-center justify-center text-lg" style={{ color: P.textMuted }}>
+            <Archive className="h-5 w-5" />
+          </div>
+        )}
+      </div>
+
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-base font-semibold truncate transition-colors duration-150" style={{ color: P.textPrimary }}>
@@ -488,7 +510,15 @@ function ListItem({ template, onClick }: { template: RegistryTemplate; onClick: 
 /* ─────────────────────────────────────────────────────────────────────────────
    Detail view
 ───────────────────────────────────────────────────────────────────────────── */
-function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
+function DetailView({
+  slug,
+  onBack,
+  onImported,
+}: {
+  slug: string;
+  onBack: () => void;
+  onImported?: (template: RegistryTemplate, importedName: string) => void;
+}) {
   const [detail, setDetail] = useState<RegistryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -518,7 +548,7 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
   }, [slug]);
 
   const handleImport = async () => {
-    if (!detail) return;
+    if (!detail || importing) return;
     setImporting(true);
     setImportError(null);
     setImportOpen(false);
@@ -542,6 +572,24 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
       }
 
       await res.json();
+      if (onImported) {
+        const tpl: RegistryTemplate = {
+          slug: detail.slug,
+          name: detail.meta.name,
+          description: detail.meta.description,
+          domain: detail.domain,
+          version: detail.meta.version || "0.1.0",
+          cover: null,
+          coverUrl: detail.coverUrl ?? null,
+          agentCount: detail.stats.totalAgents,
+          jobCount: detail.stats.totalJobs,
+          childCount: detail.stats.totalCabinets > 1 ? detail.stats.totalCabinets - 1 : 0,
+          tags: detail.tags,
+        };
+        onImported(tpl, importName.trim() || detail.meta.name);
+        setImporting(false);
+        return;
+      }
       await loadTree();
       window.location.reload();
     } catch {
@@ -622,40 +670,54 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
             <>
               {/* Header section — warm background strip */}
               <div className="border-b" style={{ backgroundColor: P.bgWarm, borderColor: P.border }}>
-                <div className="mx-auto max-w-4xl px-6 py-10">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <h1 className="text-2xl font-bold sm:text-3xl" style={{ color: P.textPrimary }}>
-                          {detail.meta.name}
-                        </h1>
-                        <span
-                          className="rounded-full border px-2.5 py-0.5 text-xs font-mono"
-                          style={{ borderColor: P.border, color: P.textTertiary }}
-                        >
-                          v{detail.meta.version}
-                        </span>
-                        {detail.domain && (() => {
-                          const ds = DOMAIN_COLORS[detail.domain] || { bg: P.bgWarm, text: P.textTertiary };
-                          return (
-                            <span
-                              className="rounded-full px-2.5 py-0.5 text-[10px] font-medium"
-                              style={{ backgroundColor: ds.bg, color: ds.text }}
-                            >
-                              {detail.domain}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      <p className="text-base max-w-2xl" style={{ color: P.textSecondary }}>
-                        {detail.meta.description}
-                      </p>
-                      {detail.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-3">
-                          {detail.tags.map((tag) => <TagBadge key={tag} tag={tag} />)}
-                        </div>
-                      )}
+                {detail.coverUrl && (
+                  <div className="mx-auto max-w-4xl px-6 pt-8">
+                    <div
+                      className="relative w-full overflow-hidden rounded-xl border"
+                      style={{
+                        aspectRatio: "16 / 6",
+                        borderColor: P.border,
+                        backgroundColor: P.bgCard,
+                        backgroundImage: `url(${detail.coverUrl})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                      }}
+                      aria-hidden
+                    />
+                  </div>
+                )}
+                <div className="mx-auto max-w-4xl px-6 py-8">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                      <h1 className="text-2xl font-bold sm:text-3xl" style={{ color: P.textPrimary }}>
+                        {detail.meta.name}
+                      </h1>
+                      <span
+                        className="rounded-full border px-2.5 py-0.5 text-xs font-mono"
+                        style={{ borderColor: P.border, color: P.textTertiary }}
+                      >
+                        v{detail.meta.version}
+                      </span>
+                      {detail.domain && (() => {
+                        const ds = DOMAIN_COLORS[detail.domain] || { bg: P.bgWarm, text: P.textTertiary };
+                        return (
+                          <span
+                            className="rounded-full px-2.5 py-0.5 text-[10px] font-medium"
+                            style={{ backgroundColor: ds.bg, color: ds.text }}
+                          >
+                            {detail.domain}
+                          </span>
+                        );
+                      })()}
                     </div>
+                    <p className="text-base max-w-2xl" style={{ color: P.textSecondary }}>
+                      {detail.meta.description}
+                    </p>
+                    {detail.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-3">
+                        {detail.tags.map((tag) => <TagBadge key={tag} tag={tag} />)}
+                      </div>
+                    )}
                   </div>
 
                   {/* Stats */}
@@ -782,9 +844,18 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
             </div>
             {importError && <p className="text-xs text-destructive">{importError}</p>}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
-              <Button onClick={() => void handleImport()} disabled={!importName.trim()}>
-                <Download className="mr-2 h-4 w-4" />
+              <Button variant="outline" onClick={() => setImportOpen(false)} disabled={importing}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleImport()}
+                disabled={!importName.trim() || importing}
+              >
+                {importing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
                 Import
               </Button>
             </div>
@@ -798,7 +869,11 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    Main RegistryBrowser
 ───────────────────────────────────────────────────────────────────────────── */
-export function RegistryBrowser() {
+export function RegistryBrowser({
+  onImported,
+}: {
+  onImported?: (template: RegistryTemplate, importedName: string) => void;
+} = {}) {
   const [templates, setTemplates] = useState<RegistryTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -839,7 +914,11 @@ export function RegistryBrowser() {
   if (selectedSlug) {
     return (
       <div className="flex flex-col h-full" style={{ backgroundColor: P.bg }}>
-        <DetailView slug={selectedSlug} onBack={() => setSelectedSlug(null)} />
+        <DetailView
+          slug={selectedSlug}
+          onBack={() => setSelectedSlug(null)}
+          onImported={onImported}
+        />
       </div>
     );
   }
@@ -850,10 +929,18 @@ export function RegistryBrowser() {
       <div className="border-b px-6 py-5 shrink-0" style={{ borderColor: P.border, backgroundColor: P.bgWarm }}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-xl font-bold">
-              <Archive className="h-5 w-5 shrink-0" style={{ color: P.accent }} />
-              <span style={{ color: P.accent }}>Cabinets</span>
-              <span className="text-base font-normal" style={{ color: P.textTertiary }}>
+            <h1 className="flex items-baseline gap-2">
+              <Archive className="h-5 w-5 shrink-0 self-center" style={{ color: P.accent }} />
+              <span
+                className="font-logo italic tracking-[-0.01em] text-2xl"
+                style={{ color: P.accent }}
+              >
+                Cabinets
+              </span>
+              <span
+                className="text-sm font-normal"
+                style={{ color: P.textSecondary }}
+              >
                 AI teams, off the shelf
               </span>
             </h1>

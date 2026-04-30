@@ -1,28 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
-  CheckCircle2,
+  ChevronDown,
   Copy,
   Clock3,
   Crown,
   HeartPulse,
+  Library,
   Loader2,
+  Maximize2,
+  Minimize2,
+  Network,
   Pause,
   Play,
   Plus,
   RefreshCw,
+  Save,
   Send,
   Settings,
   Trash2,
-  XCircle,
-  Zap,
-  Library,
-  Save,
   X,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { dedupFetch } from "@/lib/api/dedup-fetch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,37 +36,57 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConversationSessionView } from "@/components/agents/conversation-session-view";
+import { OrgChartModal } from "@/components/cabinets/org-chart-modal";
+import {
+  NewRoutineDialog,
+  type NewRoutineDialogAgent,
+} from "@/components/agents/new-routine-dialog";
+import { HeartbeatDialog } from "@/components/agents/heartbeat-dialog";
+import { ScheduleView } from "@/components/tasks/board/schedule-view";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { AgentAvatar } from "@/components/agents/agent-avatar";
+import { HeartbeatRow, RoutineRow } from "@/components/agents/schedule-row";
 import {
   appendConversationCabinetPath,
-  buildConversationInstanceKey,
 } from "@/lib/agents/conversation-identity";
 import { cronToHuman } from "@/lib/agents/cron-utils";
 import { SchedulePicker } from "@/components/mission-control/schedule-picker";
 import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { openArtifactPath } from "@/lib/navigation/open-artifact-path";
 import { createConversation } from "@/lib/agents/conversation-client";
+import { isAgentProviderSelectable } from "@/lib/agents/provider-filters";
 import type { JobLibraryTemplate } from "@/lib/jobs/job-library";
-import type { CabinetVisibilityMode } from "@/types/cabinets";
+import type {
+  CabinetAgentSummary,
+  CabinetJobSummary,
+  CabinetOverview,
+  CabinetVisibilityMode,
+} from "@/types/cabinets";
 import type { ConversationDetail, ConversationMeta } from "@/types/conversations";
 import type { JobConfig } from "@/types/jobs";
 import type { AgentListItem, ProviderInfo } from "@/types/agents";
 import { flattenTree } from "@/lib/tree-utils";
-import { CABINET_VISIBILITY_OPTIONS } from "@/lib/cabinets/visibility";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DepthDropdown } from "@/components/cabinets/depth-dropdown";
 import { ComposerInput } from "@/components/composer/composer-input";
+import { NewTaskButton } from "@/components/composer/new-task-button";
+import { useComposerAttachments } from "@/components/composer/use-composer-attachments";
 import {
   TaskRuntimePicker,
   type TaskRuntimeSelection,
 } from "@/components/composer/task-runtime-picker";
+import {
+  StartWorkDialog,
+  WhenChip,
+  type StartWorkMode,
+} from "@/components/composer/start-work-dialog";
 import { useComposer, type MentionableItem } from "@/hooks/use-composer";
 import {
   formatAdapterOptionLabel,
@@ -72,8 +95,6 @@ import {
   resolveAdapterTypeForProvider,
 } from "@/lib/agents/adapter-options";
 
-type TriggerFilter = "all" | "manual" | "job" | "heartbeat";
-type StatusFilter = "all" | "running" | "completed" | "failed";
 type MainPanelMode = "composer" | "conversation" | "settings";
 type SettingsTarget = "directory" | string | null;
 
@@ -106,29 +127,18 @@ interface NewAgentDraft {
   active: boolean;
 }
 
-const GENERAL_AGENT: AgentListItem = {
-  name: "General",
-  slug: "general",
-  emoji: "🤖",
-  role: "Manual Cabinet assistant",
-  active: true,
-  runningCount: 0,
-  department: "general",
-  type: "specialist",
-  workspace: "/",
-  body: "",
-};
-
 const TRIGGER_LABELS: Record<ConversationMeta["trigger"], string> = {
   manual: "Manual",
   job: "Job",
   heartbeat: "Heartbeat",
+  agent: "Agent",
 };
 
 const TASK_CARD_TRIGGER_STYLES: Record<ConversationMeta["trigger"], string> = {
   manual: "bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20",
   job: "bg-emerald-500/12 text-emerald-400 ring-1 ring-emerald-500/20",
   heartbeat: "bg-pink-500/12 text-pink-400 ring-1 ring-pink-500/20",
+  agent: "bg-violet-500/12 text-violet-400 ring-1 ring-violet-500/20",
 };
 
 const STATUS_TAG_STYLES: Record<string, string> = {
@@ -252,68 +262,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function useHorizontalResize(initialWidth: number, minWidth: number, maxWidth: number, direction: "left" | "right" = "left") {
-  const [width, setWidth] = useState(initialWidth);
-  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
-
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent) {
-      if (!dragStateRef.current) return;
-      const delta = event.clientX - dragStateRef.current.startX;
-      const nextWidth =
-        dragStateRef.current.startWidth + (direction === "right" ? -delta : delta);
-      setWidth(clamp(nextWidth, minWidth, maxWidth));
-    }
-
-    function handlePointerUp() {
-      dragStateRef.current = null;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [maxWidth, minWidth]);
-
-  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
-    dragStateRef.current = { startX: event.clientX, startWidth: width };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }
-
-  return { width, startResize };
-}
-
-function formatRelative(iso: string): string {
-  const delta = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(delta / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 function formatTimestamp(iso?: string): string {
   if (!iso) return "Not available";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleString();
-}
-
-function triggerFromFilter(filter: TriggerFilter): ConversationMeta["trigger"] | undefined {
-  if (filter === "all") return undefined;
-  return filter;
-}
-
-function statusFromFilter(filter: StatusFilter): ConversationMeta["status"] | undefined {
-  if (filter === "all") return undefined;
-  return filter;
 }
 
 async function readErrorMessage(
@@ -326,30 +279,6 @@ async function readErrorMessage(
   } catch {
     return fallback;
   }
-}
-
-function TriggerChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-2.5 py-1 text-[11px] transition-colors",
-        active
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-      )}
-    >
-      {children}
-    </button>
-  );
 }
 
 function TriggerIcon({
@@ -395,17 +324,14 @@ export function AgentsWorkspace({
   selectedAgentSlug,
   selectedScope = "all",
   cabinetPath,
-  workspaceMode,
 }: {
   selectedAgentSlug?: string | null;
   selectedScope?: "all" | "agent";
   cabinetPath?: string;
-  workspaceMode?: "ops" | "cabinet";
 }) {
   const [agents, setAgents] = useState<AgentListItem[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
-  const [conversationsLoading, setConversationsLoading] = useState(true);
-  const [hasLoadedConversations, setHasLoadedConversations] = useState(false);
   const [mode, setMode] = useState<MainPanelMode>("composer");
   const [activeAgentSlug, setActiveAgentSlug] = useState<string | null>(
     selectedScope === "agent" ? selectedAgentSlug || null : null
@@ -424,8 +350,6 @@ export function AgentsWorkspace({
   const [defaultProvider, setDefaultProvider] = useState("claude-code");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDraft, setJobDraft] = useState<JobConfig | null>(null);
-  const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [deletingAgent, setDeletingAgent] = useState(false);
   const [newAgentDraft, setNewAgentDraft] = useState<NewAgentDraft>(DEFAULT_NEW_AGENT);
@@ -436,8 +360,8 @@ export function AgentsWorkspace({
   const [settingsBodyMode, setSettingsBodyMode] = useState<"write" | "preview">("preview");
   const [settingsEditorOpen, setSettingsEditorOpen] = useState(false);
   const [customAgentDialogOpen, setCustomAgentDialogOpen] = useState(false);
-  const [newJobDialogOpen, setNewJobDialogOpen] = useState(false);
-  const [libraryDialogOpen, setLibraryDialogOpen] = useState(false);
+  const [, setNewJobDialogOpen] = useState(false);
+  const [, setLibraryDialogOpen] = useState(false);
   const [conversationDetailsOpen, setConversationDetailsOpen] = useState(false);
   const [detailsCopied, setDetailsCopied] = useState(false);
   const [libraryTemplates, setLibraryTemplates] = useState<JobLibraryTemplate[]>([]);
@@ -449,10 +373,11 @@ export function AgentsWorkspace({
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingJob, setSavingJob] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
-  const [hoveredConvKey, setHoveredConvKey] = useState<string | null>(null);
   const [quickSendAgent, setQuickSendAgent] = useState<string | null>(null);
   const [taskRuntime, setTaskRuntime] = useState<TaskRuntimeSelection>({});
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [handoffMode, setHandoffMode] = useState<StartWorkMode>("recurring");
+  const [handoffAgentSlug, setHandoffAgentSlug] = useState<string | null>(null);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const [agentJobsMap, setAgentJobsMap] = useState<Record<string, JobConfig[]>>({});
   const [orgChartJobDialog, setOrgChartJobDialog] = useState<{
@@ -473,22 +398,29 @@ export function AgentsWorkspace({
   const [orgChartHeartbeatRunning, setOrgChartHeartbeatRunning] = useState(false);
   const [orgChartHeartbeatSaving, setOrgChartHeartbeatSaving] = useState(false);
   const lastSavedSettingsRef = useRef<string | null>(null);
-  const conversationsPanel = useHorizontalResize(340, 260, 520, "right");
   const treeNodes = useTreeStore((state) => state.nodes);
   const section = useAppStore((state) => state.section);
   const setSection = useAppStore((state) => state.setSection);
+  const [orgChartOpen, setOrgChartOpen] = useState(false);
+  const [scheduleFullscreen, setScheduleFullscreen] = useState(false);
+  const [newRoutineIsNew, setNewRoutineIsNew] = useState(false);
+  const [routineDialog, setRoutineDialog] = useState<{
+    agent: NewRoutineDialogAgent;
+    existingJob?: JobConfig;
+  } | null>(null);
+  const [heartbeatDialog, setHeartbeatDialog] = useState<{
+    agent: NewRoutineDialogAgent;
+    initialHeartbeat?: string;
+    initialActive?: boolean;
+  } | null>(null);
+  const [cabinetJobs, setCabinetJobs] = useState<CabinetJobSummary[]>([]);
+  const [cabinetChildren, setCabinetChildren] = useState<CabinetOverview["children"]>([]);
   const cabinetVisibilityModes = useAppStore((state) => state.cabinetVisibilityModes);
   const setCabinetVisibilityMode = useAppStore((state) => state.setCabinetVisibilityMode);
-  const resolvedWorkspaceMode =
-    workspaceMode || (cabinetPath ? "cabinet" : "ops");
-  const effectiveCabinetPath =
-    cabinetPath || (resolvedWorkspaceMode === "ops" ? ROOT_CABINET_PATH : undefined);
+  const effectiveCabinetPath = cabinetPath || ROOT_CABINET_PATH;
   const cabinetVisibilityMode =
-    (effectiveCabinetPath
-      ? cabinetVisibilityModes[effectiveCabinetPath]
-      : undefined) || "own";
-  const effectiveVisibilityMode: CabinetVisibilityMode =
-    resolvedWorkspaceMode === "ops" ? "all" : cabinetVisibilityMode;
+    cabinetVisibilityModes[effectiveCabinetPath] || "own";
+  const effectiveVisibilityMode: CabinetVisibilityMode = cabinetVisibilityMode;
 
   const allPages = flattenTree(treeNodes);
   const settingsAgentSlug =
@@ -496,15 +428,13 @@ export function AgentsWorkspace({
 
   // Build mentionable items for composer
   const mentionItems: MentionableItem[] = [
-    ...agents
-      .filter((a) => a.slug !== "general")
-      .map((a) => ({
-        type: "agent" as const,
-        id: a.slug,
-        label: a.name,
-        sublabel: a.role || "",
-        icon: a.emoji,
-      })),
+    ...agents.map((a) => ({
+      type: "agent" as const,
+      id: a.slug,
+      label: a.name,
+      sublabel: a.role || "",
+      icon: a.emoji,
+    })),
     ...allPages.map((p) => ({
       type: "page" as const,
       id: p.path,
@@ -514,15 +444,35 @@ export function AgentsWorkspace({
   ];
 
   // Shared composer hook for agent workspace panel and quick-send popup
-  const submitTargetRef = useRef<string>("general");
+  const submitTargetRef = useRef<string>("editor");
+  const stagingClientUuid = useMemo(
+    () =>
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `c-${Date.now()}`,
+    []
+  );
+  const attachments = useComposerAttachments({
+    cabinetPath: effectiveCabinetPath,
+    clientAttachmentId: stagingClientUuid,
+  });
   const composer = useComposer({
     items: mentionItems,
-    onSubmit: async ({ message, mentionedPaths: paths }) => {
+    attachments,
+    stagingClientUuid,
+    onSubmit: async ({
+      message,
+      mentionedPaths: paths,
+      attachmentPaths,
+      stagingClientUuid: turnStagingUuid,
+    }) => {
       const targetAgentSlug = submitTargetRef.current;
       const data = await createConversation({
         agentSlug: targetAgentSlug,
         userMessage: message,
         mentionedPaths: paths,
+        attachmentPaths,
+        stagingClientUuid: turnStagingUuid,
         cabinetPath: effectiveCabinetPath,
         ...taskRuntime,
       });
@@ -538,9 +488,9 @@ export function AgentsWorkspace({
   });
 
   const enabledCliProviders = providers.filter(
-    (provider) => provider.type === "cli" && provider.enabled
+    (provider) => isAgentProviderSelectable(provider) && provider.enabled
   );
-  const cliProviders = providers.filter((provider) => provider.type === "cli");
+  const cliProviders = providers.filter(isAgentProviderSelectable);
   const selectableCliProviders = enabledCliProviders.length > 0
     ? enabledCliProviders
     : cliProviders.length > 0
@@ -616,29 +566,35 @@ export function AgentsWorkspace({
   async function refreshAgents() {
     try {
       if (effectiveCabinetPath) {
-        const params = new URLSearchParams({
-          path: effectiveCabinetPath,
-          visibility: effectiveVisibilityMode,
-        });
-        const response = await fetch(`/api/cabinets/overview?${params.toString()}`);
-        if (!response.ok) return;
-        const data = await response.json();
-        const cabinetAgents = (data.agents || []).map((a: Record<string, unknown>) => ({
-          scopedId: a.scopedId as string | undefined,
-          name: a.name as string,
-          slug: a.slug as string,
-          emoji: a.emoji as string || "🤖",
-          role: a.role as string || "",
-          active: a.active as boolean,
-          type: a.type as string,
-          department: a.department as string,
-          heartbeat: a.heartbeat as string || "",
-          jobCount: a.jobCount as number || 0,
+        const data = await fetchCabinetOverviewClient(
+          effectiveCabinetPath,
+          effectiveVisibilityMode
+        );
+        const cabinetAgents = (data.agents || []).map((a) => ({
+          scopedId: a.scopedId,
+          name: a.name,
+          slug: a.slug,
+          emoji: a.emoji || "🤖",
+          role: a.role || "",
+          active: a.active,
+          type: a.type,
+          department: a.department,
+          heartbeat: a.heartbeat || "",
+          jobCount: a.jobCount || 0,
           runningCount: 0,
-          cabinetPath: a.cabinetPath as string,
-          cabinetName: a.cabinetName as string,
+          cabinetPath: a.cabinetPath,
+          cabinetName: a.cabinetName,
+          scope: a.scope,
+          displayName: a.displayName,
+          iconKey: a.iconKey,
+          color: a.color,
+          avatar: a.avatar,
+          avatarExt: a.avatarExt,
         })) as AgentListItem[];
         setAgents(cabinetAgents);
+        setAgentsLoaded(true);
+        setCabinetJobs((data.jobs || []) as CabinetJobSummary[]);
+        setCabinetChildren((data.children || []) as CabinetOverview["children"]);
         return;
       }
 
@@ -646,30 +602,20 @@ export function AgentsWorkspace({
       if (!response.ok) return;
       const data = await response.json();
       const personas = (data.personas || []) as AgentListItem[];
-      const generalRunning =
-        conversations.filter(
-          (conversation) =>
-            conversation.agentSlug === "general" && conversation.status === "running"
-        ).length || 0;
 
-      const sorted = [
-        { ...GENERAL_AGENT, runningCount: generalRunning },
-        ...personas.sort((a, b) => {
-          if (a.slug === "editor") return -1;
-          if (b.slug === "editor") return 1;
-          return a.name.localeCompare(b.name);
-        }),
-      ];
+      const sorted = personas.sort((a, b) => {
+        if (a.slug === "editor") return -1;
+        if (b.slug === "editor") return 1;
+        return a.name.localeCompare(b.name);
+      });
       setAgents(sorted);
+      setAgentsLoaded(true);
     } catch {
       // Ignore transient startup/network failures.
     }
   }
 
   async function refreshConversations() {
-    if (!hasLoadedConversations) {
-      setConversationsLoading(true);
-    }
     try {
       const params = new URLSearchParams();
       if (activeAgentSlug) params.set("agent", activeAgentSlug);
@@ -679,22 +625,19 @@ export function AgentsWorkspace({
           params.set("visibilityMode", effectiveVisibilityMode);
         }
       }
-      const trigger = triggerFromFilter(triggerFilter);
-      const status = statusFromFilter(statusFilter);
-      if (trigger) params.set("trigger", trigger);
-      if (status) params.set("status", status);
       params.set("limit", "200");
 
-      const response = await fetch(`/api/agents/conversations?${params.toString()}`);
+      const response = await dedupFetch(
+        `/api/agents/conversations?${params.toString()}`,
+        undefined,
+        { ttlMs: 1500 }
+      );
       if (response.ok) {
         const data = await response.json();
         setConversations((data.conversations || []) as ConversationMeta[]);
       }
     } catch {
       // Ignore transient startup/network failures.
-    } finally {
-      setConversationsLoading(false);
-      setHasLoadedConversations(true);
     }
   }
 
@@ -750,31 +693,6 @@ export function AgentsWorkspace({
   ) {
     const resetJobEditor = options?.resetJobEditor ?? true;
 
-    if (agentSlug === "general") {
-      setSettingsPersona(GENERAL_AGENT);
-      setSettingsBody("");
-      setSettingsJobs([]);
-      if (resetJobEditor) {
-        setSelectedJobId(null);
-        setJobDraft(null);
-        setNewJobDialogOpen(false);
-        setLibraryDialogOpen(false);
-      }
-      lastSavedSettingsRef.current = JSON.stringify({
-        name: GENERAL_AGENT.name || "",
-        emoji: GENERAL_AGENT.emoji || "",
-        role: GENERAL_AGENT.role || "",
-        department: GENERAL_AGENT.department || "",
-        type: GENERAL_AGENT.type || "",
-        heartbeat: GENERAL_AGENT.heartbeat || "",
-        provider: GENERAL_AGENT.provider || "",
-        adapterType: GENERAL_AGENT.adapterType || "",
-        workspace: GENERAL_AGENT.workspace || "",
-        body: "",
-      });
-      return;
-    }
-
     const resolvedCabinetPath = cabinetPathOverride ?? effectiveCabinetPath;
     const cabinetQuery = resolvedCabinetPath
       ? `?cabinetPath=${encodeURIComponent(resolvedCabinetPath)}`
@@ -801,7 +719,7 @@ export function AgentsWorkspace({
         body: data.persona.body || "",
       });
       // Auto-open edit dialog for agents that haven't completed initial setup
-      if (!data.persona.setupComplete && agentSlug !== "general") {
+      if (!data.persona.setupComplete) {
         handleSettingsEditorOpenChange(true);
       }
     }
@@ -822,7 +740,7 @@ export function AgentsWorkspace({
 
   useEffect(() => {
     void refreshConversations();
-  }, [activeAgentSlug, triggerFilter, statusFilter]);
+  }, [activeAgentSlug]);
 
   useEffect(() => {
     void refreshLibrary();
@@ -839,7 +757,7 @@ export function AgentsWorkspace({
       void refreshAgents();
     }, 3000);
     return () => clearInterval(interval);
-  }, [activeAgentSlug, triggerFilter, statusFilter, conversations]);
+  }, [activeAgentSlug]);
 
   // Re-fetch when cabinet visibility mode changes (separate effect to keep dep array sizes stable)
   useEffect(() => {
@@ -849,7 +767,7 @@ export function AgentsWorkspace({
 
   // Fetch jobs for all agents in parallel for the org chart display
   useEffect(() => {
-    const slugs = agents.filter((a) => a.slug !== "general");
+    const slugs = agents;
     if (slugs.length === 0) return;
     void Promise.all(
       slugs.map((a) => {
@@ -874,8 +792,6 @@ export function AgentsWorkspace({
     setSelectedConversationCabinetPath(pendingConvId ? section.cabinetPath : undefined);
     setSelectedConversation(null);
     setSettingsTarget(selectedScope === "agent" ? selectedAgentSlug || null : null);
-    setHasLoadedConversations(false);
-    setConversationsLoading(true);
     if (pendingConvId) {
       setMode("conversation");
     } else {
@@ -884,31 +800,20 @@ export function AgentsWorkspace({
   }, [section.cabinetPath, section.conversationId, selectedAgentSlug, selectedScope]);
 
   function buildAgentSection(agentSlug: string, agentCabinetPath?: string) {
-    if (agentCabinetPath) {
-      return {
-        type: "agent" as const,
-        mode: "cabinet" as const,
-        slug: agentSlug,
-        cabinetPath: agentCabinetPath,
-        agentScopedId: `${agentCabinetPath}::agent::${agentSlug}`,
-      };
-    }
-
+    const scopedPath = agentCabinetPath || ROOT_CABINET_PATH;
     return {
       type: "agent" as const,
-      mode: "ops" as const,
       slug: agentSlug,
+      cabinetPath: scopedPath,
+      agentScopedId: `${scopedPath}::agent::${agentSlug}`,
     };
   }
 
   function buildAgentsSection(nextCabinetPath?: string) {
-    return nextCabinetPath
-      ? ({
-          type: "agents" as const,
-          mode: "cabinet" as const,
-          cabinetPath: nextCabinetPath,
-        })
-      : ({ type: "agents" as const, mode: "ops" as const });
+    return {
+      type: "agents" as const,
+      cabinetPath: nextCabinetPath || ROOT_CABINET_PATH,
+    };
   }
 
   function openAgentWorkspace(target: AgentListItem | string) {
@@ -918,8 +823,7 @@ export function AgentsWorkspace({
         : target;
     const agentSlug = typeof target === "string" ? target : target.slug;
     const agentCabinetPath =
-      targetAgent?.cabinetPath ||
-      (resolvedWorkspaceMode === "cabinet" ? effectiveCabinetPath : undefined);
+      targetAgent?.cabinetPath || effectiveCabinetPath;
 
     setActiveAgentSlug(agentSlug);
     setSelectedConversationId(null);
@@ -989,7 +893,7 @@ export function AgentsWorkspace({
   }, [settingsAgentSlug, settingsJobs, selectedJobId]);
 
   useEffect(() => {
-    if (mode !== "settings" || !settingsAgentSlug || settingsAgentSlug === "general") {
+    if (mode !== "settings" || !settingsAgentSlug) {
       return;
     }
 
@@ -1012,7 +916,7 @@ export function AgentsWorkspace({
   }, [mode, settingsAgentSlug, settingsBody]);
 
   useEffect(() => {
-    if (!settingsEditorOpen || !settingsPersona || settingsAgentSlug === "general") {
+    if (!settingsEditorOpen || !settingsPersona) {
       return;
     }
 
@@ -1023,7 +927,7 @@ export function AgentsWorkspace({
   }, [settingsAgentSlug, settingsBody, settingsBodyHtml, settingsEditorOpen, settingsPersona]);
 
   useEffect(() => {
-    if (!settingsEditorOpen || settingsAgentSlug === "general") {
+    if (!settingsEditorOpen) {
       return;
     }
 
@@ -1059,10 +963,10 @@ export function AgentsWorkspace({
   }, []);
 
   function openAgentSettings(agentSlug: string) {
-    setMode("settings");
-    setSettingsTarget(agentSlug);
-    setSelectedJobId(null);
-    setJobDraft(null);
+    // Editing now lives on the detail page (`AgentDetailV2`). Route there.
+    const targetAgent = agents.find((a) => a.slug === agentSlug);
+    const agentCabinetPath = targetAgent?.cabinetPath || effectiveCabinetPath;
+    setSection(buildAgentSection(agentSlug, agentCabinetPath));
   }
 
   function handleSettingsEditorOpenChange(open: boolean) {
@@ -1072,7 +976,7 @@ export function AgentsWorkspace({
     }
     if (!open) {
       // Mark setupComplete on close so the dialog doesn't auto-open again
-      if (settingsAgentSlug && settingsAgentSlug !== "general" && settingsPersona && !settingsPersona.setupComplete) {
+      if (settingsAgentSlug && settingsPersona && !settingsPersona.setupComplete) {
         setSettingsPersona({ ...settingsPersona, setupComplete: true });
         fetch(`/api/agents/personas/${settingsAgentSlug}`, {
           method: "PUT",
@@ -1186,7 +1090,7 @@ export function AgentsWorkspace({
   }
 
   async function saveAgentSettings() {
-    if (!settingsAgentSlug || settingsAgentSlug === "general" || !settingsEditorDraft) {
+    if (!settingsAgentSlug || !settingsEditorDraft) {
       handleSettingsEditorOpenChange(false);
       return;
     }
@@ -1242,7 +1146,7 @@ export function AgentsWorkspace({
   }
 
   async function toggleAgentActive() {
-    if (!settingsAgentSlug || settingsAgentSlug === "general") return;
+    if (!settingsAgentSlug) return;
     await fetch(`/api/agents/personas/${settingsAgentSlug}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1253,7 +1157,7 @@ export function AgentsWorkspace({
   }
 
   async function runHeartbeatNow() {
-    if (!settingsAgentSlug || settingsAgentSlug === "general") return;
+    if (!settingsAgentSlug) return;
     const response = await fetch(`/api/agents/personas/${settingsAgentSlug}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1325,6 +1229,29 @@ export function AgentsWorkspace({
     setJobDraft(null);
   }
 
+  // Open the shared NewRoutineDialog for a specific agent. Create vs edit
+  // is controlled by whether `existingJob` is passed. rAF defers past the
+  // DropdownMenu close so base-ui focus-lock doesn't cancel the dialog open.
+  function openRoutineDialog(agent: AgentListItem, existingJob?: JobConfig) {
+    const next: { agent: NewRoutineDialogAgent; existingJob?: JobConfig } = {
+      agent: {
+        slug: agent.slug,
+        name: agent.name,
+        role: agent.role,
+        cabinetPath: agent.cabinetPath || effectiveCabinetPath,
+        provider: agent.provider,
+        adapterType: agent.adapterType,
+      },
+      existingJob,
+    };
+    requestAnimationFrame(() => setRoutineDialog(next));
+  }
+
+  // Back-compat alias used by the Add-routine / Add-scheduled-job buttons.
+  function openNewRoutineFor(agent: AgentListItem) {
+    openRoutineDialog(agent);
+  }
+
   async function saveJob() {
     if (!settingsAgentSlug || !jobDraft) return;
     const isNew = selectedJobId === "__new__" || !selectedJobId;
@@ -1388,6 +1315,76 @@ export function AgentsWorkspace({
     await refreshConversations();
   }
 
+  // List-row handlers for the workspace Routines/Heartbeats sections.
+  // These operate across agents (not just the currently-open settings pane)
+  // and update `agentJobsMap` / `agents` locally so the UI stays snappy.
+  async function listRunRoutine(agent: AgentListItem, job: JobConfig) {
+    const cabinetPath = agent.cabinetPath || effectiveCabinetPath;
+    await fetch(`/api/agents/${agent.slug}/jobs/${job.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "run", cabinetPath }),
+    });
+    await refreshConversations();
+  }
+
+  async function listToggleRoutine(agent: AgentListItem, job: JobConfig) {
+    const cabinetPath = agent.cabinetPath || effectiveCabinetPath;
+    const res = await fetch(`/api/agents/${agent.slug}/jobs/${job.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle", cabinetPath }),
+    });
+    if (!res.ok) return;
+    setAgentJobsMap((prev) => ({
+      ...prev,
+      [agent.slug]: (prev[agent.slug] || []).map((j) =>
+        j.id === job.id ? { ...j, enabled: !j.enabled } : j
+      ),
+    }));
+  }
+
+  async function listDeleteRoutine(agent: AgentListItem, job: JobConfig) {
+    const cabinetPath = agent.cabinetPath || effectiveCabinetPath;
+    const query = cabinetPath ? `?cabinetPath=${encodeURIComponent(cabinetPath)}` : "";
+    const res = await fetch(`/api/agents/${agent.slug}/jobs/${job.id}${query}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) return;
+    setAgentJobsMap((prev) => ({
+      ...prev,
+      [agent.slug]: (prev[agent.slug] || []).filter((j) => j.id !== job.id),
+    }));
+  }
+
+  async function listRunHeartbeat(agent: AgentListItem) {
+    const cabinetPath = agent.cabinetPath || effectiveCabinetPath;
+    await fetch(`/api/agents/personas/${agent.slug}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "run", cabinetPath }),
+    });
+    await refreshConversations();
+  }
+
+  async function listToggleHeartbeat(agent: AgentListItem) {
+    const cabinetPath = agent.cabinetPath || effectiveCabinetPath;
+    const nextActive = !agent.active;
+    const res = await fetch(`/api/agents/personas/${agent.slug}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        heartbeat: agent.heartbeat || "",
+        active: nextActive,
+        cabinetPath,
+      }),
+    });
+    if (!res.ok) return;
+    setAgents((prev) =>
+      prev.map((a) => (a.slug === agent.slug ? { ...a, active: nextActive } : a))
+    );
+  }
+
   async function runJob(jobId: string) {
     if (!settingsAgentSlug) return;
     setRunningJobId(jobId);
@@ -1442,19 +1439,37 @@ export function AgentsWorkspace({
   async function saveOrgChartJob() {
     if (!orgChartJobDialog) return;
     const { agentSlug, cabinetPath, draft } = orgChartJobDialog;
+    const isCreating = newRoutineIsNew || !draft.id;
     setOrgChartJobSaving(true);
     try {
       const query = cabinetPath ? `?cabinetPath=${encodeURIComponent(cabinetPath)}` : "";
-      const response = await fetch(`/api/agents/${agentSlug}/jobs/${draft.id}${query}`, {
-        method: "PUT",
+      const url = isCreating
+        ? `/api/agents/${agentSlug}/jobs${query}`
+        : `/api/agents/${agentSlug}/jobs/${draft.id}${query}`;
+      const response = await fetch(url, {
+        method: isCreating ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
       });
       if (!response.ok) return;
+      let savedDraft = draft;
+      if (isCreating) {
+        try {
+          const data = await response.json();
+          if (data?.job) savedDraft = data.job;
+        } catch {
+          // fall back to draft
+        }
+      }
       setOrgChartJobDialog(null);
+      setNewRoutineIsNew(false);
       setAgentJobsMap((prev) => ({
         ...prev,
-        [agentSlug]: (prev[agentSlug] || []).map((j) => (j.id === draft.id ? draft : j)),
+        [agentSlug]: isCreating
+          ? [...(prev[agentSlug] || []), savedDraft]
+          : (prev[agentSlug] || []).map((j) =>
+              j.id === draft.id ? savedDraft : j
+            ),
       }));
     } finally {
       setOrgChartJobSaving(false);
@@ -1571,7 +1586,7 @@ export function AgentsWorkspace({
   }
 
   async function deleteAgent() {
-    if (!settingsAgentSlug || settingsAgentSlug === "general") return;
+    if (!settingsAgentSlug) return;
     setDeletingAgent(true);
     try {
       const params = new URLSearchParams();
@@ -1622,9 +1637,6 @@ export function AgentsWorkspace({
       : null;
   const activeConversationMeta =
     activeSelectedConversation?.meta || selectedConversationMeta || null;
-  const activeAgent = activeAgentSlug
-    ? agents.find((agent) => agent.slug === activeAgentSlug) || null
-    : null;
   const settingsAgent = settingsAgentSlug
     ? agents.find((agent) => agent.slug === settingsAgentSlug) || null
     : null;
@@ -1713,6 +1725,56 @@ export function AgentsWorkspace({
     orgAgents.filter((agent) => agent.active || (agent.runningCount || 0) > 0).length +
     (orgRoot.active || (orgRoot.runningCount || 0) > 0 ? 1 : 0);
 
+  // Flat list of every job across every agent, paired with its owner — drives
+  // the Schedules > Jobs table on the workspace page.
+  const allJobs = useMemo(() => {
+    const list: Array<{ job: JobConfig; agent: AgentListItem }> = [];
+    for (const agent of agents) {
+      for (const job of agentJobsMap[agent.slug] || []) {
+        list.push({ job, agent });
+      }
+    }
+    // Sort alphabetically by agent name, then job name.
+    list.sort((a, b) => {
+      const byAgent = a.agent.name.localeCompare(b.agent.name);
+      if (byAgent !== 0) return byAgent;
+      return a.job.name.localeCompare(b.job.name);
+    });
+    return list;
+  }, [agents, agentJobsMap]);
+
+  // Adapt the workspace's `AgentListItem[]` to the `CabinetAgentSummary[]` shape
+  // expected by the cabinet-page-shared `ActivityFeed` and `OrgChartModal`.
+  // Missing fields get safe defaults — the consumers only read identity
+  // (slug, name, emoji, color, iconKey) and a handful of optionals.
+  const cabinetAgentsView: CabinetAgentSummary[] = useMemo(
+    () =>
+      agents.map((a) => ({
+        scopedId: a.scopedId ?? `${a.cabinetPath || effectiveCabinetPath}::agent::${a.slug}`,
+        name: a.name,
+        slug: a.slug,
+        emoji: a.emoji,
+        role: a.role,
+        active: a.active,
+        department: a.department,
+        type: a.type,
+        heartbeat: a.heartbeat,
+        workspace: a.workspace,
+        jobCount: a.jobCount ?? 0,
+        taskCount: 0,
+        cabinetPath: a.cabinetPath || effectiveCabinetPath,
+        cabinetName: a.cabinetName || "",
+        cabinetDepth: 0,
+        inherited: false,
+        displayName: a.displayName,
+        iconKey: a.iconKey,
+        color: a.color,
+        avatar: a.avatar,
+        avatarExt: a.avatarExt,
+      })),
+    [agents, effectiveCabinetPath]
+  );
+
   function renderOrgChartHeader() {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1746,46 +1808,17 @@ export function AgentsWorkspace({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Select
-            items={CABINET_VISIBILITY_OPTIONS.map((opt) => ({
-              label: opt.shortLabel,
-              value: opt.value,
-            }))}
-            value={effectiveVisibilityMode}
-            onValueChange={(value) => {
+          <DepthDropdown
+            mode={effectiveVisibilityMode}
+            onChange={(mode) => {
               if (effectiveCabinetPath) {
-                setCabinetVisibilityMode(
-                  effectiveCabinetPath,
-                  value as CabinetVisibilityMode
-                );
+                setCabinetVisibilityMode(effectiveCabinetPath, mode);
               }
             }}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-7 min-w-0 w-auto gap-1 rounded-md border-border/60 bg-transparent px-2 text-[11px] font-medium text-muted-foreground shadow-none hover:text-foreground"
-            >
-              <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Depth
-              </span>
-              <SelectValue placeholder="All" />
-            </SelectTrigger>
-            <SelectContent align="end" className="min-w-[200px]">
-              <SelectGroup>
-                {CABINET_VISIBILITY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    <span className="font-medium">{opt.shortLabel}</span>
-                    <span className="ml-1.5 text-xs text-muted-foreground">
-                      {opt.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          />
           <Button size="sm" className="h-8 gap-1 text-xs" onClick={openAddAgentDialog}>
             <Plus className="h-3.5 w-3.5" />
-            Add agent
+            New Agent
           </Button>
         </div>
       </div>
@@ -2055,11 +2088,23 @@ export function AgentsWorkspace({
     return (
       <ComposerInput
         composer={composer}
+        attachments={attachments}
         placeholder={`Ask ${panelAgent?.name || agentSlug} to work on something. Type @ to mention pages or agents.`}
         submitLabel="Start"
         variant="card"
         items={mentionItems}
         autoFocus
+        topRightOverlay={
+          <WhenChip
+            mode="now"
+            onChange={(next) => {
+              if (next === "now") return;
+              setHandoffAgentSlug(agentSlug);
+              setHandoffMode(next);
+              setHandoffOpen(true);
+            }}
+          />
+        }
         actionsStart={
           <TaskRuntimePicker
             value={taskRuntime}
@@ -2078,217 +2123,7 @@ export function AgentsWorkspace({
   }
 
   return (
-    <div className="flex flex-1 flex-row-reverse overflow-hidden">
-      <div
-        className="shrink-0 bg-background"
-        style={{ width: conversationsPanel.width }}
-      >
-        <div className="border-b border-border px-4 py-3">
-          <div className="flex items-start justify-between gap-3">
-            {activeAgent ? (
-              <button
-                onClick={() => openAgentSettings(activeAgent.slug)}
-                className="rounded-xl bg-muted/40 px-3 py-2 text-left transition-colors hover:bg-muted/60"
-              >
-                <h3 className="text-[14px] font-semibold">
-                  {activeAgent.name}
-                </h3>
-                <p className="text-[11px] text-muted-foreground">
-                  {`Recent runs for ${activeAgent.name}`}
-                </p>
-              </button>
-            ) : (
-              <div
-                className="rounded-xl bg-muted/40 px-3 py-2"
-              >
-                <h3 className="text-[14px] font-semibold">All agents</h3>
-                <p className="text-[11px] text-muted-foreground">
-                  Recent runs across your whole team
-                </p>
-              </div>
-            )}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => {
-                void refreshAgents();
-                void refreshConversations();
-              }}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {(["all", "manual", "job", "heartbeat"] as TriggerFilter[]).map((filter) => (
-              <TriggerChip
-                key={filter}
-                active={triggerFilter === filter}
-                onClick={() => setTriggerFilter(filter)}
-              >
-                {filter === "all" ? (
-                  "All"
-                ) : filter === "job" ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <TriggerIcon trigger="job" />
-                    Jobs
-                  </span>
-                ) : filter === "heartbeat" ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <TriggerIcon trigger="heartbeat" />
-                    Heartbeat
-                  </span>
-                ) : (
-                  "Manual"
-                )}
-              </TriggerChip>
-            ))}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {(["all", "running", "completed", "failed"] as StatusFilter[]).map((filter) => (
-              <TriggerChip
-                key={filter}
-                active={statusFilter === filter}
-                onClick={() => setStatusFilter(filter)}
-              >
-                {filter === "all" ? "Any status" : filter[0].toUpperCase() + filter.slice(1)}
-              </TriggerChip>
-            ))}
-          </div>
-        </div>
-        <ScrollArea className="h-[calc(100vh-115px)]">
-          <div>
-            {conversationsLoading && conversations.length > 0 ? (
-              <div className="flex items-center gap-2 px-3 py-6 text-[12px] text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading conversations...
-              </div>
-            ) : !hasLoadedConversations && conversations.length === 0 ? (
-              <div className="px-3 py-8" />
-            ) : conversations.length === 0 ? (
-              <div className="animate-in fade-in duration-300 px-3 py-8 text-[12px] text-muted-foreground">
-                No conversations yet.
-              </div>
-            ) : (
-              conversations.map((conversation) => {
-                const agent = agents.find((entry) => entry.slug === conversation.agentSlug);
-                const editedPagePath =
-                  conversation.agentSlug === "editor"
-                    ? conversation.mentionedPaths[0] || ""
-                    : "";
-                const conversationKey = buildConversationInstanceKey(conversation);
-                const isSelected =
-                  selectedConversationId === conversation.id &&
-                  (selectedConversationCabinetPath || "") === (conversation.cabinetPath || "");
-
-                return (
-                  <button
-                    key={conversationKey}
-                    onClick={() => {
-                      setSelectedConversationId(conversation.id);
-                      setSelectedConversationCabinetPath(conversation.cabinetPath);
-                      setMode("conversation");
-                    }}
-                    onPointerEnter={() => {
-                      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-                      hoverTimerRef.current = setTimeout(
-                        () => setHoveredConvKey(conversationKey),
-                        1000
-                      );
-                    }}
-                    onPointerLeave={() => {
-                      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-                      hoverTimerRef.current = null;
-                      setHoveredConvKey((prev) => (prev === conversationKey ? null : prev));
-                    }}
-                    className={cn(
-                      "relative flex w-full items-start gap-2 border-b border-border/70 px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                      isSelected ? "bg-primary/5" : "hover:bg-accent/35"
-                    )}
-                  >
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary transition-opacity",
-                        isSelected ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    <div className="mt-0.5 shrink-0">
-                      {conversation.status === "running" ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-                      ) : conversation.status === "failed" ? (
-                        <XCircle className="h-3.5 w-3.5 text-destructive" />
-                      ) : (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-[11.5px] font-medium leading-[1.35] text-foreground">
-                          {conversation.title}
-                        </p>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            aria-label="Delete conversation"
-                            title="Delete conversation"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void deleteConversation(conversation.id, conversation.cabinetPath);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.stopPropagation();
-                                void deleteConversation(conversation.id, conversation.cabinetPath);
-                              }
-                            }}
-                            className={cn(
-                              "inline-flex h-5.5 w-5.5 items-center justify-center rounded-full text-muted-foreground transition-opacity hover:text-destructive",
-                              hoveredConvKey === conversationKey ? "opacity-100" : "opacity-0"
-                            )}
-                          >
-                            <Trash2 className="h-2.75 w-2.75" />
-                          </span>
-                          <span
-                            aria-label={TRIGGER_LABELS[conversation.trigger]}
-                            title={TRIGGER_LABELS[conversation.trigger]}
-                            className={cn(
-                              "inline-flex h-5.5 w-5.5 shrink-0 items-center justify-center rounded-full",
-                              TASK_CARD_TRIGGER_STYLES[conversation.trigger]
-                            )}
-                          >
-                            <TriggerIcon trigger={conversation.trigger} className="h-2.75 w-2.75" />
-                          </span>
-                        </div>
-                      </div>
-                      {editedPagePath ? (
-                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                          edited: {editedPagePath}
-                        </p>
-                      ) : null}
-                      <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                        <p className="truncate">{agent?.name || conversation.agentSlug}</p>
-                        <span className="shrink-0">{formatRelative(conversation.startedAt)}</span>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-
-      <div className="relative z-10 w-px shrink-0 bg-border">
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize conversations panel"
-          onPointerDown={conversationsPanel.startResize}
-          className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
-        />
-      </div>
-
+    <div className="flex flex-1 overflow-hidden">
       <div className="min-h-0 flex-1 overflow-hidden">
         {mode === "conversation" && activeConversationMeta ? (
           <div className="flex h-full min-h-0 flex-col">
@@ -2397,7 +2232,6 @@ export function AgentsWorkspace({
                     effectiveCabinetPath
                       ? {
                           type: "page",
-                          mode: "cabinet",
                           cabinetPath: effectiveCabinetPath,
                         }
                       : { type: "page" }
@@ -2409,334 +2243,6 @@ export function AgentsWorkspace({
           </div>
         ) : mode === "settings" ? (
           <div className="flex h-full min-h-0 flex-col">
-            <Dialog open={addAgentDialogOpen} onOpenChange={setAddAgentDialogOpen}>
-              <DialogContent className="sm:max-w-4xl">
-                <DialogHeader className="gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <Library className="h-4 w-4" />
-                        <DialogTitle>Browse Agent Library</DialogTitle>
-                      </div>
-                      <DialogDescription>
-                        Bring in a predefined agent, or open a custom editor and make your own.
-                      </DialogDescription>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1 text-xs"
-                      onClick={openCustomAgentDialog}
-                    >
-                      <Settings className="h-3.5 w-3.5" />
-                      Edit your own agent
-                    </Button>
-                  </div>
-                  {agentFlowError ? (
-                    <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                      {agentFlowError}
-                    </p>
-                  ) : null}
-                </DialogHeader>
-                <ScrollArea className="max-h-[70vh]">
-                  <div className="flex flex-col gap-6 pr-2">
-                    {loadingAgentTemplates ? (
-                      <div className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading the agent library...
-                      </div>
-                    ) : groupedAgentTemplates.length > 0 ? (
-                      groupedAgentTemplates.map(([department, templates]) => (
-                        <div key={department} className="flex flex-col gap-3">
-                          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            {department}
-                          </h3>
-                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                            {templates.map((template) => (
-                              <div
-                                key={template.slug}
-                                className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4"
-                              >
-                                <div className="flex items-start gap-3">
-                                  <span className="text-2xl">{template.emoji || "🤖"}</span>
-                                  <div className="min-w-0 flex-1">
-                                    <h4 className="truncate text-[13px] font-semibold">
-                                      {template.name}
-                                    </h4>
-                                    <p className="mt-1 text-[11px] text-foreground/85">
-                                      {template.role || "No role summary yet"}
-                                    </p>
-                                    {template.description ? (
-                                      <p className="mt-2 line-clamp-3 text-[11px] text-muted-foreground">
-                                        {template.description}
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 gap-1 text-xs"
-                                  onClick={() => addAgentFromTemplate(template)}
-                                  disabled={addingAgentSlug === template.slug}
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                  {addingAgentSlug === template.slug ? "Bringing in..." : "Bring in"}
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-                        No predefined agents are available right now. Use &ldquo;Edit your own
-                        agent&rdquo; to create one from scratch.
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={customAgentDialogOpen} onOpenChange={handleCustomAgentDialogOpenChange}>
-              <DialogContent className="sm:max-w-4xl">
-                <DialogHeader className="gap-1">
-                  <DialogTitle>Edit your own agent</DialogTitle>
-                  <DialogDescription>
-                    Create a custom agent from scratch, then fine-tune it in the same popup flow.
-                  </DialogDescription>
-                  {agentFlowError ? (
-                    <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                      {agentFlowError}
-                    </p>
-                  ) : null}
-                </DialogHeader>
-                <ScrollArea className="max-h-[70vh]">
-                  <div className="grid gap-4 pr-2 md:grid-cols-2">
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Name</span>
-                      <input
-                        value={newAgentDraft.name}
-                        onChange={(event) =>
-                          setNewAgentDraft((current) => {
-                            const nextName = event.target.value;
-                            const currentDerivedSlug = slugify(current.name);
-                            return {
-                              ...current,
-                              name: nextName,
-                              slug:
-                                !current.slug || current.slug === currentDerivedSlug
-                                  ? slugify(nextName)
-                                  : current.slug,
-                            };
-                          })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                        placeholder="Editor"
-                      />
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Slug</span>
-                      <input
-                        value={newAgentDraft.slug}
-                        onChange={(event) =>
-                          setNewAgentDraft({
-                            ...newAgentDraft,
-                            slug: slugify(event.target.value),
-                          })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-[13px] text-foreground"
-                        placeholder="editor"
-                      />
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Role</span>
-                      <input
-                        value={newAgentDraft.role}
-                        onChange={(event) =>
-                          setNewAgentDraft({ ...newAgentDraft, role: event.target.value })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                        placeholder="Product writing agent"
-                      />
-                    </label>
-                    <div className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Heartbeat</span>
-                      <SchedulePicker
-                        value={newAgentDraft.heartbeat || "0 */4 * * *"}
-                        onChange={(cron) =>
-                          setNewAgentDraft({
-                            ...newAgentDraft,
-                            heartbeat: cron,
-                          })
-                        }
-                      />
-                    </div>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Department</span>
-                      <input
-                        value={newAgentDraft.department}
-                        onChange={(event) =>
-                          setNewAgentDraft({
-                            ...newAgentDraft,
-                            department: event.target.value,
-                          })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                      />
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Type</span>
-                      <input
-                        value={newAgentDraft.type}
-                        onChange={(event) =>
-                          setNewAgentDraft({ ...newAgentDraft, type: event.target.value })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                      />
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      <span>Provider</span>
-                      <select
-                        value={newAgentDraft.provider}
-                        onChange={(event) =>
-                          setNewAgentDraft({
-                            ...newAgentDraft,
-                            provider: event.target.value,
-                            adapterType: resolveAdapterTypeForProvider(
-                              providers,
-                              event.target.value,
-                              undefined,
-                              defaultProvider
-                            ),
-                          })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                      >
-                        {selectableCliProviders.map((provider) => (
-                          <option key={provider.id} value={provider.id}>
-                            {provider.name}{provider.available ? "" : " (not installed)"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {newAgentAdapterOptions.length > 0 ? (
-                      <label className="space-y-1 text-[11px] text-muted-foreground">
-                        <span>Runtime</span>
-                        <select
-                          value={
-                            newAgentDraft.adapterType ||
-                            getDefaultAdapterTypeForProviderInfo(
-                              providers,
-                              newAgentDraft.provider,
-                              defaultProvider
-                            ) ||
-                            ""
-                          }
-                          onChange={(event) =>
-                            setNewAgentDraft({
-                              ...newAgentDraft,
-                              adapterType: event.target.value,
-                            })
-                          }
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                        >
-                          {newAgentAdapterOptions.map((adapter) => (
-                            <option key={adapter.type} value={adapter.type}>
-                              {formatAdapterOptionLabel(adapter)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    <label className="space-y-1 text-[11px] text-muted-foreground md:col-span-2">
-                      <span>Workspace</span>
-                      <input
-                        value={newAgentDraft.workspace}
-                        onChange={(event) =>
-                          setNewAgentDraft({
-                            ...newAgentDraft,
-                            workspace: event.target.value,
-                          })
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-[13px] text-foreground"
-                        placeholder="workspace"
-                      />
-                    </label>
-                    <div className="space-y-2 text-[11px] text-muted-foreground md:col-span-2">
-                      <span>Avatar</span>
-                      <div className="flex flex-wrap gap-2">
-                        {AGENT_EMOJI_OPTIONS.map((emoji) => (
-                          <button
-                            key={emoji}
-                            type="button"
-                            onClick={() =>
-                              setNewAgentDraft({
-                                ...newAgentDraft,
-                                emoji,
-                              })
-                            }
-                            className={cn(
-                              "rounded-lg border px-3 py-2 text-lg transition-colors",
-                              newAgentDraft.emoji === emoji
-                                ? "border-primary bg-primary/10"
-                                : "border-border hover:bg-accent/40"
-                            )}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <label className="space-y-1 text-[11px] text-muted-foreground md:col-span-2">
-                      <span>Instructions</span>
-                      <textarea
-                        value={newAgentDraft.body}
-                        onChange={(event) =>
-                          setNewAgentDraft({ ...newAgentDraft, body: event.target.value })
-                        }
-                        className="min-h-[240px] w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
-                        placeholder="Define how this agent should work inside Cabinet and the KB."
-                      />
-                    </label>
-                  </div>
-                </ScrollArea>
-                <div className="flex items-center justify-between border-t border-border pt-3">
-                  <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={newAgentDraft.active}
-                      onChange={(event) =>
-                        setNewAgentDraft({
-                          ...newAgentDraft,
-                          active: event.target.checked,
-                        })
-                      }
-                    />
-                    Start active
-                  </label>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => handleCustomAgentDialogOpenChange(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => void createAgent()}
-                      disabled={creatingAgent || !newAgentDraft.name.trim() || !newAgentDraft.role.trim()}
-                    >
-                      {creatingAgent ? "Creating..." : "Create agent"}
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
 
             {settingsTarget === "directory" || !settingsTarget ? (
               <div className="border-b border-border px-5 py-4">
@@ -3050,278 +2556,6 @@ export function AgentsWorkspace({
                   </DialogContent>
                 </Dialog>
 
-                <Dialog open={newJobDialogOpen} onOpenChange={(open) => {
-                  if (!open) {
-                    closeNewJobDialog();
-                    return;
-                  }
-                  setNewJobDialogOpen(true);
-                }}>
-                  <DialogContent className="sm:max-w-5xl">
-                    <DialogHeader className="gap-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <DialogTitle>{selectedJobId && selectedJobId !== "__new__" ? "Edit Job" : "New Job"}</DialogTitle>
-                          <DialogDescription>
-                            {selectedJobId && selectedJobId !== "__new__"
-                              ? "Edit this scheduled job. Changes take effect on the next run."
-                              : "Configure a scheduled prompt that runs automatically on a cron schedule."}
-                          </DialogDescription>
-                        </div>
-                        {selectedJobId && selectedJobId !== "__new__" ? (
-                          <div className="flex shrink-0 gap-1.5">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1 text-xs"
-                              onClick={() => { void runJob(selectedJobId); }}
-                              disabled={runningJobId === selectedJobId}
-                            >
-                              {runningJobId === selectedJobId ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Play className="h-3.5 w-3.5" />
-                              )}
-                              Run
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 gap-1 text-xs text-destructive hover:text-destructive"
-                              onClick={() => { void deleteJob(selectedJobId); closeNewJobDialog(); }}
-                              disabled={deletingJobId === selectedJobId}
-                            >
-                              {deletingJobId === selectedJobId ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
-                              )}
-                              Delete
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </DialogHeader>
-                    {jobDraft ? (
-                      <div className="space-y-3">
-                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]">
-                          <div className="space-y-1">
-                            <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                              Prompt
-                            </span>
-                            <textarea
-                              value={jobDraft.prompt}
-                              onChange={(event) =>
-                                setJobDraft((current) =>
-                                  current ? { ...current, prompt: event.target.value } : current
-                                )
-                              }
-                              className="h-[60vh] w-full resize-none rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:bg-muted"
-                              placeholder="What should this job do?"
-                            />
-                          </div>
-                          <div className="grid content-start gap-2.5 sm:grid-cols-2">
-                            <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:col-span-2">
-                              <span>Job name</span>
-                              <input
-                                value={jobDraft.name}
-                                onChange={(event) =>
-                                  setJobDraft((current) =>
-                                    current ? { ...current, name: event.target.value } : current
-                                  )
-                                }
-                                className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:bg-muted"
-                                placeholder="Weekly strategy digest"
-                              />
-                            </label>
-                            <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:col-span-2">
-                              <span>Job id</span>
-                              <input
-                                value={jobDraft.id}
-                                onChange={(event) =>
-                                  setJobDraft((current) =>
-                                    current ? { ...current, id: event.target.value } : current
-                                  )
-                                }
-                                className="w-full rounded-lg bg-muted/60 px-3 py-2 font-mono text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:bg-muted"
-                                placeholder="weekly-strategy-digest"
-                              />
-                            </label>
-                            <div className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:col-span-2">
-                              <span>Schedule</span>
-                              <SchedulePicker
-                                value={jobDraft.schedule || "0 9 * * 1-5"}
-                                onChange={(cron) =>
-                                  setJobDraft((current) =>
-                                    current ? { ...current, schedule: cron } : current
-                                  )
-                                }
-                              />
-                            </div>
-                            <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                              <span>Provider</span>
-                              <select
-                                value={jobDraft.provider}
-                                onChange={(event) =>
-                                  setJobDraft((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          provider: event.target.value,
-                                          adapterType: resolveAdapterTypeForProvider(
-                                            providers,
-                                            event.target.value,
-                                            undefined,
-                                            defaultProvider
-                                          ),
-                                        }
-                                      : current
-                                  )
-                                }
-                                className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
-                              >
-                                {selectableCliProviders.map((provider) => (
-                                  <option key={provider.id} value={provider.id}>
-                                    {provider.name}{provider.available ? "" : " (not installed)"}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            {jobDraftAdapterOptions.length > 0 ? (
-                              <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                                <span>Runtime</span>
-                                <select
-                                  value={
-                                    jobDraft.adapterType ||
-                                    getDefaultAdapterTypeForProviderInfo(
-                                      providers,
-                                      jobDraft.provider,
-                                      defaultProvider
-                                    ) ||
-                                    ""
-                                  }
-                                  onChange={(event) =>
-                                    setJobDraft((current) =>
-                                      current
-                                        ? { ...current, adapterType: event.target.value }
-                                        : current
-                                    )
-                                  }
-                                  className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
-                                >
-                                  {jobDraftAdapterOptions.map((adapter) => (
-                                    <option key={adapter.type} value={adapter.type}>
-                                      {formatAdapterOptionLabel(adapter)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            ) : null}
-                            <label className="space-y-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                              <span>Timeout (s)</span>
-                              <input
-                                type="number"
-                                value={jobDraft.timeout || 600}
-                                onChange={(event) =>
-                                  setJobDraft((current) =>
-                                    current
-                                      ? { ...current, timeout: parseInt(event.target.value || "600", 10) }
-                                      : current
-                                  )
-                                }
-                                className="w-full rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:bg-muted"
-                              />
-                            </label>
-                            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-muted-foreground sm:col-span-2">
-                              <input
-                                type="checkbox"
-                                checked={jobDraft.enabled}
-                                onChange={(event) =>
-                                  setJobDraft((current) =>
-                                    current ? { ...current, enabled: event.target.checked } : current
-                                  )
-                                }
-                              />
-                              <span>Enabled</span>
-                            </label>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between border-t border-border pt-3">
-                          {!(selectedJobId && selectedJobId !== "__new__") ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 gap-1 text-xs"
-                              onClick={() => setLibraryDialogOpen(true)}
-                            >
-                              <Library className="h-3.5 w-3.5" />
-                              Starter library
-                            </Button>
-                          ) : <div />}
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={closeNewJobDialog}>
-                              Cancel
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="h-8 gap-1 text-xs"
-                              onClick={() => void saveJob()}
-                              disabled={
-                                savingJob ||
-                                !jobDraft.name.trim() ||
-                                !jobDraft.id.trim() ||
-                                !jobDraft.prompt.trim()
-                              }
-                            >
-                              <Save className="h-3.5 w-3.5" />
-                              {savingJob ? "Saving..." : selectedJobId && selectedJobId !== "__new__" ? "Save job" : "Create job"}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </DialogContent>
-                </Dialog>
-
-                <Dialog open={libraryDialogOpen} onOpenChange={setLibraryDialogOpen}>
-                  <DialogContent className="sm:max-w-4xl">
-                    <DialogHeader>
-                      <DialogTitle>Starter Library</DialogTitle>
-                    </DialogHeader>
-                    <ScrollArea className="max-h-[70vh]">
-                      <div className="grid gap-3 pr-2 md:grid-cols-2">
-                        {libraryTemplates.map((template) => (
-                          <div
-                            key={template.id}
-                            className="rounded-xl border border-border bg-background px-4 py-4"
-                          >
-                            <div className="flex h-full flex-col">
-                              <div className="min-w-0">
-                                <div className="text-[13px] font-medium">{template.name}</div>
-                                <p className="mt-1 text-[11px] text-muted-foreground">
-                                  {template.description}
-                                </p>
-                                <p className="mt-3 text-[10px] text-muted-foreground">
-                                  Suggested schedule: {cronToHuman(template.schedule)}
-                                </p>
-                              </div>
-                              <div className="mt-4 flex justify-end">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 text-xs"
-                                  onClick={() => applyLibraryTemplate(template)}
-                                >
-                                  Use template
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </DialogContent>
-                </Dialog>
 
                 <div className="grid min-h-0 flex-1 grid-cols-[1fr_300px] gap-3 overflow-hidden">
                   {/* Left: Instructions (read-only, scrollable) */}
@@ -3457,20 +2691,6 @@ export function AgentsWorkspace({
               <div className="space-y-6 p-5">
                 {settingsTarget === "directory" || !settingsTarget ? (
                   renderOrganizationChart()
-                ) : settingsAgentSlug === "general" ? (
-                  <div className="max-w-3xl space-y-4">
-                    <div className="rounded-xl border border-border bg-card p-4 text-[13px] text-muted-foreground">
-                      General is manual-only in this MVP. Use it as the default place for ad-hoc conversations, and manage the rest of the team from the agent directory.
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => openAgentWorkspace("general")}
-                    >
-                      Open General conversations
-                    </Button>
-                  </div>
                 ) : (
                   <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -3483,163 +2703,1004 @@ export function AgentsWorkspace({
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col">
-            <div className="border-b border-border px-5 py-4">
-              {renderOrgChartHeader()}
+            {/* Tight header row: name + counts + scope pills + Org chart + Add agent + refresh. */}
+            <div className="flex flex-wrap items-center gap-3 border-b border-border/70 bg-background/95 px-4 py-2.5 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <h1 className="truncate text-[14px] font-semibold tracking-tight text-foreground">
+                  Agents
+                </h1>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[10px]">
+                  <span className="font-semibold tabular-nums text-foreground">{orgAgentCount}</span>
+                  <span className="text-muted-foreground">agents</span>
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[10px]">
+                  <span className="font-semibold tabular-nums text-foreground">{activeOrgCount}</span>
+                  <span className="text-muted-foreground">active</span>
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[10px]">
+                  <span className="font-semibold tabular-nums text-foreground">{groupedOrgAgents.length}</span>
+                  <span className="text-muted-foreground">depts</span>
+                </span>
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <DepthDropdown
+                  mode={effectiveVisibilityMode}
+                  onChange={(mode) => {
+                    if (effectiveCabinetPath) {
+                      setCabinetVisibilityMode(effectiveCabinetPath, mode);
+                    }
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-[11px]"
+                  onClick={() => setOrgChartOpen(true)}
+                  disabled={agents.length === 0}
+                >
+                  <Network className="size-3.5" />
+                  Org chart
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 gap-1 text-[11px]"
+                  onClick={openAddAgentDialog}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  New Agent
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => {
+                    void refreshAgents();
+                    void refreshConversations();
+                  }}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+                <NewTaskButton />
+              </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-8 py-10">
-              {renderOrganizationChart()}
+
+            {/* Main column: team view + schedules. */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 sm:px-6">
+                {/* Intro */}
+                <div className="space-y-4">
+                  <h1 className="text-[36px] font-semibold leading-[1.1] tracking-tight text-foreground sm:text-[44px]">
+                    This is your AI team.
+                  </h1>
+                  <p className="max-w-3xl text-[17px] leading-[1.55] text-muted-foreground">
+                    A small crew of agents that{" "}
+                    <span className="font-semibold text-foreground">
+                      work for you around the clock
+                    </span>
+                    . Each agent has a role, a personality, and a memory. They{" "}
+                    <span className="font-semibold text-foreground">
+                      wake up on schedule
+                    </span>
+                    ,{" "}
+                    <span className="font-semibold text-foreground">
+                      check in while you sleep
+                    </span>
+                    , and{" "}
+                    <span className="font-semibold text-foreground">
+                      ship work into your knowledge base
+                    </span>{" "}
+                    — no prompting from you required.
+                  </p>
+                  <p className="max-w-3xl text-[15px] leading-[1.6] text-muted-foreground">
+                    On this page you can{" "}
+                    <span className="font-semibold text-foreground">meet your team</span>,{" "}
+                    <span className="font-semibold text-foreground">set up routines</span>{" "}
+                    you want them to run every day or every hour, and{" "}
+                    <span className="font-semibold text-foreground">check in</span>{" "}
+                    on what they've been doing. The sidebar on the right shows
+                    everything live.
+                  </p>
+                </div>
+
+                {/* Agents grid */}
+                <section className="space-y-4">
+                  <div className="space-y-2">
+                    <h2 className="text-[24px] font-semibold tracking-tight text-foreground sm:text-[28px]">
+                      Meet the team
+                    </h2>
+                    <p className="max-w-3xl text-[14px] leading-6 text-muted-foreground">
+                      Each card is a specialist. Click one to open its profile
+                      and edit its name, role, and the instructions that shape
+                      how it thinks and works.
+                    </p>
+                    <p className="text-[12px] text-muted-foreground/80">
+                      {orgAgentCount} on the team
+                    </p>
+                  </div>
+
+                  {!agentsLoaded ? (
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="flex flex-col gap-3 rounded-xl border border-border/40 bg-card/50 p-4 animate-pulse"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="size-10 shrink-0 rounded-full bg-muted/60" />
+                            <div className="flex-1 space-y-2 pt-1">
+                              <div className="h-3 w-24 rounded bg-muted/60" />
+                              <div className="h-2.5 w-36 rounded bg-muted/40" />
+                            </div>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <div className="h-4 w-14 rounded-full bg-muted/40" />
+                            <div className="h-4 w-10 rounded-full bg-muted/40" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : agents.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-[12px] text-muted-foreground">
+                      No agents yet. Use <span className="font-medium text-foreground">New Agent</span> above to bring one in.
+                    </p>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {agents.map((agent) => {
+                        const hbCount = agent.heartbeat ? 1 : 0;
+                        const jobCount = agent.jobCount || 0;
+                        return (
+                          <button
+                            key={agent.scopedId ?? (agent.cabinetPath ? `${agent.cabinetPath}::${agent.slug}` : agent.slug)}
+                            type="button"
+                            onClick={() => openAgentSettings(agent.slug)}
+                            className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 text-left transition-colors hover:bg-muted/30"
+                          >
+                            <div className="flex items-start gap-3">
+                              <AgentAvatar agent={agent} shape="circle" size="lg" />
+                              <div className="min-w-0 flex-1">
+                                <h3 className="truncate text-[13px] font-semibold text-foreground">
+                                  {agent.name}
+                                </h3>
+                                {agent.role ? (
+                                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                                    {agent.role}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <span
+                                className={cn(
+                                  "mt-1.5 inline-flex size-2 shrink-0 rounded-full",
+                                  agent.active
+                                    ? "bg-emerald-500"
+                                    : "bg-muted-foreground/30"
+                                )}
+                                title={agent.active ? "Active" : "Paused"}
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                              {agent.scope === "global" ? (
+                                <span
+                                  className="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-violet-300"
+                                  title="Shared across all cabinets"
+                                >
+                                  Global
+                                </span>
+                              ) : null}
+                              {hbCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5">
+                                  <HeartPulse className="size-2.5 text-pink-400" />
+                                  Heartbeat
+                                </span>
+                              ) : null}
+                              {jobCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5">
+                                  <Clock3 className="size-2.5 text-emerald-400" />
+                                  {jobCount} {jobCount === 1 ? "job" : "jobs"}
+                                </span>
+                              ) : null}
+                              {agent.department ? (
+                                <span className="inline-flex rounded-full bg-muted/40 px-2 py-0.5">
+                                  {startCase(agent.department)}
+                                </span>
+                              ) : null}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                {/* Schedules */}
+                <section className="space-y-5">
+                  <div className="space-y-2">
+                    <h2 className="text-[24px] font-semibold tracking-tight text-foreground sm:text-[28px]">
+                      Routines & heartbeats
+                    </h2>
+                    <p className="max-w-3xl text-[14px] leading-6 text-muted-foreground">
+                      <span className="font-semibold text-foreground">Routines</span>{" "}
+                      are scheduled jobs — things you want an agent to do every
+                      day or every hour. Write the prompt once, pick a schedule,
+                      and the agent runs it on its own. Think: "every weekday at
+                      9am, summarize yesterday's activity."
+                    </p>
+                    <p className="max-w-3xl text-[14px] leading-6 text-muted-foreground">
+                      A{" "}
+                      <span className="font-semibold text-foreground">heartbeat</span>{" "}
+                      is the{" "}
+                      <span className="font-semibold text-foreground">
+                        living brain of an agent
+                      </span>{" "}
+                      — a special built-in routine that wakes the agent up on
+                      its own rhythm, shows it the room, and lets it decide
+                      what to work on next. One heartbeat per agent. No prompt
+                      required — the agent figures it out.
+                    </p>
+                  </div>
+
+                  {/* Big Add Routine CTA */}
+                  <div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className={cn(
+                          "inline-flex h-12 items-center gap-2.5 rounded-xl bg-foreground px-5 text-[15px] font-semibold text-background shadow-sm transition-colors hover:bg-foreground/90 disabled:pointer-events-none disabled:opacity-50"
+                        )}
+                        disabled={agents.length === 0}
+                      >
+                        <Clock3 className="size-4.5" />
+                        Add routine
+                        <ChevronDown className="size-4 opacity-70" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="max-h-[360px] overflow-y-auto scrollbar-thin p-1">
+                        <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Assign to
+                        </div>
+                        {agents.map((agent) => (
+                          <DropdownMenuItem
+                            key={agent.scopedId ?? (agent.cabinetPath ? `${agent.cabinetPath}::${agent.slug}` : agent.slug)}
+                            onClick={() => openNewRoutineFor(agent)}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px]"
+                          >
+                            <AgentAvatar agent={agent} shape="circle" size="md" />
+                            <span className="flex min-w-0 flex-col leading-tight">
+                              <span className="truncate text-[12px] font-medium text-foreground">
+                                {agent.name}
+                              </span>
+                              <span className="truncate text-[10px] text-muted-foreground">
+                                {agent.role || agent.slug}
+                              </span>
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <p className="mt-2 text-[12px] text-muted-foreground/80">
+                      Pick which agent runs this routine, then set the prompt
+                      and schedule.
+                    </p>
+                  </div>
+
+                  {/* Team schedule board — embed the existing ScheduleView */}
+                  <div className="space-y-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h3 className="text-[16px] font-semibold tracking-tight text-foreground">
+                        Team schedule
+                      </h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 text-[11px]"
+                        onClick={() => setScheduleFullscreen(true)}
+                        title="Expand schedule"
+                      >
+                        <Maximize2 className="h-3.5 w-3.5" />
+                        Expand
+                      </Button>
+                    </div>
+                    <p className="max-w-3xl text-[12px] text-muted-foreground">
+                      What's coming up across every agent — flip between
+                      calendar and list, or expand to full screen.
+                    </p>
+                    <div className="flex h-[460px] min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card">
+                      <ScheduleView
+                        agents={cabinetAgentsView}
+                        jobs={cabinetJobs}
+                        conversations={conversations}
+                        onConversationClick={(id) => {
+                          const conv = conversations.find((c) => c.id === id);
+                          if (!conv) return;
+                          setSelectedConversationId(conv.id);
+                          setSelectedConversationCabinetPath(conv.cabinetPath);
+                          setMode("conversation");
+                        }}
+                        onJobClick={(job, agent) => {
+                          const existing = (agentJobsMap[agent.slug] || []).find(
+                            (j) => j.id === job.id
+                          );
+                          setRoutineDialog({
+                            agent: {
+                              slug: agent.slug,
+                              name: agent.name,
+                              role: agent.role,
+                              cabinetPath: agent.cabinetPath || effectiveCabinetPath,
+                            },
+                            existingJob: existing || undefined,
+                          });
+                        }}
+                        onHeartbeatClick={(agent) => {
+                          setHeartbeatDialog({
+                            agent: {
+                              slug: agent.slug,
+                              name: agent.name,
+                              role: agent.role,
+                              cabinetPath: agent.cabinetPath || effectiveCabinetPath,
+                            },
+                            initialHeartbeat: agent.heartbeat || "0 9 * * 1-5",
+                            initialActive: agent.active,
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Jobs */}
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <h3 className="inline-flex items-center gap-2 text-[16px] font-semibold tracking-tight text-foreground">
+                        <Clock3 className="size-4 text-emerald-400" />
+                        Routines
+                        <span className="text-[12px] font-normal text-muted-foreground">
+                          ({allJobs.length})
+                        </span>
+                      </h3>
+                      <p className="text-[12px] text-muted-foreground">
+                        Every routine this team runs on a schedule. Click any
+                        row to edit its prompt, schedule, or pause it.
+                      </p>
+                    </div>
+                    {allJobs.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                        No routines yet. Use{" "}
+                        <span className="font-semibold text-foreground">
+                          Add routine
+                        </span>{" "}
+                        above to create your first one.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card">
+                        {allJobs.map(({ job, agent: owner }) => (
+                          <li key={`${owner.slug}:${job.id}`}>
+                            <RoutineRow
+                              agent={owner}
+                              job={job}
+                              onEdit={() => openRoutineDialog(owner, { ...job })}
+                              onRun={() => listRunRoutine(owner, job)}
+                              onToggle={() => listToggleRoutine(owner, job)}
+                              onDelete={() => listDeleteRoutine(owner, job)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Heartbeats */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <h3 className="inline-flex items-center gap-2 text-[16px] font-semibold tracking-tight text-foreground">
+                          <HeartPulse className="size-4 text-pink-400" />
+                          Heartbeats
+                          <span className="text-[12px] font-normal text-muted-foreground">
+                            ({agents.filter((a) => !!a.heartbeat).length})
+                          </span>
+                        </h3>
+                        <p className="text-[12px] text-muted-foreground">
+                          One self-directed check-in per agent. Click a row to
+                          change its rhythm or pause it.
+                        </p>
+                      </div>
+                      {(() => {
+                        const heartbeatAgents = agents.filter((a) => !!a.heartbeat);
+                        const anyActive = heartbeatAgents.some((a) => a.active);
+                        const [toggling, setToggling] = useState(false);
+                        const toggleAll = async () => {
+                          if (toggling || heartbeatAgents.length === 0) return;
+                          setToggling(true);
+                          try {
+                            await fetch("/api/agents/scheduler", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                action: anyActive ? "stop-all" : "start-all",
+                                cabinetPath: effectiveCabinetPath,
+                              }),
+                            });
+                            await refreshAgents();
+                          } finally {
+                            setToggling(false);
+                          }
+                        };
+                        return heartbeatAgents.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => void toggleAll()}
+                            disabled={toggling}
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+                            title={anyActive ? "Pause all heartbeats in this cabinet" : "Resume all heartbeats in this cabinet"}
+                          >
+                            {anyActive ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+                            {anyActive ? "Pause all" : "Resume all"}
+                          </button>
+                        ) : null;
+                      })()}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          className={cn(
+                            "inline-flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+                          )}
+                          disabled={agents.length === 0}
+                          title="Heartbeats are configured on each agent's page"
+                        >
+                          <HeartPulse className="size-3.5 text-pink-400" />
+                          Configure heartbeat
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="max-h-[320px] overflow-y-auto scrollbar-thin p-1">
+                          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Open agent page
+                          </div>
+                          {agents.map((agent) => (
+                            <DropdownMenuItem
+                              key={agent.scopedId ?? (agent.cabinetPath ? `${agent.cabinetPath}::${agent.slug}` : agent.slug)}
+                              onClick={() => openAgentSettings(agent.slug)}
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px]"
+                            >
+                              <AgentAvatar agent={agent} shape="circle" size="md" />
+                              <span className="flex min-w-0 flex-col leading-tight">
+                                <span className="truncate text-[12px] font-medium text-foreground">
+                                  {agent.name}
+                                </span>
+                                <span className="truncate text-[10px] text-muted-foreground">
+                                  {agent.heartbeat
+                                    ? `Current: ${cronToHuman(agent.heartbeat)}`
+                                    : "No heartbeat yet"}
+                                </span>
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    {agents.filter((a) => !!a.heartbeat).length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                        No heartbeats yet. Click{" "}
+                        <span className="font-semibold text-foreground">
+                          Configure heartbeat
+                        </span>{" "}
+                        above to set one on an agent's page.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card">
+                        {agents
+                          .filter((a) => !!a.heartbeat)
+                          .map((agent) => (
+                            <li key={agent.scopedId ?? (agent.cabinetPath ? `${agent.cabinetPath}::${agent.slug}` : agent.slug)}>
+                              <HeartbeatRow
+                                agent={agent}
+                                onEdit={() =>
+                                  setHeartbeatDialog({
+                                    agent: {
+                                      slug: agent.slug,
+                                      name: agent.name,
+                                      role: agent.role,
+                                      cabinetPath:
+                                        agent.cabinetPath || effectiveCabinetPath,
+                                    },
+                                    initialHeartbeat: agent.heartbeat!,
+                                    initialActive: agent.active,
+                                  })
+                                }
+                                onRun={() => listRunHeartbeat(agent)}
+                                onToggle={() => listToggleHeartbeat(agent)}
+                              />
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </div>
+                </section>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Org chart — job popup */}
-      {orgChartJobDialog ? (
-        <Dialog open onOpenChange={(open) => { if (!open) setOrgChartJobDialog(null); }}>
-          <DialogContent className="sm:max-w-2xl">
-            <DialogHeader>
-              <div className="flex items-center justify-between gap-3 pr-10">
-                <DialogTitle className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4 text-emerald-400" />
-                  {orgChartJobDialog.draft.name || "Job"}
-                  <span className="text-[11px] font-normal text-muted-foreground">· {orgChartJobDialog.agentName}</span>
-                </DialogTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 text-xs"
-                  onClick={() => void runOrgChartJob()}
-                  disabled={orgChartJobRunning}
-                >
-                  {orgChartJobRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                  Run now
-                </Button>
+      {/* Org chart fullscreen modal — same component the cabinet page uses. */}
+      <OrgChartModal
+        open={orgChartOpen}
+        onOpenChange={setOrgChartOpen}
+        cabinetName={effectiveCabinetPath || "Cabinet"}
+        agents={cabinetAgentsView}
+        jobs={cabinetJobs}
+        childCabinets={cabinetChildren}
+        onAgentClick={(agent) => {
+          setOrgChartOpen(false);
+          openAgentSettings(agent.slug);
+        }}
+        onAgentSend={(agent) => {
+          setOrgChartOpen(false);
+          openAgentSettings(agent.slug);
+        }}
+        onChildCabinetClick={() => {
+          setOrgChartOpen(false);
+        }}
+      />
+
+      {/* Fullscreen team schedule */}
+      <Dialog open={scheduleFullscreen} onOpenChange={setScheduleFullscreen}>
+        <DialogContent className="h-[94vh] max-h-none w-[96vw] max-w-none overflow-hidden p-0 sm:max-w-none">
+          <DialogHeader className="flex flex-row items-center justify-between border-b border-border/70 px-6 py-4">
+            <DialogTitle className="text-[14px] font-semibold tracking-tight">
+              Team schedule
+            </DialogTitle>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setScheduleFullscreen(false)}
+              title="Exit fullscreen"
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
+            </Button>
+          </DialogHeader>
+          <div className="h-[calc(94vh-64px)]">
+            <ScheduleView
+              agents={cabinetAgentsView}
+              jobs={cabinetJobs}
+              conversations={conversations}
+              onConversationClick={(id) => {
+                const conv = conversations.find((c) => c.id === id);
+                if (!conv) return;
+                setSelectedConversationId(conv.id);
+                setSelectedConversationCabinetPath(conv.cabinetPath);
+                setMode("conversation");
+                setScheduleFullscreen(false);
+              }}
+              onJobClick={(job, agent) => {
+                const existing = (agentJobsMap[agent.slug] || []).find(
+                  (j) => j.id === job.id
+                );
+                setScheduleFullscreen(false);
+                setRoutineDialog({
+                  agent: {
+                    slug: agent.slug,
+                    name: agent.name,
+                    role: agent.role,
+                    cabinetPath: agent.cabinetPath || effectiveCabinetPath,
+                  },
+                  existingJob: existing || undefined,
+                });
+              }}
+              onHeartbeatClick={(agent) => {
+                setScheduleFullscreen(false);
+                setHeartbeatDialog({
+                  agent: {
+                    slug: agent.slug,
+                    name: agent.name,
+                    role: agent.role,
+                    cabinetPath: agent.cabinetPath || effectiveCabinetPath,
+                  },
+                  initialHeartbeat: agent.heartbeat || "0 9 * * 1-5",
+                  initialActive: agent.active,
+                });
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Consolidated routine editor — used by every "Add routine" button and
+          every click-to-edit on a job across this page. */}
+      <NewRoutineDialog
+        open={routineDialog !== null}
+        onOpenChange={(next) => {
+          if (!next) setRoutineDialog(null);
+        }}
+        agent={routineDialog?.agent ?? { slug: "", name: "" }}
+        existingJob={routineDialog?.existingJob}
+        onSaved={(saved) => {
+          const ownerSlug = routineDialog?.agent.slug;
+          if (ownerSlug) {
+            setAgentJobsMap((prev) => {
+              const current = prev[ownerSlug] || [];
+              const next = current.some((j) => j.id === saved.id)
+                ? current.map((j) => (j.id === saved.id ? saved : j))
+                : [...current, saved];
+              return { ...prev, [ownerSlug]: next };
+            });
+          }
+          setRoutineDialog(null);
+        }}
+        onDeleted={(deletedId) => {
+          const ownerSlug = routineDialog?.agent.slug;
+          if (ownerSlug) {
+            setAgentJobsMap((prev) => ({
+              ...prev,
+              [ownerSlug]: (prev[ownerSlug] || []).filter((j) => j.id !== deletedId),
+            }));
+          }
+          setRoutineDialog(null);
+        }}
+        onToggled={(toggled) => {
+          const ownerSlug = routineDialog?.agent.slug;
+          if (!ownerSlug) return;
+          setAgentJobsMap((prev) => ({
+            ...prev,
+            [ownerSlug]: (prev[ownerSlug] || []).map((j) =>
+              j.id === toggled.id ? { ...j, enabled: toggled.enabled } : j
+            ),
+          }));
+        }}
+      />
+
+
+      {/* Add agent dialogs (browse library + custom) — root-level so the
+          header 'Add agent' button can open them from any mode. */}
+      <Dialog open={addAgentDialogOpen} onOpenChange={setAddAgentDialogOpen}>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader className="gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Library className="h-4 w-4" />
+                  <DialogTitle>Browse Agent Library</DialogTitle>
+                </div>
+                <DialogDescription>
+                  Bring in a predefined agent, or open a custom editor and make your own.
+                </DialogDescription>
               </div>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Schedule</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={openCustomAgentDialog}
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Edit your own agent
+              </Button>
+            </div>
+            {agentFlowError ? (
+              <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {agentFlowError}
+              </p>
+            ) : null}
+          </DialogHeader>
+          <ScrollArea className="max-h-[70vh]">
+            <div className="flex flex-col gap-6 pr-2">
+              {loadingAgentTemplates ? (
+                <div className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading the agent library...
+                </div>
+              ) : groupedAgentTemplates.length > 0 ? (
+                groupedAgentTemplates.map(([department, templates]) => (
+                  <div key={department} className="flex flex-col gap-3">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {department}
+                    </h3>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {templates.map((template) => (
+                        <div
+                          key={template.slug}
+                          className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4"
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-2xl">{template.emoji || "🤖"}</span>
+                            <div className="min-w-0 flex-1">
+                              <h4 className="truncate text-[13px] font-semibold">
+                                {template.name}
+                              </h4>
+                              <p className="mt-1 text-[11px] text-foreground/85">
+                                {template.role || "No role summary yet"}
+                              </p>
+                              {template.description ? (
+                                <p className="mt-2 line-clamp-3 text-[11px] text-muted-foreground">
+                                  {template.description}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-xs"
+                            onClick={() => addAgentFromTemplate(template)}
+                            disabled={addingAgentSlug === template.slug}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            {addingAgentSlug === template.slug ? "Bringing in..." : "Bring in"}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                  No predefined agents are available right now. Use &ldquo;Edit your own
+                  agent&rdquo; to create one from scratch.
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={customAgentDialogOpen} onOpenChange={handleCustomAgentDialogOpenChange}>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader className="gap-1">
+            <DialogTitle>Edit your own agent</DialogTitle>
+            <DialogDescription>
+              Create a custom agent from scratch, then fine-tune it in the same popup flow.
+            </DialogDescription>
+            {agentFlowError ? (
+              <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {agentFlowError}
+              </p>
+            ) : null}
+          </DialogHeader>
+          <ScrollArea className="max-h-[70vh]">
+            <div className="grid gap-4 pr-2 md:grid-cols-2">
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Name</span>
+                <input
+                  value={newAgentDraft.name}
+                  onChange={(event) =>
+                    setNewAgentDraft((current) => {
+                      const nextName = event.target.value;
+                      const currentDerivedSlug = slugify(current.name);
+                      return {
+                        ...current,
+                        name: nextName,
+                        slug:
+                          !current.slug || current.slug === currentDerivedSlug
+                            ? slugify(nextName)
+                            : current.slug,
+                      };
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
+                  placeholder="Editor"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Slug</span>
+                <input
+                  value={newAgentDraft.slug}
+                  onChange={(event) =>
+                    setNewAgentDraft({
+                      ...newAgentDraft,
+                      slug: slugify(event.target.value),
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-[13px] text-foreground"
+                  placeholder="editor"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Role</span>
+                <input
+                  value={newAgentDraft.role}
+                  onChange={(event) =>
+                    setNewAgentDraft({ ...newAgentDraft, role: event.target.value })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
+                  placeholder="Product writing agent"
+                />
+              </label>
+              <div className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Heartbeat</span>
                 <SchedulePicker
-                  value={orgChartJobDialog.draft.schedule || "0 9 * * 1-5"}
+                  value={newAgentDraft.heartbeat || "0 */4 * * *"}
                   onChange={(cron) =>
-                    setOrgChartJobDialog((prev) =>
-                      prev ? { ...prev, draft: { ...prev.draft, schedule: cron } } : prev
-                    )
+                    setNewAgentDraft({
+                      ...newAgentDraft,
+                      heartbeat: cron,
+                    })
                   }
                 />
               </div>
-              <div className="space-y-1.5">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Prompt</span>
-                <textarea
-                  value={orgChartJobDialog.draft.prompt}
-                  onChange={(e) =>
-                    setOrgChartJobDialog((prev) =>
-                      prev ? { ...prev, draft: { ...prev.draft, prompt: e.target.value } } : prev
-                    )
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Department</span>
+                <input
+                  value={newAgentDraft.department}
+                  onChange={(event) =>
+                    setNewAgentDraft({
+                      ...newAgentDraft,
+                      department: event.target.value,
+                    })
                   }
-                  className="h-48 w-full resize-none rounded-lg bg-muted/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:bg-muted"
-                  placeholder="What should this job do?"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
                 />
-              </div>
-              <div className="flex items-center justify-between border-t border-border pt-3">
-                <label className="flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={orgChartJobDialog.draft.enabled}
-                    onChange={(e) =>
-                      setOrgChartJobDialog((prev) =>
-                        prev ? { ...prev, draft: { ...prev.draft, enabled: e.target.checked } } : prev
-                      )
+              </label>
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Type</span>
+                <input
+                  value={newAgentDraft.type}
+                  onChange={(event) =>
+                    setNewAgentDraft({ ...newAgentDraft, type: event.target.value })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                <span>Provider</span>
+                <select
+                  value={newAgentDraft.provider}
+                  onChange={(event) =>
+                    setNewAgentDraft({
+                      ...newAgentDraft,
+                      provider: event.target.value,
+                      adapterType: resolveAdapterTypeForProvider(
+                        providers,
+                        event.target.value,
+                        undefined,
+                        defaultProvider
+                      ),
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
+                >
+                  {selectableCliProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}{provider.available ? "" : " (not installed)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {newAgentAdapterOptions.length > 0 ? (
+                <label className="space-y-1 text-[11px] text-muted-foreground">
+                  <span>Runtime</span>
+                  <select
+                    value={
+                      newAgentDraft.adapterType ||
+                      getDefaultAdapterTypeForProviderInfo(
+                        providers,
+                        newAgentDraft.provider,
+                        defaultProvider
+                      ) ||
+                      ""
                     }
-                  />
-                  Enabled
-                </label>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setOrgChartJobDialog(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 gap-1 text-xs"
-                    onClick={() => void saveOrgChartJob()}
-                    disabled={orgChartJobSaving}
+                    onChange={(event) =>
+                      setNewAgentDraft({
+                        ...newAgentDraft,
+                        adapterType: event.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
                   >
-                    <Save className="h-3.5 w-3.5" />
-                    {orgChartJobSaving ? "Saving..." : "Save"}
-                  </Button>
+                    {newAgentAdapterOptions.map((adapter) => (
+                      <option key={adapter.type} value={adapter.type}>
+                        {formatAdapterOptionLabel(adapter)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label className="space-y-1 text-[11px] text-muted-foreground md:col-span-2">
+                <span>Workspace</span>
+                <input
+                  value={newAgentDraft.workspace}
+                  onChange={(event) =>
+                    setNewAgentDraft({
+                      ...newAgentDraft,
+                      workspace: event.target.value,
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-[13px] text-foreground"
+                  placeholder="workspace"
+                />
+              </label>
+              <div className="space-y-2 text-[11px] text-muted-foreground md:col-span-2">
+                <span>Avatar</span>
+                <div className="flex flex-wrap gap-2">
+                  {AGENT_EMOJI_OPTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() =>
+                        setNewAgentDraft({
+                          ...newAgentDraft,
+                          emoji,
+                        })
+                      }
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-lg transition-colors",
+                        newAgentDraft.emoji === emoji
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:bg-accent/40"
+                      )}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
                 </div>
               </div>
+              <label className="space-y-1 text-[11px] text-muted-foreground md:col-span-2">
+                <span>Instructions</span>
+                <textarea
+                  value={newAgentDraft.body}
+                  onChange={(event) =>
+                    setNewAgentDraft({ ...newAgentDraft, body: event.target.value })
+                  }
+                  className="min-h-[240px] w-full rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground"
+                  placeholder="Define how this agent should work inside Cabinet and the KB."
+                />
+              </label>
             </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
+          </ScrollArea>
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={newAgentDraft.active}
+                onChange={(event) =>
+                  setNewAgentDraft({
+                    ...newAgentDraft,
+                    active: event.target.checked,
+                  })
+                }
+              />
+              Start active
+            </label>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => handleCustomAgentDialogOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => void createAgent()}
+                disabled={creatingAgent || !newAgentDraft.name.trim() || !newAgentDraft.role.trim()}
+              >
+                {creatingAgent ? "Creating..." : "Create agent"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Org chart — heartbeat popup */}
-      {orgChartHeartbeatDialog ? (
-        <Dialog open onOpenChange={(open) => { if (!open) setOrgChartHeartbeatDialog(null); }}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <div className="flex items-center justify-between gap-3 pr-10">
-                <DialogTitle className="flex items-center gap-2">
-                  <HeartPulse className="h-4 w-4 text-pink-400" />
-                  Heartbeat
-                  <span className="text-[11px] font-normal text-muted-foreground">· {orgChartHeartbeatDialog.agentName}</span>
-                </DialogTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 text-xs"
-                  onClick={() => void runOrgChartHeartbeat()}
-                  disabled={orgChartHeartbeatRunning}
-                >
-                  {orgChartHeartbeatRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                  Run now
-                </Button>
-              </div>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Schedule</span>
-                <SchedulePicker
-                  value={orgChartHeartbeatDialog.heartbeat}
-                  onChange={(cron) =>
-                    setOrgChartHeartbeatDialog((prev) => (prev ? { ...prev, heartbeat: cron } : prev))
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between border-t border-border pt-3">
-                <label className="flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={orgChartHeartbeatDialog.active}
-                    onChange={(e) =>
-                      setOrgChartHeartbeatDialog((prev) =>
-                        prev ? { ...prev, active: e.target.checked } : prev
-                      )
-                    }
-                    className="h-3.5 w-3.5 cursor-pointer appearance-none rounded-sm border border-border bg-background transition-colors checked:border-primary checked:bg-primary focus:outline-none focus:ring-1 focus:ring-ring focus:ring-offset-1"
-                  />
-                  Active
-                </label>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setOrgChartHeartbeatDialog(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 gap-1 text-xs"
-                    onClick={() => void saveOrgChartHeartbeat()}
-                    disabled={orgChartHeartbeatSaving}
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    {orgChartHeartbeatSaving ? "Saving..." : "Save"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
+      {/* Consolidated heartbeat editor — every heartbeat click on this page
+          opens this shared dialog. */}
+      <HeartbeatDialog
+        open={heartbeatDialog !== null}
+        onOpenChange={(next) => {
+          if (!next) setHeartbeatDialog(null);
+        }}
+        agent={heartbeatDialog?.agent ?? { slug: "", name: "" }}
+        initialHeartbeat={heartbeatDialog?.initialHeartbeat}
+        initialActive={heartbeatDialog?.initialActive}
+        onSaved={() => {
+          setHeartbeatDialog(null);
+          void refreshAgents();
+        }}
+        onToggledActive={(nextActive) => {
+          const targetSlug = heartbeatDialog?.agent.slug;
+          if (!targetSlug) return;
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.slug === targetSlug ? { ...a, active: nextActive } : a
+            )
+          );
+        }}
+      />
 
       {/* Quick Send popup */}
       {quickSendAgent ? (() => {
@@ -3658,6 +3719,7 @@ export function AgentsWorkspace({
             <div className="relative z-10 w-full max-w-xl">
               <ComposerInput
                 composer={composer}
+                attachments={attachments}
                 placeholder={`Ask ${targetAgent?.name || quickSendAgent} to work on something. Type @ to mention pages or agents.`}
                 submitLabel="Send"
                 variant="card"
@@ -3684,6 +3746,15 @@ export function AgentsWorkspace({
                         {targetAgent?.role || "Agent"}
                       </p>
                     </div>
+                    <WhenChip
+                      mode="now"
+                      onChange={(next) => {
+                        if (next === "now") return;
+                        setHandoffAgentSlug(quickSendAgent);
+                        setHandoffMode(next);
+                        setHandoffOpen(true);
+                      }}
+                    />
                     <button
                       type="button"
                       onClick={closeQuickSend}
@@ -3698,6 +3769,27 @@ export function AgentsWorkspace({
           </div>
         );
       })() : null}
+
+      <StartWorkDialog
+        open={handoffOpen}
+        onOpenChange={setHandoffOpen}
+        cabinetPath={effectiveCabinetPath}
+        agents={cabinetAgentsView}
+        initialMode={handoffMode}
+        initialPrompt={composer.input}
+        initialAgentSlug={handoffAgentSlug ?? undefined}
+        onStarted={(conversationId, conversationCabinetPath) => {
+          composer.reset();
+          setQuickSendAgent(null);
+          setHandoffAgentSlug(null);
+          setSection({
+            type: "task",
+            taskId: conversationId,
+            cabinetPath: conversationCabinetPath || effectiveCabinetPath,
+          });
+        }}
+      />
     </div>
   );
 }
+

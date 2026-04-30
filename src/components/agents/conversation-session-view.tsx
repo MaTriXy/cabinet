@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ConversationLiveView } from "@/components/agents/conversation-live-view";
 import { ConversationResultView } from "@/components/agents/conversation-result-view";
@@ -30,6 +30,12 @@ export function ConversationSessionView({
   const [loading, setLoading] = useState(false);
   const [failedLoad, setFailedLoad] = useState(false);
   const previousKeyRef = useRef<string | null>(null);
+  const refetchRef = useRef<(() => Promise<void>) | null>(null);
+
+  const refreshDetail = useCallback(async () => {
+    const doRefetch = refetchRef.current;
+    if (doRefetch) await doRefetch();
+  }, []);
 
   useEffect(() => {
     if (!conversation) {
@@ -96,6 +102,10 @@ export function ConversationSessionView({
       return null;
     }
 
+    refetchRef.current = async () => {
+      await loadConversationDetail(true);
+    };
+
     void (async () => {
       const nextDetail = await loadConversationDetail();
       const shouldPoll =
@@ -109,6 +119,7 @@ export function ConversationSessionView({
 
     return () => {
       cancelled = true;
+      refetchRef.current = null;
       if (pollHandle !== null) {
         window.clearInterval(pollHandle);
       }
@@ -130,6 +141,7 @@ export function ConversationSessionView({
         <ConversationLiveView
           detail={detail}
           onOpenArtifact={onOpenArtifact}
+          onRefresh={() => void refreshDetail()}
         />
       );
     }
@@ -138,6 +150,7 @@ export function ConversationSessionView({
       <ConversationResultView
         detail={detail}
         onOpenArtifact={onOpenArtifact}
+        onRefresh={() => void refreshDetail()}
       />
     );
   }

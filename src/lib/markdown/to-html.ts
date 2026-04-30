@@ -3,6 +3,7 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
+import { detectEmbed } from "@/lib/embeds/detect";
 
 /**
  * Pre-process markdown to convert [[Wiki Links]] to HTML anchors
@@ -45,23 +46,57 @@ function fixTaskListHtml(html: string): string {
 }
 
 /**
+ * Upgrade broken `<video src="https://youtu.be/...">` (or any non-file video URL
+ * that points at a known embed provider) into a real iframe embed block.
+ *
+ * This heals content written before we had proper embed support, and also any
+ * time the TipTap schema round-trip collapsed an iframe into a video tag.
+ */
+function upgradeProviderVideos(html: string): string {
+  return html.replace(
+    /<video\b([^>]*)\bsrc="([^"]+)"([^>]*)><\/video>/gi,
+    (match, before: string, src: string, after: string) => {
+      const detected = detectEmbed(src);
+      if (!detected || detected.provider === "video") return match;
+
+      const aspect = detected.aspectRatio
+        ? ` data-aspect-ratio="${detected.aspectRatio}"`
+        : "";
+      return (
+        `<div data-embed="true" data-provider="${detected.provider}"` +
+        ` data-src="${detected.embedUrl}"` +
+        ` data-original-url="${detected.originalUrl}"${aspect}>` +
+        `<iframe src="${detected.embedUrl}"` +
+        ` data-embed-provider="${detected.provider}"` +
+        ` allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"` +
+        ` allowfullscreen loading="lazy" frameborder="0"></iframe>` +
+        `</div>`
+      );
+    }
+  );
+}
+
+/**
  * Rewrite relative URLs (./file.pdf, ./image.png) to /api/assets/{pagePath}/file
  * and convert PDF links to inline embedded viewers.
+ * Applies to href, src, and data-src attributes (the last is used by embed blocks).
  */
 function resolveRelativeUrls(html: string, pagePath: string): string {
-  // Get the directory path (strip trailing filename if any)
   const dirPath = pagePath;
 
-  // Rewrite relative hrefs: href="./file.pdf" → href="/api/assets/dir/file.pdf"
   html = html.replace(
     /href="\.\/([^"]+)"/g,
     (_match, file: string) => `href="/api/assets/${dirPath}/${file}"`
   );
 
-  // Rewrite relative src: src="./image.png" → src="/api/assets/dir/image.png"
   html = html.replace(
     /src="\.\/([^"]+)"/g,
     (_match, file: string) => `src="/api/assets/${dirPath}/${file}"`
+  );
+
+  html = html.replace(
+    /data-src="\.\/([^"]+)"/g,
+    (_match, file: string) => `data-src="/api/assets/${dirPath}/${file}"`
   );
 
   // Mark PDF links with a data attribute so the editor can handle them
@@ -75,21 +110,29 @@ function resolveRelativeUrls(html: string, pagePath: string): string {
   return html;
 }
 
+// Unified's plugin resolution + processor freeze runs on every `unified()`
+// call. Reuse a single frozen pipeline across every page render so
+// navigation doesn't pay that cost on the hot path.
+const processor = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkRehype, { allowDangerousHtml: true })
+  .use(rehypeStringify, { allowDangerousHtml: true })
+  .freeze();
+
 export async function markdownToHtml(markdown: string, pagePath?: string): Promise<string> {
   // Pre-process wiki-links before remark (which would treat [[ as text)
   const preprocessed = convertWikiLinks(markdown);
 
-  const result = await unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeStringify, { allowDangerousHtml: true })
-    .process(preprocessed);
+  const result = await processor.process(preprocessed);
 
   let html = String(result);
 
   // Post-process task lists for Tiptap compatibility
   html = fixTaskListHtml(html);
+
+  // Heal <video src="youtube-url"> into real iframe embeds
+  html = upgradeProviderVideos(html);
 
   // Resolve relative URLs if page path is provided
   if (pagePath) {

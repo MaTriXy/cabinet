@@ -11,6 +11,10 @@ budget: 100
 active: true
 workdir: /data
 workspace: /engineering
+recommendedSkills:
+  - key: code-review-excellence
+    source: github:wshobson/agents/code-review-excellence
+  - shadcn
 ---
 
 # CTO Agent

@@ -56,7 +56,9 @@ export async function PUT(
     // Handle run action
     if (body.action === "run") {
       if (cabinetPath) existing.cabinetPath = cabinetPath;
-      const run = await executeJob(existing);
+      const scheduledAt =
+        typeof body.scheduledAt === "string" ? body.scheduledAt : undefined;
+      const run = await executeJob(existing, { scheduledAt });
       return NextResponse.json({ ok: true, run });
     }
 

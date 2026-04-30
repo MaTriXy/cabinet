@@ -11,6 +11,9 @@ budget: 60
 active: true
 workdir: /data
 workspace: /cabinet-example
+recommendedSkills:
+  - key: page-cro
+    source: github:coreyhaines31/marketingskills/page-cro
 channels:
   - general
   - content

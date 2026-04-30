@@ -1,8 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
 import type { AgentProvider, ProviderStatus } from "../provider-interface";
-import { checkCliProviderAvailable, resolveCliCommand, RUNTIME_PATH } from "../provider-cli";
+import {
+  checkCliProviderAvailable,
+  execCli,
+  resolveCliCommand,
+} from "../provider-cli";
 import { getNvmNodeBin } from "../nvm-path";
 
 const nvmGeminiPath = (() => {
@@ -65,8 +68,8 @@ export const geminiCliProvider: AgentProvider = {
   installSteps: [
     {
       title: "Install Gemini CLI",
-      detail: "Run the following in your terminal:",
-      command: "npm i -g @google/gemini-cli",
+      detail: "Install the latest version (Cabinet needs 0.14+ for stream-json output):",
+      command: "npm i -g @google/gemini-cli@latest",
     },
     {
       title: "Log in",
@@ -80,8 +83,9 @@ export const geminiCliProvider: AgentProvider = {
     },
     {
       title: "Verify setup",
-      detail: "Confirm headless mode works:",
-      command: "gemini -p 'Reply with exactly OK' --output-format json",
+      detail:
+        "Confirm headless mode works. If `Unknown arguments: output-format` appears, upgrade with `npm i -g @google/gemini-cli@latest` first.",
+      command: "gemini -p 'Reply with exactly OK' --yolo",
     },
   ],
   detachedPromptLaunchMode: "one-shot",
@@ -139,10 +143,15 @@ export const geminiCliProvider: AgentProvider = {
     ];
   },
 
-  buildOneShotInvocation(prompt: string, workdir: string) {
+  buildOneShotInvocation(prompt: string, workdir: string, opts) {
+    const baseArgs = this.buildArgs ? this.buildArgs(prompt, workdir) : [];
+    const args = [...baseArgs];
+    if (opts?.model) {
+      args.push("-m", opts.model);
+    }
     return {
       command: this.command || "gemini",
-      args: this.buildArgs ? this.buildArgs(prompt, workdir) : [],
+      args,
     };
   },
 
@@ -172,12 +181,7 @@ export const geminiCliProvider: AgentProvider = {
 
       try {
         const cmd = resolveCliCommand(this);
-        const version = execSync(`${cmd} --version`, {
-          encoding: "utf8",
-          env: { ...process.env, PATH: RUNTIME_PATH },
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 5_000,
-        }).trim();
+        const version = await execCli(cmd, ["--version"], { timeout: 5000 });
 
         return {
           available: true,

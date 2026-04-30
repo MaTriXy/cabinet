@@ -10,8 +10,19 @@
  * Usage: npx tsx server/cabinet-daemon.ts
  */
 
+// Boot-time native-binary check: rebuild better-sqlite3 if it was prebuilt
+// against a different NODE_MODULE_VERSION, otherwise the daemon would crash
+// silently on first DB access while Next.js stays up.
+import { ensureBetterSqlite3 } from "../src/lib/system/preflight-sqlite";
+ensureBetterSqlite3();
+
+// Load `.cabinet.env` into process.env on daemon boot. Adapter spawns also
+// re-merge from the file directly (mtime-cached), but loading here keeps the
+// daemon's own behavior consistent with Next.js.
+import { loadCabinetEnv } from "../src/lib/runtime/cabinet-env";
+loadCabinetEnv();
+
 import { WebSocketServer, WebSocket } from "ws";
-import * as pty from "node-pty";
 import path from "path";
 import http from "http";
 import fs from "fs";
@@ -29,28 +40,22 @@ import {
 } from "../src/lib/runtime/runtime-config";
 import {
   getDetachedPromptLaunchMode,
-  getOneShotLaunchSpec,
-  getSessionLaunchSpec,
   resolveProviderId,
 } from "../src/lib/agents/provider-runtime";
 import {
   agentAdapterRegistry,
   resolveLegacyExecutionProviderId,
 } from "../src/lib/agents/adapters";
-import {
-  consumeClaudeStreamJson,
-  createClaudeStreamAccumulator,
-  flushClaudeStreamJson,
-  type ClaudeStreamAccumulator,
-} from "../src/lib/agents/adapters/claude-stream";
 import { getNvmNodeBin } from "../src/lib/agents/nvm-path";
 import {
   appendConversationTranscript,
+  cleanupStaleStagingAttachments,
   finalizeConversation,
   listConversationMetas,
   readConversationMeta,
   readConversationTranscript,
   transcriptShowsCompletedRun,
+  writeSession,
 } from "../src/lib/agents/conversation-store";
 import {
   getTokenFromAuthorizationHeader,
@@ -60,9 +65,76 @@ import {
   normalizeJobConfig,
   normalizeJobId,
 } from "../src/lib/jobs/job-normalization";
+import { stripAnsi } from "./pty/ansi";
+import {
+  completeClaudeSession,
+  distillPtyOutput,
+  scheduleStreamCabinetExtraction,
+} from "./pty/claude-lifecycle";
+import {
+  createPtyManager,
+  type PtyManager,
+} from "./pty/manager";
+import type { BaseSession, CompletedOutputEntry, PtySession } from "./pty/types";
+import { SearchIndex, buildPageRecord, walkDataDir } from "./search/index-builder";
+import { runSearch } from "./search/search-service";
+import { startWatcher } from "./search/watcher";
+import { loadAgentDocs, loadTaskDocs } from "./search/index-agents-tasks";
+import type { SearchScope } from "./search/types";
+import {
+  clearSessionId,
+  emit as emitTelemetry,
+  getOrCreateSessionId,
+  printStartupBannerIfNeeded,
+  startTelemetryFlusher,
+} from "../src/lib/telemetry";
 
 const PORT = getDaemonPort();
 const CABINET_MANIFEST_FILE = ".cabinet";
+
+// ===== Search index =====
+
+const searchIndex = new SearchIndex();
+let searchIndexReady = false;
+
+async function bootstrapSearchIndex(): Promise<void> {
+  const t0 = Date.now();
+  broadcast("search", { type: "search:indexing", total: 0, done: 0 });
+  try {
+    const files = await walkDataDir();
+    for (const { fsPath, virtualPath } of files) {
+      const record = await buildPageRecord(fsPath, virtualPath);
+      if (record) searchIndex.add(record);
+    }
+    searchIndexReady = true;
+    const tookMs = Date.now() - t0;
+    console.log(`  Search index: ${searchIndex.size()} pages in ${tookMs}ms`);
+    broadcast("search", {
+      type: "search:ready",
+      pages: searchIndex.size(),
+      tookMs,
+    });
+  } catch (err) {
+    console.error("[cabinet-daemon] search index bootstrap failed:", err);
+    broadcast("search", {
+      type: "search:error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function startSearchWatcher(): void {
+  startWatcher(searchIndex, {
+    onIndexed: ({ path: p, kind }) => {
+      broadcast("search", {
+        type: "search:indexed",
+        path: p,
+        kind,
+        pages: searchIndex.size(),
+      });
+    },
+  });
+}
 
 interface CabinetEntry {
   /** Relative path from DATA_DIR, empty string for root */
@@ -122,41 +194,10 @@ const enrichedPath = [
   process.env.PATH,
 ].join(":");
 
-// ===== PTY Terminal Server =====
-
-type SessionResolutionStatus = "completed" | "failed";
-
-interface BaseSession {
-  id: string;
-  kind: "pty" | "structured";
-  providerId: string;
-  adapterType?: string;
-  ws: WebSocket | null;
-  createdAt: Date;
-  output: string[];
-  exited: boolean;
-  exitCode: number | null;
-  resolvedStatus?: SessionResolutionStatus;
-  resolvingStatus?: boolean;
-  stopFallbackTimer?: NodeJS.Timeout;
-  stop: (signal?: NodeJS.Signals) => void;
-}
-
-interface PtySession extends BaseSession {
-  kind: "pty";
-  pty: pty.IPty;
-  timeoutHandle?: NodeJS.Timeout;
-  initialPrompt?: string;
-  initialPromptSent?: boolean;
-  initialPromptTimer?: NodeJS.Timeout;
-  promptSubmittedOutputLength?: number;
-  autoExitRequested?: boolean;
-  autoExitFallbackTimer?: NodeJS.Timeout;
-  claudeCompletionTimer?: NodeJS.Timeout;
-  readyStrategy?: "claude";
-  outputMode?: "plain" | "claude-stream-json";
-  structuredOutput?: ClaudeStreamAccumulator;
-}
+// ===== Session orchestration =====
+// PTY-specific types + lifecycle helpers live in server/pty/*. The daemon
+// owns the unified `sessions` map (PTY + structured), routes HTTP/WS, and
+// drives the scheduler + event bus.
 
 interface StructuredSession extends BaseSession {
   kind: "structured";
@@ -164,21 +205,57 @@ interface StructuredSession extends BaseSession {
   pid?: number;
   processGroupId?: number | null;
   startedAt?: string;
+  /** Claude-side (or adapter-side) resume session id extracted from result. */
+  adapterSessionId?: string | null;
+  /**
+   * Adapter-specific session params (raw, pre-codec). The client-side runner
+   * runs `adapter.sessionCodec.serialize` against these to produce the
+   * `codecBlob` that lands in `session.json`.
+   */
+  adapterSessionParams?: Record<string, unknown> | null;
+  /** Token usage reported by the adapter. */
+  adapterUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+  } | null;
+  /**
+   * Classified error from the last failed run, written by the daemon so both
+   * the poll path and `finalizeSessionConversation` can attach it to
+   * `ConversationMeta`.
+   */
+  adapterErrorKind?:
+    | "cli_not_found"
+    | "auth_expired"
+    | "rate_limited"
+    | "session_expired"
+    | "context_exceeded"
+    | "transport"
+    | "timeout"
+    | "model_unavailable"
+    | "unknown"
+    | null;
+  adapterErrorHint?: string | null;
+  adapterErrorRetryAfterSec?: number | null;
+  /** Buffered stderr, used by classifyError on completion. */
+  stderrBuffer?: string;
 }
 
 type ActiveSession = PtySession | StructuredSession;
 
 const sessions = new Map<string, ActiveSession>();
-const completedOutput = new Map<string, { output: string; completedAt: number }>();
-const CLAUDE_AUTO_EXIT_GRACE_MS = 1200;
+const completedOutput = new Map<string, CompletedOutputEntry>();
 
 function resolveSessionCwd(input?: string): string {
   if (!input) return DATA_DIR;
 
-  const resolved = path.resolve(input);
-  if (resolved.startsWith(DATA_DIR)) {
-    return resolved;
-  }
+  const asAbsolute = path.resolve(input);
+  if (asAbsolute.startsWith(DATA_DIR)) return asAbsolute;
+
+  // Also accept DATA_DIR-relative paths (e.g. passed from the frontend
+  // which doesn't know the absolute DATA_DIR prefix).
+  const relative = path.join(DATA_DIR, input);
+  if (relative.startsWith(DATA_DIR)) return relative;
 
   return DATA_DIR;
 }
@@ -205,28 +282,8 @@ function rejectUnauthorized(res: http.ServerResponse): void {
   res.end(JSON.stringify({ error: "Unauthorized" }));
 }
 
-function stripAnsi(str: string): string {
-  return str
-    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, "")
-    .replace(/\u001B[P^_][\s\S]*?\u001B\\/g, "")
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\u001B[@-_]/g, "")
-    .replace(/[\u0000-\u0008\u000B-\u001A\u001C-\u001F\u007F]/g, "");
-}
 
-function claudePromptReady(output: string): boolean {
-  const plain = stripAnsi(output).replace(/\r/g, "\n");
-  return (
-    plain.includes("shift+tab to cycle") ||
-    /(?:^|\n)[❯>]\s*$/.test(plain)
-  );
-}
 
-function clearClaudeCompletionTimer(session: PtySession): void {
-  if (!session.claudeCompletionTimer) return;
-  clearTimeout(session.claudeCompletionTimer);
-  delete session.claudeCompletionTimer;
-}
 
 function clearSessionStopFallbackTimer(session: ActiveSession): void {
   if (!session.stopFallbackTimer) return;
@@ -234,73 +291,9 @@ function clearSessionStopFallbackTimer(session: ActiveSession): void {
   delete session.stopFallbackTimer;
 }
 
-function completeClaudeSession(session: PtySession, output: string): void {
-  if (session.exited || session.autoExitRequested || session.resolvedStatus) {
-    return;
-  }
 
-  clearClaudeCompletionTimer(session);
-  session.resolvedStatus = "completed";
-  session.resolvingStatus = true;
-  session.autoExitRequested = true;
-  const plain = stripAnsi(output);
-  completedOutput.set(session.id, { output: plain, completedAt: Date.now() });
-  void finalizeConversation(session.id, {
-    status: "completed",
-    exitCode: 0,
-    output: plain,
-  }).finally(() => {
-    session.resolvingStatus = false;
-  });
-  session.pty.write("/exit\r");
-  session.autoExitFallbackTimer = setTimeout(() => {
-    if (session.exited) return;
-    try {
-      session.pty.kill();
-    } catch {}
-  }, 1500);
-}
 
-function consumeStructuredOutput(session: PtySession, chunk: string): string {
-  if (session.outputMode !== "claude-stream-json") {
-    return chunk;
-  }
 
-  if (!session.structuredOutput) {
-    session.structuredOutput = createClaudeStreamAccumulator();
-  }
-
-  return consumeClaudeStreamJson(session.structuredOutput, chunk);
-}
-
-function flushStructuredOutput(session: PtySession): string {
-  if (session.outputMode !== "claude-stream-json" || !session.structuredOutput) {
-    return "";
-  }
-
-  return flushClaudeStreamJson(session.structuredOutput);
-}
-
-function submitInitialPrompt(session: PtySession): void {
-  if (!session.initialPrompt || session.initialPromptSent || session.exited) {
-    return;
-  }
-
-  session.initialPromptSent = true;
-  session.promptSubmittedOutputLength = session.output.join("").length;
-  if (session.initialPromptTimer) {
-    clearTimeout(session.initialPromptTimer);
-    delete session.initialPromptTimer;
-  }
-
-  session.pty.write(session.initialPrompt);
-  // Small delay so the terminal processes the pasted text before Enter
-  setTimeout(() => {
-    if (!session.exited) {
-      session.pty.write("\r");
-    }
-  }, 150);
-}
 
 async function syncConversationChunk(sessionId: string, chunk: string): Promise<void> {
   const meta = await readConversationMeta(sessionId);
@@ -323,55 +316,10 @@ function emitSessionOutput(
     session.ws.send(chunk);
   }
   onData?.(chunk);
-}
 
-function maybeAutoExitClaudeSession(session: PtySession): void {
-  if (
-    !session.initialPrompt ||
-    !session.initialPromptSent ||
-    session.exited ||
-    session.autoExitRequested ||
-    session.resolvedStatus
-  ) {
-    return;
+  if (session.kind === "pty") {
+    scheduleStreamCabinetExtraction(session);
   }
-
-  const submittedLength = session.promptSubmittedOutputLength ?? 0;
-  const currentOutput = session.output.join("");
-  if (currentOutput.length <= submittedLength) {
-    clearClaudeCompletionTimer(session);
-    return;
-  }
-
-  const outputSincePrompt = currentOutput.slice(submittedLength);
-  if (!transcriptShowsCompletedRun(outputSincePrompt, session.initialPrompt)) {
-    clearClaudeCompletionTimer(session);
-    return;
-  }
-
-  if (session.claudeCompletionTimer) {
-    return;
-  }
-
-  session.claudeCompletionTimer = setTimeout(() => {
-    delete session.claudeCompletionTimer;
-    if (session.exited || session.autoExitRequested || session.resolvedStatus) {
-      return;
-    }
-
-    const latestOutput = session.output.join("");
-    const latestSubmittedLength = session.promptSubmittedOutputLength ?? 0;
-    if (latestOutput.length <= latestSubmittedLength) {
-      return;
-    }
-
-    const latestSincePrompt = latestOutput.slice(latestSubmittedLength);
-    if (!transcriptShowsCompletedRun(latestSincePrompt, session.initialPrompt)) {
-      return;
-    }
-
-    completeClaudeSession(session, latestOutput);
-  }, CLAUDE_AUTO_EXIT_GRACE_MS);
 }
 
 async function finalizeSessionConversation(session: ActiveSession): Promise<void> {
@@ -383,11 +331,68 @@ async function finalizeSessionConversation(session: ActiveSession): Promise<void
     completedOutput.set(session.id, { output: plain, completedAt: Date.now() });
     return;
   }
+  const adapterUsage =
+    session.kind === "structured" ? session.adapterUsage ?? null : null;
+  const adapterErrorKind =
+    session.kind === "structured" ? session.adapterErrorKind ?? null : null;
+  const adapterErrorHint =
+    session.kind === "structured" ? session.adapterErrorHint ?? null : null;
+  const adapterErrorRetryAfterSec =
+    session.kind === "structured" ? session.adapterErrorRetryAfterSec ?? null : null;
+
+  // For legacy PTY sessions, substitute a distilled 1-liner for summary
+  // extraction so the task detail doesn't render random box-drawing chars as
+  // the task summary. The raw transcript is already on disk (appended chunk
+  // by chunk), so nothing is lost — this only affects meta.summary.
+  const summaryOutput =
+    session.kind === "pty"
+      ? distillPtyOutput(plain, session.exitCode, session.providerId)
+      : plain;
+
   await finalizeConversation(session.id, {
     status: session.resolvedStatus || (session.exitCode === 0 ? "completed" : "failed"),
     exitCode: session.resolvedStatus === "completed" ? 0 : session.exitCode,
-    output: plain,
+    output: summaryOutput,
+    tokens: adapterUsage
+      ? {
+          input: adapterUsage.inputTokens,
+          output: adapterUsage.outputTokens,
+          cache: adapterUsage.cachedInputTokens,
+          total: adapterUsage.inputTokens + adapterUsage.outputTokens,
+        }
+      : undefined,
+    errorKind: adapterErrorKind ?? undefined,
+    errorHint: adapterErrorHint ?? undefined,
+    errorRetryAfterSec: adapterErrorRetryAfterSec ?? undefined,
   }, meta.cabinetPath);
+
+  // Legacy PTY terminal-mode resume: if the provider's stream parser caught
+  // a session id during the run, persist it via writeSession so the next
+  // continue turn can pass it back to the CLI as `--resume` / `--session`.
+  // Currently only Claude's `claude-stream-json` accumulator runs in the
+  // PTY path (one-shot mode) — Cursor/OpenCode capture their session ids
+  // only when routed through the structured adapter, so this block is a
+  // no-op for them until we wire stream-parsing for their PTY modes too.
+  if (session.kind === "pty" && session.structuredOutput) {
+    const resumeId = session.structuredOutput.sessionId ?? null;
+    if (resumeId) {
+      try {
+        await writeSession(
+          session.id,
+          {
+            kind: session.adapterType || "legacy_pty_cli",
+            resumeId,
+            alive: false,
+            lastUsedAt: new Date().toISOString(),
+            codecBlob: { resumeId },
+          },
+          meta.cabinetPath
+        );
+      } catch (err) {
+        console.warn(`Session ${session.id}: failed to persist PTY resume id`, err);
+      }
+    }
+  }
 }
 
 function sessionStatus(session: ActiveSession): "running" | "completed" | "failed" {
@@ -497,6 +502,8 @@ function handlePtyConnection(ws: WebSocket, req: http.IncomingMessage): void {
   const prompt = url.searchParams.get("prompt");
   const providerId = url.searchParams.get("providerId") || undefined;
   const adapterType = url.searchParams.get("adapterType") || undefined;
+  const cwd = url.searchParams.get("cwd") || undefined;
+  const reconnectOnly = url.searchParams.get("reconnect") === "1";
 
   // Check if this is a reconnection to an existing session
   const existing = sessions.get(sessionId);
@@ -506,200 +513,123 @@ function handlePtyConnection(ws: WebSocket, req: http.IncomingMessage): void {
     return;
   }
 
-  // New session — spawn PTY or structured adapter execution
-  try {
-    createSession({
-      sessionId,
-      providerId,
-      adapterType,
-      prompt: prompt || undefined,
-    });
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`Failed to spawn PTY for session ${sessionId}:`, errMsg);
-    ws.send(`\r\n\x1b[31mError: Failed to start agent CLI\x1b[0m\r\n`);
-    ws.send(`\x1b[90m${errMsg}\x1b[0m\r\n`);
-    ws.close();
+  // Reconnect-only mode: the client is loading a finished terminal task and
+  // just wants to see the historical transcript. Serve it from the completed-
+  // output cache first (recent runs), then fall back to the persisted
+  // transcript on disk for older ones. If neither has content, send a small
+  // "no stored output" marker. Never spawn a fresh PTY in this mode — that
+  // was the bug where refreshing an old task silently started a new CLI.
+  if (reconnectOnly) {
+    void (async () => {
+      const cached = completedOutput.get(sessionId);
+      let replay = cached?.output || null;
+      let source: "cache" | "disk" | null = cached ? "cache" : null;
+      let replayMeta: Awaited<ReturnType<typeof readConversationMeta>> = null;
+      try {
+        replayMeta = await readConversationMeta(sessionId);
+      } catch {
+        replayMeta = null;
+      }
+
+      if (!replay) {
+        try {
+          const meta = replayMeta;
+          if (meta) {
+            const transcript = await readConversationTranscript(
+              sessionId,
+              meta.cabinetPath
+            );
+            if (transcript && transcript.trim()) {
+              replay = transcript;
+              source = "disk";
+            }
+          }
+        } catch (err) {
+          console.warn(
+            `Session ${sessionId} reconnect: failed to read transcript`,
+            err
+          );
+        }
+      }
+
+      if (ws.readyState !== WebSocket.OPEN) return;
+
+      // Prefix the replay with a provenance banner so the user can always
+      // verify which CLI actually ran (transcripts can accumulate stale
+      // tails from earlier buggy spawn paths — see T21 history). Also emit
+      // a clear-screen + cursor-home so xterm renders the replay from the
+      // top instead of auto-scrolling to whatever was last written.
+      const banner = replayMeta
+        ? [
+            "\x1b[2J\x1b[H", // clear screen + home cursor
+            `\x1b[90m[cabinet] \x1b[36m${replayMeta.providerId ?? "unknown"}\x1b[90m · ` +
+              `${replayMeta.adapterType ?? "?"}\x1b[0m\r\n` +
+              `\x1b[90mstarted ${replayMeta.startedAt ?? "?"}` +
+              (replayMeta.completedAt
+                ? ` · finished ${replayMeta.completedAt}`
+                : "") +
+              `\x1b[0m\r\n` +
+              `\x1b[90m─────────────────────────────────────────\x1b[0m\r\n`,
+          ].join("")
+        : "\x1b[2J\x1b[H";
+      ws.send(banner);
+
+      if (replay) {
+        ws.send(replay);
+        const note =
+          source === "disk"
+            ? "\r\n\x1b[90m[Replayed from saved transcript. Session has ended.]\x1b[0m\r\n"
+            : "\r\n\x1b[90m[Session has ended. Showing cached output.]\x1b[0m\r\n";
+        ws.send(note);
+      } else {
+        ws.send(
+          "\r\n\x1b[90m[This session has ended and no stored output is available.]\x1b[0m\r\n"
+        );
+      }
+      ws.close();
+    })();
     return;
   }
-  const session = sessions.get(sessionId)!;
-  console.log(`Session ${sessionId} started (${prompt ? "agent" : "interactive"} mode)`);
-  attachSessionSocket(session, ws);
+
+  // New session — spawn PTY or structured adapter execution. Read the
+  // conversation meta first so we can pick up `trigger`; the composer
+  // always writes meta before the client opens the WS, so this is a
+  // reliable signal (and falls back to undefined on miss, which keeps
+  // the legacy auto-exit behavior — a safe default for unknown spawns).
+  void (async () => {
+    let trigger: import("../src/types/tasks").TaskTrigger | undefined;
+    try {
+      const meta = await readConversationMeta(sessionId);
+      trigger = meta?.trigger;
+    } catch {
+      trigger = undefined;
+    }
+    try {
+      createSession({
+        sessionId,
+        providerId,
+        adapterType,
+        prompt: prompt || undefined,
+        cwd,
+        trigger,
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to spawn PTY for session ${sessionId}:`, errMsg);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(`\r\n\x1b[31mError: Failed to start agent CLI\x1b[0m\r\n`);
+        ws.send(`\x1b[90m${errMsg}\x1b[0m\r\n`);
+        ws.close();
+      }
+      return;
+    }
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    console.log(`Session ${sessionId} started (${prompt ? "agent" : "interactive"} mode, trigger=${trigger ?? "unknown"})`);
+    attachSessionSocket(session, ws);
+  })();
 }
 
-function createDetachedSession(input: {
-  sessionId: string;
-  providerId?: string;
-  adapterType?: string;
-  adapterConfig?: Record<string, unknown>;
-  prompt?: string;
-  cwd?: string;
-  timeoutSeconds?: number;
-  onData?: (chunk: string) => void;
-  launchMode?: "session" | "one-shot";
-}): PtySession {
-  const cwd = resolveSessionCwd(input.cwd);
-  const executionProviderId = resolveLegacyExecutionProviderId({
-    adapterType: input.adapterType,
-    providerId: input.providerId,
-  });
-  let launch =
-    input.launchMode === "one-shot" && input.prompt?.trim()
-      ? getOneShotLaunchSpec({
-          providerId: executionProviderId,
-          prompt: input.prompt,
-          workdir: cwd,
-        })
-      : getSessionLaunchSpec({
-          providerId: executionProviderId,
-          prompt: input.prompt,
-          workdir: cwd,
-        });
-  const resolvedProviderId = resolveProviderId(executionProviderId);
-
-  if (
-    input.launchMode === "one-shot" &&
-    resolvedProviderId === "claude-code"
-  ) {
-    const nextArgs: string[] = [];
-    for (let index = 0; index < launch.args.length; index += 1) {
-      const arg = launch.args[index];
-      if (arg === "--output-format") {
-        index += 1;
-        continue;
-      }
-      if (arg === "text" && launch.args[index - 1] === "--output-format") {
-        continue;
-      }
-      nextArgs.push(arg);
-    }
-
-    nextArgs.push(
-      "--verbose",
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages"
-    );
-    launch = {
-      ...launch,
-      args: nextArgs,
-    };
-  }
-
-  const term = pty.spawn(launch.command, launch.args, {
-    name: "xterm-256color",
-    cols: 120,
-    rows: 30,
-    cwd,
-    env: {
-      ...(process.env as Record<string, string>),
-      PATH: enrichedPath,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      FORCE_COLOR: "3",
-      LANG: "en_US.UTF-8",
-    },
-  });
-
-  const session: PtySession = {
-    id: input.sessionId,
-    kind: "pty",
-    providerId: resolvedProviderId,
-    adapterType: input.adapterType,
-    pty: term,
-    ws: null,
-    createdAt: new Date(),
-    output: [],
-    exited: false,
-    exitCode: null,
-    stop: (signal = "SIGTERM") => {
-      try {
-        term.kill(signal);
-      } catch {}
-    },
-    initialPrompt: launch.initialPrompt?.trim() || undefined,
-    initialPromptSent: false,
-    promptSubmittedOutputLength: 0,
-    autoExitRequested: false,
-    readyStrategy: launch.readyStrategy,
-    outputMode:
-      input.launchMode === "one-shot" && resolvedProviderId === "claude-code"
-        ? "claude-stream-json"
-        : "plain",
-    structuredOutput:
-      input.launchMode === "one-shot" && resolvedProviderId === "claude-code"
-        ? createClaudeStreamAccumulator()
-        : undefined,
-  };
-  sessions.set(input.sessionId, session);
-
-  term.onData((data: string) => {
-    const displayChunk = consumeStructuredOutput(session, data);
-    if (displayChunk) {
-      emitSessionOutput(session, displayChunk, input.onData);
-    }
-    if (
-      session.initialPrompt &&
-      !session.initialPromptSent &&
-      session.readyStrategy === "claude" &&
-      claudePromptReady(session.output.join(""))
-    ) {
-      submitInitialPrompt(session);
-    }
-    maybeAutoExitClaudeSession(session);
-  });
-
-  term.onExit(({ exitCode }) => {
-    console.log(`Session ${input.sessionId} PTY exited with code ${exitCode}`);
-    session.exited = true;
-    session.exitCode = exitCode;
-    clearSessionStopFallbackTimer(session);
-    if (session.timeoutHandle) {
-      clearTimeout(session.timeoutHandle);
-      delete session.timeoutHandle;
-    }
-    if (session.initialPromptTimer) {
-      clearTimeout(session.initialPromptTimer);
-      delete session.initialPromptTimer;
-    }
-    if (session.autoExitFallbackTimer) {
-      clearTimeout(session.autoExitFallbackTimer);
-      delete session.autoExitFallbackTimer;
-    }
-    clearClaudeCompletionTimer(session);
-
-    const trailingDisplay = flushStructuredOutput(session);
-    if (trailingDisplay) {
-      emitSessionOutput(session, trailingDisplay, input.onData);
-    }
-
-    const plain = stripAnsi(session.output.join(""));
-    completedOutput.set(input.sessionId, { output: plain, completedAt: Date.now() });
-    void finalizeSessionConversation(session).catch(() => {});
-
-    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-      sessions.delete(input.sessionId);
-      session.ws.close();
-    }
-  });
-
-  if (input.timeoutSeconds && input.timeoutSeconds > 0) {
-    session.timeoutHandle = setTimeout(() => {
-      console.warn(`Session ${input.sessionId} timed out after ${input.timeoutSeconds}s`);
-      try {
-        term.kill();
-      } catch {}
-    }, input.timeoutSeconds * 1000);
-  }
-
-  if (session.initialPrompt) {
-    session.initialPromptTimer = setTimeout(() => {
-      submitInitialPrompt(session);
-    }, 1500);
-  }
-
-  return session;
-}
 
 function createStructuredSession(input: {
   sessionId: string;
@@ -710,6 +640,13 @@ function createStructuredSession(input: {
   cwd?: string;
   timeoutSeconds?: number;
   onData?: (chunk: string) => void;
+  adapterSessionId?: string | null;
+  /**
+   * Pre-rehydrated adapter session params (codec-deserialized blob). Passed
+   * straight through as `ctx.sessionParams` so the adapter can resume in its
+   * native shape (e.g. Cursor sessionId + cwd, Codex threadId).
+   */
+  adapterSessionParams?: Record<string, unknown> | null;
 }): StructuredSession {
   const adapter = agentAdapterRegistry.get(input.adapterType);
   if (!adapter) {
@@ -757,9 +694,16 @@ function createStructuredSession(input: {
           typeof input.timeoutSeconds === "number" && input.timeoutSeconds > 0
             ? input.timeoutSeconds * 1000
             : undefined,
-        sessionId: input.sessionId,
-        sessionParams: null,
-        onLog: async (_stream, chunk) => {
+        sessionId: input.adapterSessionId ?? null,
+        sessionParams: input.adapterSessionParams ?? null,
+        onLog: async (stream, chunk) => {
+          if (stream === "stderr") {
+            session.stderrBuffer = (session.stderrBuffer ?? "") + chunk;
+            // Cap stderr buffer at 64 KB so a chatty adapter doesn't OOM us.
+            if (session.stderrBuffer.length > 65_536) {
+              session.stderrBuffer = session.stderrBuffer.slice(-65_536);
+            }
+          }
           emitSessionOutput(session, chunk, input.onData);
         },
         onSpawn: async (meta) => {
@@ -773,6 +717,38 @@ function createStructuredSession(input: {
       session.exitCode = result.exitCode;
       session.resolvedStatus =
         result.exitCode === 0 && !result.timedOut ? "completed" : "failed";
+      session.adapterSessionId = result.sessionId ?? null;
+      session.adapterSessionParams = result.sessionParams ?? null;
+      session.adapterUsage = result.usage ?? null;
+
+      // Classify failures so the UI can surface an actionable hint.
+      // Prefer stderrBuffer, but fall back to the adapter-reported
+      // `errorMessage` (used by structured CLIs like codex that emit error
+      // events on STDOUT, e.g. plan-gated model rejections). Without the
+      // fallback, model_unavailable and other stdout-reported failures
+      // would classify as unknown despite the adapter having the real
+      // reason ready to hand off.
+      if (session.resolvedStatus === "failed" && adapter.classifyError) {
+        try {
+          const classifierInput =
+            (session.stderrBuffer && session.stderrBuffer.trim())
+              ? session.stderrBuffer
+              : result.errorMessage ?? "";
+          const classified = adapter.classifyError(
+            classifierInput,
+            result.exitCode
+          );
+          session.adapterErrorKind = classified.kind;
+          session.adapterErrorHint = classified.hint ?? null;
+          session.adapterErrorRetryAfterSec = classified.retryAfterSec ?? null;
+        } catch {
+          session.adapterErrorKind = "unknown";
+        }
+      } else if (session.resolvedStatus === "completed") {
+        session.adapterErrorKind = null;
+        session.adapterErrorHint = null;
+        session.adapterErrorRetryAfterSec = null;
+      }
       clearSessionStopFallbackTimer(session);
 
       if (!session.output.length && result.output) {
@@ -783,6 +759,42 @@ function createStructuredSession(input: {
       completedOutput.set(input.sessionId, { output: plain, completedAt: Date.now() });
       await finalizeSessionConversation(session).catch(() => {});
 
+      // Persist the adapter's resume handle + codec blob to the conversation
+      // directory so future continues can resume. This only works when the
+      // daemon session id IS the conversation id (startConversationRun's
+      // path). Continue-via-daemon uses a synthetic runId and handles codec
+      // serialization client-side from the /session/:id/output response.
+      const hasResumeSignal =
+        (result.sessionId || result.sessionParams) &&
+        result.exitCode === 0 &&
+        !result.timedOut;
+      if (hasResumeSignal) {
+        let codecBlob: Record<string, unknown> | null = null;
+        let displayId: string | undefined;
+        try {
+          codecBlob =
+            adapter.sessionCodec && result.sessionParams
+              ? adapter.sessionCodec.serialize(result.sessionParams)
+              : null;
+          displayId =
+            adapter.sessionCodec?.getDisplayId?.(result.sessionParams ?? {}) ||
+            (result.sessionDisplayId ?? undefined);
+        } catch {
+          codecBlob = null;
+        }
+        await writeSession(
+          input.sessionId,
+          {
+            kind: input.adapterType,
+            resumeId: result.sessionId ?? undefined,
+            alive: !result.clearSession,
+            lastUsedAt: new Date().toISOString(),
+            codecBlob,
+            displayId,
+          }
+        ).catch(() => {});
+      }
+
       if (session.ws && session.ws.readyState === WebSocket.OPEN) {
         sessions.delete(input.sessionId);
         session.ws.close();
@@ -790,9 +802,22 @@ function createStructuredSession(input: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       emitSessionOutput(session, `${message}\n`, input.onData);
+      session.stderrBuffer = (session.stderrBuffer ?? "") + message;
       session.exited = true;
       session.exitCode = 1;
       session.resolvedStatus = "failed";
+      // Run classifyError on the spawn-time failure too — ENOENT etc. should
+      // surface as `cli_not_found` so the UI can offer an Install CTA.
+      if (adapter.classifyError) {
+        try {
+          const classified = adapter.classifyError(session.stderrBuffer, 1);
+          session.adapterErrorKind = classified.kind;
+          session.adapterErrorHint = classified.hint ?? null;
+          session.adapterErrorRetryAfterSec = classified.retryAfterSec ?? null;
+        } catch {
+          session.adapterErrorKind = "unknown";
+        }
+      }
       clearSessionStopFallbackTimer(session);
       const plain = stripAnsi(session.output.join(""));
       completedOutput.set(input.sessionId, { output: plain, completedAt: Date.now() });
@@ -808,6 +833,22 @@ function createStructuredSession(input: {
   return session;
 }
 
+// Shared PTY manager — owns the PTY-spawn factory + stdin injection path.
+// The `sessions` map and `completedOutput` map stay in the daemon so the
+// HTTP/WS routes can look up either PTY or structured sessions by id.
+const ptyManager: PtyManager = createPtyManager({
+  // Map<string, ActiveSession> is invariant in TS; the manager reads it as
+  // Map<string, BaseSession> and narrows on kind, so cast through BaseSession
+  // rather than duplicating the map across modules.
+  sessions: sessions as unknown as Map<string, BaseSession>,
+  completedOutput,
+  finalizeSessionConversation,
+  emitSessionOutput,
+  clearSessionStopFallbackTimer,
+  resolveSessionCwd,
+  enrichedPath,
+});
+
 function createSession(input: {
   sessionId: string;
   providerId?: string;
@@ -818,7 +859,20 @@ function createSession(input: {
   timeoutSeconds?: number;
   onData?: (chunk: string) => void;
   launchMode?: "session" | "one-shot";
+  adapterSessionId?: string | null;
+  adapterSessionParams?: Record<string, unknown> | null;
+  /**
+   * Meta trigger (manual/job/heartbeat/agent). Manual PTY sessions opt
+   * out of the 1.2s claude idle auto-exit and instead stay alive as
+   * "awaiting-input" until the user closes them.
+   */
+  trigger?: import("../src/types/tasks").TaskTrigger;
 }): ActiveSession {
+  // Plain shell sessions bypass the adapter/provider system entirely.
+  if (input.adapterType === "shell") {
+    return ptyManager.spawn({ ...input });
+  }
+
   const adapter = input.adapterType
     ? agentAdapterRegistry.get(input.adapterType)
     : undefined;
@@ -837,10 +891,21 @@ function createSession(input: {
       cwd: input.cwd,
       timeoutSeconds: input.timeoutSeconds,
       onData: input.onData,
+      adapterSessionId: input.adapterSessionId ?? null,
+      adapterSessionParams: input.adapterSessionParams ?? null,
     });
   }
 
-  return createDetachedSession(input);
+  // Legacy PTY path: forward the adapter session id as `adapterResumeId` so
+  // the launch spec can append `--resume` / `--session` for providers that
+  // support terminal-mode resume (Claude, Cursor, OpenCode). Also forward
+  // `trigger` so the manager can stash it on the session — claude-lifecycle
+  // uses it to skip auto-exit on manual runs.
+  return ptyManager.spawn({
+    ...input,
+    adapterResumeId: input.adapterSessionId ?? null,
+    trigger: input.trigger,
+  });
 }
 
 // ===== WebSocket Event Bus =====
@@ -898,6 +963,9 @@ interface JobConfig {
   timeout?: number;
   agentSlug: string;
   cabinetPath: string;
+  oneShot?: boolean;
+  runAfter?: string;
+  ownerTaskId?: string;
 }
 
 const scheduledJobs = new Map<string, ReturnType<typeof cron.schedule>>();
@@ -934,18 +1002,43 @@ function scheduleJob(job: JobConfig): void {
   }
 
   const task = cron.schedule(job.schedule, () => {
-    console.log(`Triggering scheduled job ${key}`);
+    const scheduledAt = new Date(Math.round(Date.now() / 60000) * 60000).toISOString();
+    console.log(`Triggering scheduled job ${key} @ ${scheduledAt}`);
     void putJson(`${getAppOrigin()}/api/agents/${job.agentSlug}/jobs/${job.id}`, {
       action: "run",
       source: "scheduler",
       cabinetPath: job.cabinetPath,
-    }).catch((error) => {
-      console.error(`Failed to trigger scheduled job ${key}:`, error);
-    });
+      scheduledAt,
+    })
+      .then(async () => {
+        if (job.oneShot) {
+          try {
+            await putJson(
+              `${getAppOrigin()}/api/agents/${job.agentSlug}/jobs/${job.id}`,
+              {
+                action: "update",
+                cabinetPath: job.cabinetPath,
+                enabled: false,
+              }
+            );
+          } catch (error) {
+            console.error(`Failed to disable one-shot job ${key}:`, error);
+          }
+          const existing = scheduledJobs.get(key);
+          if (existing) existing.stop();
+          scheduledJobs.delete(key);
+          console.log(`  One-shot job fired and disabled: ${key}`);
+        }
+      })
+      .catch((error) => {
+        console.error(`Failed to trigger scheduled job ${key}:`, error);
+      });
   });
 
   scheduledJobs.set(key, task);
-  console.log(`  Scheduled job: ${key} (${job.schedule})`);
+  console.log(
+    `  Scheduled job: ${key} (${job.schedule})${job.oneShot ? " [one-shot]" : ""}`
+  );
 }
 
 function scheduleHeartbeat(slug: string, cronExpr: string, cabinetPath: string): void {
@@ -957,11 +1050,13 @@ function scheduleHeartbeat(slug: string, cronExpr: string, cabinetPath: string):
   }
 
   const task = cron.schedule(cronExpr, () => {
-    console.log(`Triggering heartbeat ${key}`);
+    const scheduledAt = new Date(Math.round(Date.now() / 60000) * 60000).toISOString();
+    console.log(`Triggering heartbeat ${key} @ ${scheduledAt}`);
     void putJson(`${getAppOrigin()}/api/agents/personas/${slug}`, {
       action: "run",
       source: "scheduler",
       cabinetPath,
+      scheduledAt,
     }).catch((error) => {
       console.error(`Failed to trigger heartbeat ${key}:`, error);
     });
@@ -1127,9 +1222,10 @@ const server = http.createServer(async (req, res) => {
         !active.exited &&
         !active.autoExitRequested &&
         !active.resolvedStatus &&
+        active.trigger !== "manual" &&
         transcriptShowsCompletedRun(plain, active.initialPrompt)
       ) {
-        completeClaudeSession(active, plain);
+        completeClaudeSession(active, plain, { completedOutput });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -1146,6 +1242,22 @@ const server = http.createServer(async (req, res) => {
           sessionId,
           status: sessionStatus(active),
           output: plain,
+          adapterSessionId:
+            active.kind === "structured" ? active.adapterSessionId ?? null : null,
+          adapterSessionParams:
+            active.kind === "structured"
+              ? active.adapterSessionParams ?? null
+              : null,
+          adapterUsage:
+            active.kind === "structured" ? active.adapterUsage ?? null : null,
+          adapterErrorKind:
+            active.kind === "structured" ? active.adapterErrorKind ?? null : null,
+          adapterErrorHint:
+            active.kind === "structured" ? active.adapterErrorHint ?? null : null,
+          adapterErrorRetryAfterSec:
+            active.kind === "structured"
+              ? active.adapterErrorRetryAfterSec ?? null
+              : null,
         })
       );
       return;
@@ -1166,10 +1278,19 @@ const server = http.createServer(async (req, res) => {
         conversationMeta.status === "running" &&
         transcriptShowsCompletedRun(plainTranscript, prompt)
       ) {
+        // Same rationale as completeClaudeSession: feed finalizeConversation
+        // a distilled one-liner instead of the full TUI-noise transcript
+        // so parseCabinetBlock's fallback regex can't scrape garbage
+        // SUMMARY/ARTIFACT lines out of prompt echoes.
+        const summaryOutput = distillPtyOutput(
+          plainTranscript,
+          0,
+          conversationMeta.providerId
+        );
         await finalizeConversation(sessionId, {
           status: "completed",
           exitCode: 0,
-          output: plainTranscript,
+          output: summaryOutput,
         }).catch(() => null);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -1208,7 +1329,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/sessions" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const {
           id,
@@ -1218,6 +1339,8 @@ const server = http.createServer(async (req, res) => {
           prompt,
           cwd,
           timeoutSeconds,
+          adapterSessionId,
+          adapterSessionParams,
         } = JSON.parse(body) as {
           id: string;
           providerId?: string;
@@ -1226,6 +1349,8 @@ const server = http.createServer(async (req, res) => {
           prompt?: string;
           cwd?: string;
           timeoutSeconds?: number;
+          adapterSessionId?: string | null;
+          adapterSessionParams?: Record<string, unknown> | null;
         };
         const sessionId = id || `session-${Date.now()}`;
 
@@ -1233,6 +1358,14 @@ const server = http.createServer(async (req, res) => {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ sessionId, existing: true }));
           return;
+        }
+
+        let trigger: import("../src/types/tasks").TaskTrigger | undefined;
+        try {
+          const meta = await readConversationMeta(sessionId);
+          trigger = meta?.trigger;
+        } catch {
+          trigger = undefined;
         }
 
         try {
@@ -1260,6 +1393,9 @@ const server = http.createServer(async (req, res) => {
             cwd,
             timeoutSeconds,
             launchMode,
+            adapterSessionId: adapterSessionId ?? null,
+            adapterSessionParams: adapterSessionParams ?? null,
+            trigger,
           });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -1277,6 +1413,91 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "Invalid JSON" }));
       }
     });
+    return;
+  }
+
+  // POST /session/:id/input — write stdin to a live PTY session
+  // Used by same-process terminal-mode continuations: if the CLI is still in
+  // its REPL waiting for input, we write the next prompt directly into the
+  // existing process instead of spawning a new PTY.
+  const inputMatch = url.pathname.match(/^\/session\/([^/]+)\/input$/);
+  if (inputMatch && req.method === "POST") {
+    const sessionId = inputMatch[1];
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        const { input: rawInput, appendEnter } = JSON.parse(body || "{}") as {
+          input?: string;
+          appendEnter?: boolean;
+        };
+        if (typeof rawInput !== "string" || !rawInput) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "input (string) is required" }));
+          return;
+        }
+        const result = ptyManager.writeInput(sessionId, rawInput, {
+          appendEnter: appendEnter !== false,
+        });
+        if (!result.ok) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({ error: "Session not found, exited, or not a PTY" })
+          );
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: msg }));
+      }
+    });
+    return;
+  }
+
+  // POST /session/:id/close — gracefully end a live PTY by writing `/exit`
+  // to its stdin (so the CLI shuts itself down cleanly and the PTY exits
+  // with code 0 → finalizeConversation runs with status="completed"). A
+  // 2s SIGTERM fallback covers CLIs that don't recognize /exit. Distinct
+  // from /stop which SIGTERMs immediately and finalizes as "failed".
+  const closeMatch = url.pathname.match(/^\/session\/([^/]+)\/close$/);
+  if (closeMatch && req.method === "POST") {
+    const sessionId = closeMatch[1];
+    const session = sessions.get(sessionId);
+    if (!session || session.exited) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Session not found or already exited" }));
+      return;
+    }
+    if (session.kind !== "pty") {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Only PTY sessions can be closed gracefully" }));
+      return;
+    }
+    try {
+      const result = ptyManager.writeInput(sessionId, "/exit", { appendEnter: true });
+      if (!result.ok) {
+        // Fall through to SIGTERM — writeInput refused (already exited, etc.)
+        session.stop("SIGTERM");
+      }
+      session.stopFallbackTimer = setTimeout(() => {
+        if (!session.exited) {
+          try {
+            session.stop("SIGTERM");
+          } catch {}
+        }
+      }, 2000);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, sessionId }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: msg }));
+    }
     return;
   }
 
@@ -1394,6 +1615,47 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Search endpoint — daemon-backed live index
+  if (url.pathname === "/search" && req.method === "GET") {
+    try {
+      const q = (url.searchParams.get("q") ?? "").trim();
+      const scopeParam = (url.searchParams.get("scope") ?? "all") as SearchScope;
+      const scope: SearchScope = ["all", "pages", "agents", "tasks"].includes(scopeParam)
+        ? scopeParam
+        : "all";
+      const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+      const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 50;
+
+      const needsAgents = scope === "all" || scope === "agents";
+      const needsTasks = scope === "all" || scope === "tasks";
+
+      const [agents, tasks] = await Promise.all([
+        needsAgents ? loadAgentDocs() : Promise.resolve([]),
+        needsTasks ? loadTaskDocs() : Promise.resolve([]),
+      ]);
+
+      const response = runSearch(
+        {
+          pages: searchIndex,
+          agents: () => agents,
+          tasks: () => tasks,
+          indexReady: () => searchIndexReady,
+        },
+        q,
+        scope,
+        limit
+      );
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(response));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Search failed";
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });
@@ -1463,17 +1725,57 @@ server.listen(PORT, () => {
   console.log(`  Reload schedules: POST http://localhost:${PORT}/reload-schedules`);
   console.log(`  Health check: http://localhost:${PORT}/health`);
   console.log(`  Trigger endpoint: POST http://localhost:${PORT}/trigger`);
+  console.log(`  Search endpoint: GET http://localhost:${PORT}/search`);
   console.log(`  Default provider: ${resolveProviderId()}`);
   console.log(`  Working directory: ${DATA_DIR}`);
 
+  getOrCreateSessionId();
+  printStartupBannerIfNeeded();
+  startTelemetryFlusher();
+  emitTelemetry("app.launched", {});
+
   void reloadSchedules();
   void cleanupStaleRunningConversations();
+  // Sweep composer-attachment staging dirs that were abandoned (paste
+  // without send). Runs once on boot, then daily.
+  void cleanupStaleStagingAttachments().then((r) => {
+    if (r.removed > 0) {
+      console.log(
+        `[staging-attachments] cleaned ${r.removed}/${r.scanned} stale dirs on boot`
+      );
+    }
+  });
+  cron.schedule("17 3 * * *", () => {
+    void cleanupStaleStagingAttachments().then((r) => {
+      if (r.removed > 0) {
+        console.log(
+          `[staging-attachments] daily sweep: removed ${r.removed}/${r.scanned}`
+        );
+      }
+    });
+  });
+  void bootstrapSearchIndex().then(() => startSearchWatcher());
+  void (async () => {
+    try {
+      const { loadExternalAdapters } = await import(
+        "../src/lib/agents/adapters/plugin-loader"
+      );
+      await loadExternalAdapters();
+    } catch (err) {
+      console.warn(
+        "[cabinet-daemon] adapter plugin loader failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  })();
 });
 
 // ===== Graceful Shutdown =====
 
 function shutdown(): void {
   console.log("\nShutting down...");
+  emitTelemetry("app.exited", {});
+  clearSessionId();
   for (const [, task] of scheduledJobs) {
     task.stop();
   }
@@ -1504,8 +1806,11 @@ wssEvents.on("error", (err) => {
 
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err.message);
+  emitTelemetry("error.unhandled", { where: "uncaughtException", errorCode: err.name });
 });
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);
+  const name = reason instanceof Error ? reason.name : "UnknownRejection";
+  emitTelemetry("error.unhandled", { where: "unhandledRejection", errorCode: name });
 });

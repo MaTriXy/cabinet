@@ -2,14 +2,23 @@ import type { TreeNode, PageData, FrontMatter } from "@/types";
 
 export async function fetchTree(showHidden = false): Promise<TreeNode[]> {
   const url = showHidden ? "/api/tree?showHidden=1" : "/api/tree";
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch tree");
   return res.json();
 }
 
+export class FetchPageError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = "FetchPageError";
+  }
+}
+
 export async function fetchPage(path: string): Promise<PageData> {
   const res = await fetch(`/api/pages/${path}`);
-  if (!res.ok) throw new Error(`Failed to fetch page: ${path}`);
+  if (!res.ok) {
+    throw new FetchPageError(`Failed to fetch page: ${path}`, res.status);
+  }
   return res.json();
 }
 
@@ -45,14 +54,28 @@ export async function deletePageApi(path: string): Promise<void> {
 
 export async function movePageApi(
   fromPath: string,
-  toParent: string
+  toParent: string,
+  neighbors: { prevName?: string | null; nextName?: string | null } = {}
 ): Promise<string> {
   const res = await fetch(`/api/pages/${fromPath}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ toParent }),
+    body: JSON.stringify({
+      toParent,
+      prevName: neighbors.prevName ?? null,
+      nextName: neighbors.nextName ?? null,
+    }),
   });
-  if (!res.ok) throw new Error(`Failed to move page: ${fromPath}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body?.error ? `: ${body.error}` : "";
+    } catch {
+      // ignore
+    }
+    throw new Error(`Failed to move page${detail}`);
+  }
   const data = await res.json();
   return data.newPath;
 }

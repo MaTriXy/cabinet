@@ -3,21 +3,26 @@ import { Bot, Sparkles, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PROVIDER_IMAGE_BY_ICON: Record<string, string> = {
-  sparkles:
-    "https://upload.wikimedia.org/wikipedia/commons/b/b0/Claude_AI_symbol.svg",
-  bot:
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/OpenAI_logo_2025_%28symbol%29.svg/960px-OpenAI_logo_2025_%28symbol%29.svg.png?_=20250205041901",
+  sparkles: "/providers/claude.svg",
+  bot: "/providers/openai.png",
   gemini: "/providers/gemini.svg",
+  cursor: "/providers/cursor.svg",
+  opencode: "/providers/opencode.svg",
+  pi: "/providers/pi.svg",
+  grok: "/providers/grok.svg",
+  copilot: "/providers/copilot.svg",
 };
 
 export function ProviderGlyph({
   icon,
+  asset,
   className,
 }: {
   icon?: string;
+  asset?: string;
   className?: string;
 }) {
-  const imageSrc = icon ? PROVIDER_IMAGE_BY_ICON[icon] : undefined;
+  const imageSrc = asset || (icon ? PROVIDER_IMAGE_BY_ICON[icon] : undefined);
   if (imageSrc) {
     return (
       <Image

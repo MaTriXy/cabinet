@@ -5,6 +5,7 @@ import { History, X, GitCommit, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEditorStore } from "@/stores/editor-store";
+import { confirmDialog } from "@/lib/ui/confirm";
 
 interface GitLogEntry {
   hash: string;
@@ -75,7 +76,7 @@ export function VersionHistory() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8"
+        className="h-7 w-7"
         onClick={() => setOpen(!open)}
         title="Version History"
       >
@@ -112,7 +113,13 @@ export function VersionHistory() {
                     className="h-6 text-xs gap-1"
                     onClick={async () => {
                       if (!selectedHash || !currentPath) return;
-                      if (!confirm("Restore this version? Current content will be replaced.")) return;
+                      const ok = await confirmDialog({
+                        title: "Restore this version?",
+                        message: "Current content will be replaced.",
+                        confirmText: "Restore",
+                        destructive: true,
+                      });
+                      if (!ok) return;
                       try {
                         const res = await fetch("/api/git/restore", {
                           method: "POST",

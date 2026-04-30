@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readConversationDetail } from "@/lib/agents/conversation-store";
+import { buildTaskHref } from "@/lib/navigation/task-route";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { CopyButton } from "./copy-button";
 import { parseTranscript } from "./transcript-parser";
@@ -90,12 +91,20 @@ export default async function ConversationTranscriptPage({
                 {detail.meta.agentSlug} · {detail.meta.trigger} · {detail.meta.status}
               </p>
             </div>
-            <Link
-              href="/"
-              className="inline-flex h-10 items-center rounded-full border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
-            >
-              Back to Cabinet
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href={buildTaskHref(detail.meta.id, detail.meta.cabinetPath)}
+                className="inline-flex h-10 items-center rounded-full bg-foreground px-4 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
+              >
+                Open in task viewer
+              </Link>
+              <Link
+                href="/"
+                className="inline-flex h-10 items-center rounded-full border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+              >
+                Back to Cabinet
+              </Link>
+            </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">

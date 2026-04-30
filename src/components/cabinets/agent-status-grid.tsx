@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderTree } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CABINET_VISIBILITY_OPTIONS } from "@/lib/cabinets/visibility";
+import { DepthDropdown } from "./depth-dropdown";
 import { sortOrgAgents, startCase } from "./cabinet-utils";
 import { AgentStatusCard } from "./agent-status-card";
 import type { AgentConversationInfo } from "./agent-status-card";
@@ -118,25 +118,7 @@ export function AgentStatusGrid({
         <h2 className="text-[1.65rem] font-semibold tracking-tight text-foreground">
           Agents
         </h2>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/55">
-            Scope
-          </span>
-          {CABINET_VISIBILITY_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              onClick={() => onVisibilityChange(option.value)}
-              className={cn(
-                "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                visibilityMode === option.value
-                  ? "border-primary/60 bg-primary/10 text-primary"
-                  : "border-border/60 bg-transparent text-muted-foreground/70 hover:text-foreground"
-              )}
-            >
-              {option.shortLabel}
-            </button>
-          ))}
-        </div>
+        <DepthDropdown mode={visibilityMode} onChange={onVisibilityChange} />
       </div>
 
       {/* Agent cards grid */}

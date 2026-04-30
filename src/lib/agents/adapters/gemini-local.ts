@@ -10,16 +10,13 @@ import {
   flushGeminiJsonStream,
   flushGeminiStderr,
 } from "./gemini-stream";
+import {
+  classifyChain,
+  classifyCommonError,
+} from "./error-classification";
 import type { AgentExecutionAdapter } from "./types";
 import { ADAPTER_RUNTIME_PATH, runChildProcess } from "./utils";
-
-function readStringConfig(
-  config: Record<string, unknown>,
-  key: string
-): string | undefined {
-  const value = config[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
+import { readStringConfig } from "./_shared/cli-args";
 
 function firstNonEmptyLine(text: string): string | null {
   return (
@@ -59,6 +56,15 @@ export const geminiLocalAdapter: AgentExecutionAdapter = {
   supportsDetachedRuns: true,
   supportsSessionResume: false,
   models: geminiCliProvider.models,
+  classifyError(stderr, exitCode) {
+    return classifyChain(stderr, exitCode, [
+      (s, c) =>
+        classifyCommonError(s, c, {
+          providerDisplayName: "Gemini CLI",
+          cliCommand: "gemini",
+        }),
+    ]);
+  },
   async testEnvironment() {
     return providerStatusToEnvironmentTest(
       "gemini_local",

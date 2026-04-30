@@ -1,6 +1,9 @@
-import { execSync } from "child_process";
 import type { AgentProvider, ProviderStatus } from "../provider-interface";
-import { checkCliProviderAvailable, resolveCliCommand, RUNTIME_PATH } from "../provider-cli";
+import {
+  checkCliProviderAvailable,
+  execCli,
+  resolveCliCommand,
+} from "../provider-cli";
 import { getNvmNodeBin } from "../nvm-path";
 
 const CLAUDE_THINKING_LEVELS = [
@@ -26,6 +29,7 @@ export const claudeCodeProvider: AgentProvider = {
     { title: "Install Claude Code", detail: "Run the following in your terminal:", command: "npm install -g @anthropic-ai/claude-code" },
     { title: "Log in", detail: "Authenticate with your Claude account:", command: "claude auth login" },
     { title: "Verify login", detail: "Check that you're logged in:", command: "claude auth status" },
+    { title: "Verify setup", detail: "Confirm headless mode works:", command: "claude -p 'Reply with exactly OK' --output-format text" },
   ],
   models: [
     {
@@ -48,6 +52,7 @@ export const claudeCodeProvider: AgentProvider = {
     },
   ],
   detachedPromptLaunchMode: "session",
+  supportsTerminalResume: true,
   effortLevels: [...CLAUDE_THINKING_LEVELS],
   command: "claude",
   commandCandidates: [
@@ -62,17 +67,28 @@ export const claudeCodeProvider: AgentProvider = {
     return ["--dangerously-skip-permissions", "-p", prompt, "--output-format", "text"];
   },
 
-  buildOneShotInvocation(prompt: string, workdir: string) {
+  buildOneShotInvocation(prompt: string, workdir: string, opts) {
+    const baseArgs = this.buildArgs ? this.buildArgs(prompt, workdir) : [];
+    const args = [...baseArgs];
+    if (opts?.model) {
+      args.push("--model", opts.model);
+    }
     return {
       command: this.command || "claude",
-      args: this.buildArgs ? this.buildArgs(prompt, workdir) : [],
+      args,
     };
   },
 
-  buildSessionInvocation(prompt: string | undefined, _workdir: string) {
+  buildSessionInvocation(prompt: string | undefined, _workdir: string, opts) {
+    const args = ["--dangerously-skip-permissions"];
+    if (opts?.resumeId) {
+      // `claude --resume <sessionId>` rehydrates the prior conversation so
+      // the user's follow-up prompt reads into the same context.
+      args.push("--resume", opts.resumeId);
+    }
     return {
       command: this.command || "claude",
-      args: ["--dangerously-skip-permissions"],
+      args,
       initialPrompt: prompt?.trim() || undefined,
       readyStrategy: prompt ? "claude" : undefined,
     };
@@ -96,12 +112,7 @@ export const claudeCodeProvider: AgentProvider = {
       // Check actual auth status via `claude auth status`
       try {
         const cmd = resolveCliCommand(this);
-        const output = execSync(`${cmd} auth status`, {
-          encoding: "utf8",
-          env: { ...process.env, PATH: RUNTIME_PATH },
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 5000,
-        }).trim();
+        const output = await execCli(cmd, ["auth", "status"], { timeout: 5000 });
         const auth = JSON.parse(output);
         if (auth.loggedIn) {
           const sub = auth.subscriptionType ? ` (${auth.subscriptionType})` : "";

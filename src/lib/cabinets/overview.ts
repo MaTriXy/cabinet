@@ -1,6 +1,7 @@
 import path from "path";
 import matter from "gray-matter";
 import yaml from "js-yaml";
+import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { CABINET_MANIFEST_FILE } from "@/lib/cabinets/files";
 import {
   buildCabinetScopedId,
@@ -16,6 +17,7 @@ import {
   DATA_DIR,
   isHiddenEntry,
 } from "@/lib/storage/path-utils";
+import { GLOBAL_AGENTS_DIR } from "@/lib/agents/persona-manager";
 import type {
   CabinetAgentSummary,
   CabinetJobSummary,
@@ -262,7 +264,8 @@ async function readAgentPersona(
   cabinetPath: string,
   cabinetName: string,
   cabinetDepth: number,
-  inherited: boolean
+  inherited: boolean,
+  scope: "global" | "cabinet" = "cabinet"
 ): Promise<CabinetAgentSummary | null> {
   try {
     const raw = await readFileContent(personaPath);
@@ -288,6 +291,12 @@ async function readAgentPersona(
       cabinetName,
       cabinetDepth,
       inherited,
+      scope: scope === "global" ? "global" : undefined,
+      displayName: trimString(data.displayName) || undefined,
+      iconKey: trimString(data.iconKey) || undefined,
+      color: trimString(data.color) || undefined,
+      avatar: trimString(data.avatar) || undefined,
+      avatarExt: trimString(data.avatarExt) || undefined,
     };
   } catch {
     return null;
@@ -305,6 +314,7 @@ async function listCabinetAgents(
   const agentsDir = path.join(cabinetDir, ".agents");
   const entries = await listDirectorySafe(agentsDir);
   const agents: CabinetAgentSummary[] = [];
+  const localSlugs = new Set<string>();
 
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
@@ -325,6 +335,36 @@ async function listCabinetAgents(
       cabinetName,
       cabinetDepth,
       inherited
+    );
+    if (persona) {
+      agents.push(persona);
+      localSlugs.add(slug);
+    }
+  }
+
+  // Append globals not shadowed by a cabinet-local agent. They're scoped to
+  // *this* cabinet's view (cabinetPath, cabinetName, cabinetDepth) so the
+  // sidebar/workspace render them as if they belong to the active cabinet —
+  // because in this cabinet's context, they do.
+  const globalEntries = await listDirectorySafe(GLOBAL_AGENTS_DIR);
+  for (const entry of globalEntries) {
+    if (entry.name.startsWith(".") || !entry.isDirectory) continue;
+    const slug = entry.name;
+    if (localSlugs.has(slug)) continue;
+    const agentDir = path.join(GLOBAL_AGENTS_DIR, slug);
+    const personaPath = path.join(agentDir, "persona.md");
+    if (!(await fileExists(personaPath))) continue;
+
+    const persona = await readAgentPersona(
+      slug,
+      personaPath,
+      agentDir,
+      jobCounts.get(slug) || 0,
+      cabinetPath,
+      cabinetName,
+      cabinetDepth,
+      inherited,
+      "global"
     );
     if (persona) agents.push(persona);
   }
@@ -376,6 +416,20 @@ function toCabinetReference(entry: CabinetDiscoveryEntry): CabinetReference {
   };
 }
 
+// 3-second TTL cache with in-flight dedupe. readCabinetOverview walks the
+// full descendant-cabinet tree, reads agents/jobs for each, and is called by
+// the overview route, the tasks route, and the inbox-drafts route — so a
+// single page load often triggers it 2-5× with identical args.
+const overviewCache = createTtlCache<CabinetOverview>({ ttlMs: 3000 });
+
+export function invalidateCabinetOverviewCache(prefix?: string) {
+  if (!prefix) {
+    overviewCache.invalidate();
+    return;
+  }
+  overviewCache.invalidateWhere((key) => key.startsWith(`${prefix}::`));
+}
+
 export async function readCabinetOverview(
   virtualPath: string,
   options: { visibilityMode?: CabinetVisibilityMode } = {}
@@ -384,7 +438,17 @@ export async function readCabinetOverview(
   if (!cabinetPath) {
     throw new Error("Cabinet path is required");
   }
+  const visibilityMode = options.visibilityMode || "own";
+  const key = `${cabinetPath}::${visibilityMode}`;
+  return overviewCache.get(key, () =>
+    readCabinetOverviewUncached(cabinetPath, visibilityMode)
+  );
+}
 
+async function readCabinetOverviewUncached(
+  cabinetPath: string,
+  visibilityMode: CabinetVisibilityMode
+): Promise<CabinetOverview> {
   const cabinetDir = resolveCabinetDir(cabinetPath);
   const manifest = await readCabinetManifestAtDir(cabinetDir);
 
@@ -392,7 +456,6 @@ export async function readCabinetOverview(
     throw new Error(`Cabinet not found: ${cabinetPath}`);
   }
 
-  const visibilityMode = options.visibilityMode || "own";
   const descendantDepth = cabinetVisibilityModeToDepth(visibilityMode);
   const currentCabinet: CabinetDiscoveryEntry = {
     path: cabinetPath,
@@ -409,14 +472,27 @@ export async function readCabinetOverview(
     ...visibleDescendants.map((entry) => readScopedCabinetData(entry, true)),
   ]);
 
-  const agents = scopedResults
-    .flatMap((result) => result.agents)
-    .sort((left, right) => {
-      if (left.cabinetDepth !== right.cabinetDepth) {
-        return left.cabinetDepth - right.cabinetDepth;
-      }
-      return left.name.localeCompare(right.name);
-    });
+  // Sort by depth first (current cabinet's own agents before descendants'),
+  // then dedupe by slug: when the same slug exists in multiple cabinets in
+  // scope, the nearest one wins. Users should see one row per role, not one
+  // per cabinet-that-defines-it.
+  const agentsBySlug = new Map<string, CabinetAgentSummary>();
+  for (const agent of scopedResults.flatMap((result) => result.agents).sort((left, right) => {
+    if (left.cabinetDepth !== right.cabinetDepth) {
+      return left.cabinetDepth - right.cabinetDepth;
+    }
+    return left.name.localeCompare(right.name);
+  })) {
+    if (!agentsBySlug.has(agent.slug)) {
+      agentsBySlug.set(agent.slug, agent);
+    }
+  }
+  const agents = Array.from(agentsBySlug.values()).sort((left, right) => {
+    if (left.cabinetDepth !== right.cabinetDepth) {
+      return left.cabinetDepth - right.cabinetDepth;
+    }
+    return left.name.localeCompare(right.name);
+  });
   const jobs = scopedResults
     .flatMap((result) => result.jobs)
     .sort((left, right) => {

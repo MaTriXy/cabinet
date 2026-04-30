@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
-import { REGISTRY_TEMPLATES } from "@/lib/registry/registry-manifest";
+import { getRegistryTemplates } from "@/lib/registry/registry-manifest";
 
 export async function GET(request: Request) {
+  const templates = await getRegistryTemplates();
   const { searchParams } = new URL(request.url);
-  const limit = Math.min(
-    Math.max(1, Number(searchParams.get("limit")) || 10),
-    REGISTRY_TEMPLATES.length,
-  );
-  return NextResponse.json({ templates: REGISTRY_TEMPLATES.slice(0, limit) });
+  const limitParam = searchParams.get("limit");
+  if (limitParam !== null) {
+    const limit = Math.min(
+      Math.max(1, Number(limitParam) || templates.length),
+      templates.length,
+    );
+    return NextResponse.json({ templates: templates.slice(0, limit) });
+  }
+  return NextResponse.json({ templates });
 }

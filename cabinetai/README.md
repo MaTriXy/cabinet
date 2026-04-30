@@ -115,16 +115,27 @@ Download a newer app version.
 npx cabinetai update
 ```
 
-### `npx cabinetai uninstall`
+### `npx cabinetai uninstall` (alias: `remove`)
 
-Remove cached app versions from `~/.cabinet/`.
+Remove cached app versions from `~/.cabinet/`. Prints a summary of what will be deleted and asks for confirmation. **Your cabinet directories and their data are never touched — those you'd delete manually.**
 
 ```bash
-npx cabinetai uninstall          # remove cached app versions
-npx cabinetai uninstall --all    # remove entire ~/.cabinet directory
+npx cabinetai uninstall          # remove cached app versions only
+npx cabinetai uninstall --all    # also remove global state and telemetry data
+npx cabinetai uninstall --yes    # skip the confirmation prompt
+npx cabinetai remove             # alias for uninstall
 ```
 
-Your cabinet directories and data are never touched.
+What `--all` removes:
+
+| Path | What's there |
+|---|---|
+| `~/.cabinet/` | cached app versions, global state, `config.json` |
+| `~/Library/Application Support/cabinet-telemetry/` (macOS) | anonymous `install_id`, telemetry queue, session state |
+| `%APPDATA%\cabinet-telemetry\` (Windows) | same as above |
+| `$XDG_CONFIG_HOME/cabinet/` (Linux, falls back to `~/.config/cabinet/`) | same as above |
+
+To completely remove everything Cabinet has on your machine — including your cabinets — run `uninstall --all` and then `rm -rf` your cabinet directories manually.
 
 ## Requirements
 

@@ -23,6 +23,13 @@ export interface JobConfig {
   cabinetPath?: string;
   createdAt: string;
   updatedAt: string;
+  /** One-shot job: auto-disable after first successful fire. */
+  oneShot?: boolean;
+  /** ISO datetime this job was created to run at (informational; the cron
+   *  expression is the actual trigger). */
+  runAfter?: string;
+  /** Conversation id that dispatched this job via an agent action. */
+  ownerTaskId?: string;
 }
 
 export interface JobRun {

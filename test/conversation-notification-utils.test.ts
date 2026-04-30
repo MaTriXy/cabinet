@@ -4,6 +4,7 @@ import {
   buildConversationNotificationIdentity,
   dedupeConversationNotifications,
   shouldEnqueueConversationNotification,
+  shouldEnqueueConversationStart,
 } from "../src/lib/agents/conversation-notification-utils";
 
 test("conversation notifications only enqueue on a non-terminal to terminal transition", () => {
@@ -31,6 +32,13 @@ test("conversation notification identities are cabinet-aware", () => {
     }),
     "__ops__::conv-1::completed"
   );
+});
+
+test("conversation start notifications fire for background triggers only", () => {
+  assert.equal(shouldEnqueueConversationStart("manual"), false);
+  assert.equal(shouldEnqueueConversationStart("job"), true);
+  assert.equal(shouldEnqueueConversationStart("heartbeat"), true);
+  assert.equal(shouldEnqueueConversationStart("agent"), true);
 });
 
 test("duplicate conversation notifications are deduped by conversation identity", () => {

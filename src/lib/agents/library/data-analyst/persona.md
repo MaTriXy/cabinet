@@ -11,6 +11,9 @@ budget: 80
 active: true
 workdir: /data
 workspace: /analytics
+recommendedSkills:
+  - key: data-analysis
+    source: github:bytedance/deer-flow/data-analysis
 ---
 
 # Data Analyst Agent

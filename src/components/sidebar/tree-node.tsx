@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Archive,
   ChevronRight,
@@ -25,7 +25,13 @@ import {
   Music,
   Workflow,
   File,
+  FileSpreadsheet,
+  NotebookText,
+  Presentation,
   TriangleAlert,
+  ArrowRightLeft,
+  Loader2,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TreeNode as TreeNodeType } from "@/types";
@@ -51,23 +57,43 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { LinkRepoDialog } from "./link-repo-dialog";
 import { NewCabinetDialog } from "./new-cabinet-dialog";
+import { useFileImport } from "./use-file-import";
 import { getDataDir } from "@/lib/data-dir-cache";
 
 interface TreeNodeProps {
   node: TreeNodeType;
   depth: number;
   contextCabinetPath?: string | null;
+  siblings?: TreeNodeType[];
+  onMoveToRequest?: (node: TreeNodeType) => void;
+  /**
+   * Optional stagger delay (ms) applied as a fade-in animation when the row
+   * mounts. Set by the parent so the whole tree cascades in like a drawer
+   * being pulled out. Propagates to children with an extra bump so nested
+   * rows appear after their parent.
+   */
+  animationDelayMs?: number;
 }
+
+const ANIMATION_MAX_DELAY_MS = 360;
+const ANIMATION_CHILD_BASE_BUMP_MS = 30;
+const ANIMATION_CHILD_SIBLING_MS = 14;
 
 export function TreeNode({
   node,
   depth,
   contextCabinetPath = null,
+  siblings,
+  onMoveToRequest,
+  animationDelayMs,
 }: TreeNodeProps) {
   const {
     selectedPath,
     expandedPaths,
     dragOverPath,
+    dragOverZone,
+    movingPaths,
+    focusTick,
     toggleExpand,
     selectPage,
     deletePage,
@@ -76,6 +102,10 @@ export function TreeNode({
     createPage,
     renamePage,
   } = useTreeStore();
+  const isMoving = movingPaths.has(node.path);
+  const rowRef = useRef<HTMLButtonElement | null>(null);
+  const [blink, setBlink] = useState(false);
+  const dragGhostRef = useRef<HTMLDivElement | null>(null);
   const loadPage = useEditorStore((s) => s.loadPage);
   const setSection = useAppStore((s) => s.setSection);
   const [subPageOpen, setSubPageOpen] = useState(false);
@@ -93,19 +123,24 @@ export function TreeNode({
   const isExpanded = hasChildren && expandedPaths.has(node.path);
   const title = node.frontmatter?.title || node.name;
 
+  useEffect(() => {
+    if (!isSelected || focusTick === 0) return;
+    const el = rowRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setBlink(true);
+    const t = setTimeout(() => setBlink(false), 1400);
+    return () => clearTimeout(t);
+  }, [isSelected, focusTick]);
+
   const handleClick = () => {
     selectPage(node.path);
-    if (node.type === "cabinet") {
-      loadPage(node.path);
-      setSection({
-        type: "cabinet",
-        mode: "cabinet",
-        cabinetPath: node.path,
-      });
-      return;
-    }
-
-    if (node.type === "file" || node.type === "directory") {
+    // Cabinets used to switch the entire app to the cabinet view on row
+    // click — that trapped users who just wanted to browse files inside.
+    // Now they behave like any folder: load the cabinet's index page and
+    // expand the subtree. The "Open cabinet" pill on hover (rendered below)
+    // is the explicit affordance for switching into the cabinet view.
+    if (node.type === "file" || node.type === "directory" || node.type === "cabinet") {
       loadPage(node.path);
     }
 
@@ -113,11 +148,25 @@ export function TreeNode({
       contextCabinetPath
         ? {
             type: "page",
-            mode: "cabinet",
             cabinetPath: contextCabinetPath,
           }
         : { type: "page" }
     );
+  };
+
+  const handleOpenCabinet = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    // Switch *into* the cabinet (sidebar drawer shows Data/Agents/Tasks tabs
+    // because section.cabinetPath is set) and land on the cabinet's data
+    // page — the index.md — instead of the dashboard. The dashboard is one
+    // click away via the top of the cabinet drawer if the user wants it.
+    selectPage(node.path);
+    void loadPage(node.path);
+    setSection({
+      type: "page",
+      cabinetPath: node.path,
+    });
   };
 
   const handleDelete = () => {
@@ -141,7 +190,6 @@ export function TreeNode({
         contextCabinetPath
           ? {
               type: "page",
-              mode: "cabinet",
               cabinetPath: contextCabinetPath,
             }
           : { type: "page" }
@@ -155,23 +203,92 @@ export function TreeNode({
     }
   };
 
+  const isContainer =
+    node.type === "directory" || node.type === "cabinet";
+
+  const isDirLike =
+    isContainer || node.type === "app" || node.type === "website";
+
+  const importTargetPath = isDirLike
+    ? node.path
+    : node.path.split("/").slice(0, -1).join("/");
+
+  const { importFiles, importFilesList, importing } = useFileImport();
+
+  const computeZone = useCallback(
+    (e: React.DragEvent): "before" | "into" | "after" => {
+      const el = rowRef.current;
+      if (!el) return "into";
+      const rect = el.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const h = rect.height;
+      if (isContainer) {
+        if (y < h * 0.25) return "before";
+        if (y > h * 0.75) return "after";
+        return "into";
+      }
+      return y < h * 0.5 ? "before" : "after";
+    },
+    [isContainer]
+  );
+
   // Drag and drop handlers
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
       e.dataTransfer.setData("text/plain", node.path);
       e.dataTransfer.effectAllowed = "move";
+
+      const source = rowRef.current;
+      if (source) {
+        const ghost = source.cloneNode(true) as HTMLDivElement;
+        ghost.style.position = "fixed";
+        ghost.style.top = "-1000px";
+        ghost.style.left = "-1000px";
+        ghost.style.width = `${source.offsetWidth}px`;
+        ghost.style.borderRadius = "8px";
+        ghost.style.background = "var(--popover)";
+        ghost.style.color = "var(--popover-foreground)";
+        ghost.style.boxShadow =
+          "0 8px 24px rgba(0,0,0,0.18), 0 1px 0 rgba(255,255,255,0.04) inset";
+        ghost.style.border = "1px solid var(--border)";
+        ghost.style.padding = "4px 8px";
+        ghost.style.opacity = "0.95";
+        ghost.style.pointerEvents = "none";
+        ghost.style.transform = "translateZ(0)";
+        document.body.appendChild(ghost);
+        dragGhostRef.current = ghost;
+        e.dataTransfer.setDragImage(ghost, 12, 12);
+      }
     },
     [node.path]
   );
+
+  const handleDragEnd = useCallback(() => {
+    if (dragGhostRef.current) {
+      dragGhostRef.current.remove();
+      dragGhostRef.current = null;
+    }
+  }, []);
 
   const handleDragOver = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      const isFileDrag = e.dataTransfer.types.includes("Files");
+      if (isFileDrag) {
+        e.dataTransfer.dropEffect = "copy";
+        if (dragOverPath !== node.path || dragOverZone !== "into") {
+          setDragOver(node.path, "into");
+        }
+        return;
+      }
       e.dataTransfer.dropEffect = "move";
-      setDragOver(node.path);
+      const zone = computeZone(e);
+      if (dragOverPath !== node.path || dragOverZone !== zone) {
+        setDragOver(node.path, zone);
+      }
     },
-    [node.path, setDragOver]
+    [node.path, setDragOver, computeZone, dragOverPath, dragOverZone]
   );
 
   const handleDragLeave = useCallback(
@@ -189,7 +306,13 @@ export function TreeNode({
     (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      const zone = computeZone(e);
       setDragOver(null);
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        void importFilesList(importTargetPath, e.dataTransfer.files);
+        return;
+      }
 
       const fromPath = e.dataTransfer.getData("text/plain");
       if (!fromPath || fromPath === node.path) return;
@@ -197,33 +320,103 @@ export function TreeNode({
       // Don't drop onto own children
       if (fromPath.startsWith(node.path + "/")) return;
 
-      // Drop onto this node's path (it becomes the parent)
-      const isDir = node.type === "directory";
-      const targetParent = isDir ? node.path : node.path.split("/").slice(0, -1).join("/");
-      if (fromPath === targetParent) return;
+      const fromName = fromPath.split("/").pop() || "";
+      const nodeParent = node.path.split("/").slice(0, -1).join("/");
 
-      movePage(fromPath, targetParent);
+      if (zone === "into") {
+        if (!isContainer) return;
+        if (fromPath === node.path) return;
+        movePage(fromPath, node.path);
+        return;
+      }
+
+      // before/after → reorder within node's parent
+      const targetParent = nodeParent;
+      if (!siblings) {
+        movePage(fromPath, targetParent);
+        return;
+      }
+      const visible = siblings.filter((s) => s.path !== fromPath);
+      const targetIndexInVisible = visible.findIndex((s) => s.path === node.path);
+      if (targetIndexInVisible === -1) {
+        movePage(fromPath, targetParent);
+        return;
+      }
+      const insertIndex =
+        zone === "before" ? targetIndexInVisible : targetIndexInVisible + 1;
+      const prev = insertIndex > 0 ? visible[insertIndex - 1] : null;
+      const next =
+        insertIndex < visible.length ? visible[insertIndex] : null;
+      const prevName = prev ? prev.path.split("/").pop() || null : null;
+      const nextName = next ? next.path.split("/").pop() || null : null;
+      movePage(fromPath, targetParent, { prevName, nextName });
     },
-    [node.path, node.type, movePage, setDragOver]
+    [
+      node.path,
+      isContainer,
+      movePage,
+      setDragOver,
+      computeZone,
+      siblings,
+      importFilesList,
+      importTargetPath,
+    ]
   );
+
+  const showInsertBefore = isDragOver && dragOverZone === "before";
+  const showInsertAfter = isDragOver && dragOverZone === "after";
+  const showInto = isDragOver && dragOverZone === "into";
+
+  const hasAnimation = typeof animationDelayMs === "number";
+  const animationStyle: React.CSSProperties | undefined = hasAnimation
+    ? {
+        animationDelay: `${Math.min(animationDelayMs!, ANIMATION_MAX_DELAY_MS)}ms`,
+        animationFillMode: "backwards",
+      }
+    : undefined;
 
   return (
     <>
+      <div
+        className={cn(
+          "relative",
+          hasAnimation &&
+            "animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+        )}
+        style={animationStyle}
+      >
+      {showInsertBefore && (
+        <div
+          className="pointer-events-none absolute -top-px right-1.5 z-10 h-0.5 rounded-full bg-primary"
+          style={{ left: `${depth * 16 + 8}px` }}
+        />
+      )}
+      {showInsertAfter && (
+        <div
+          className="pointer-events-none absolute -bottom-px right-1.5 z-10 h-0.5 rounded-full bg-primary"
+          style={{ left: `${depth * 16 + 8}px` }}
+        />
+      )}
       <ContextMenu>
         <ContextMenuTrigger>
           <button
+            ref={rowRef}
             onClick={handleClick}
-            draggable
+            draggable={!isMoving}
             onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            disabled={isMoving}
             className={cn(
-              "flex items-center gap-1.5 w-full text-left py-1.5 px-2 text-[13px] rounded-md transition-colors",
-              "hover:bg-accent/50 cursor-grab active:cursor-grabbing",
+              "group flex items-center gap-2 w-full text-left py-1 px-2 text-[12px] text-foreground/75 rounded-md transition-colors",
+              "hover:bg-foreground/[0.03] hover:text-foreground !cursor-grab active:!cursor-grabbing",
               isSelected && "bg-accent text-accent-foreground font-medium",
-              isDragOver &&
-                "bg-primary/10 ring-1 ring-primary/30 ring-inset"
+              showInto &&
+                "bg-primary/10 ring-1 ring-primary/30 ring-inset",
+              blink && "cabinet-tree-blink",
+              isMoving && "opacity-60 !cursor-progress pointer-events-none"
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
@@ -234,54 +427,99 @@ export function TreeNode({
                   e.stopPropagation();
                   toggleExpand(node.path);
                 }}
-                className="shrink-0 flex items-center justify-center w-3.5 h-3.5 rounded hover:bg-accent"
+                className="shrink-0 -ml-1 flex items-center justify-center w-3 h-3 rounded hover:bg-accent"
               >
                 <ChevronRight
                   className={cn(
-                    "h-3.5 w-3.5 text-muted-foreground/70 transition-transform duration-150",
+                    "h-3 w-3 text-muted-foreground/70 transition-transform duration-150",
                     isExpanded && "rotate-90"
                   )}
                 />
               </span>
             ) : (
-              <span className="w-3.5" />
+              <span className="w-3 -ml-1 shrink-0" />
             )}
             {node.type === "csv" ? (
-              <Table className="h-4 w-4 shrink-0 text-green-400" />
+              <Table className="h-3.5 w-3.5 shrink-0 text-green-400" />
             ) : node.type === "pdf" ? (
-              <FileType className="h-4 w-4 shrink-0 text-red-400" />
+              <FileType className="h-3.5 w-3.5 shrink-0 text-red-400" />
             ) : node.type === "app" ? (
-              <AppWindow className="h-4 w-4 shrink-0 text-emerald-400" />
+              <AppWindow className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
             ) : node.type === "website" ? (
-              <Globe className="h-4 w-4 shrink-0 text-blue-400" />
+              <Globe className="h-3.5 w-3.5 shrink-0 text-blue-400" />
             ) : node.type === "code" ? (
-              <Code className="h-4 w-4 shrink-0 text-violet-400" />
+              <Code className="h-3.5 w-3.5 shrink-0 text-violet-400" />
             ) : node.type === "image" ? (
-              <Image className="h-4 w-4 shrink-0 text-pink-400" />
+              <Image className="h-3.5 w-3.5 shrink-0 text-pink-400" />
             ) : node.type === "video" ? (
-              <Video className="h-4 w-4 shrink-0 text-cyan-400" />
+              <Video className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
             ) : node.type === "audio" ? (
-              <Music className="h-4 w-4 shrink-0 text-amber-400" />
+              <Music className="h-3.5 w-3.5 shrink-0 text-amber-400" />
             ) : node.type === "mermaid" ? (
-              <Workflow className="h-4 w-4 shrink-0 text-teal-400" />
+              <Workflow className="h-3.5 w-3.5 shrink-0 text-teal-400" />
+            ) : node.type === "docx" ? (
+              <FileText className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+            ) : node.type === "xlsx" ? (
+              <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-green-500" />
+            ) : node.type === "pptx" ? (
+              <Presentation className="h-3.5 w-3.5 shrink-0 text-orange-400" />
+            ) : node.type === "notebook" ? (
+              <NotebookText className="h-3.5 w-3.5 shrink-0 text-[#F37626]" />
             ) : node.type === "unknown" ? (
-              <File className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+              <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
             ) : node.type === "cabinet" ? (
-              <Archive className="h-4 w-4 shrink-0 text-amber-400" />
+              <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
             ) : node.hasRepo ? (
-              <GitBranch className="h-4 w-4 shrink-0 text-orange-400" />
+              <GitBranch className="h-3.5 w-3.5 shrink-0 text-orange-400" />
             ) : node.isLinked ? (
-              <Link2 className="h-4 w-4 shrink-0 text-blue-400" />
+              <Link2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
             ) : hasChildren ? (
               isExpanded ? (
-                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               ) : (
-                <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               )
             ) : (
-              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
             <span className={cn("truncate", node.type === "unknown" && "opacity-50")}>{title}</span>
+            {isMoving && (
+              <Loader2 className="ml-auto h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+            )}
+            {node.type === "cabinet" && !isMoving && (
+              // Hover-revealed "Open cabinet" pill — the row click now acts
+              // like a normal folder (expand + load index), and this pill is
+              // the explicit affordance to switch into the cabinet's scoped
+              // view. Rendered as a span (not a nested <button>) because
+              // <button> inside <button> is invalid HTML; pointer/keyboard
+              // affordances are reproduced via role="button" + tabIndex.
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`Open cabinet ${title}`}
+                title="Open cabinet view"
+                onClick={handleOpenCabinet}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    handleOpenCabinet(e as unknown as React.MouseEvent);
+                  }
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={cn(
+                  // Hidden at rest, revealed on row hover or pill focus.
+                  // Faint amber wash with amber text — borderless, blends
+                  // with the row instead of competing with it.
+                  // Row hover: calm theme tokens, almost unnoticeable.
+                  // Pill hover: stronger theme tokens (accent), grounded in
+                  // the app's palette rather than a yellow CTA.
+                  "ml-auto shrink-0 rounded-md bg-foreground/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80 transition-[opacity,background-color,color]",
+                  "opacity-0 group-hover:opacity-100 focus:opacity-100",
+                  "hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                )}
+              >
+                Open
+              </span>
+            )}
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -293,6 +531,17 @@ export function TreeNode({
             <GitBranch className="h-4 w-4 mr-2" />
             Load Knowledge
           </ContextMenuItem>
+          <ContextMenuItem
+            disabled={importing}
+            onClick={() => importFiles(importTargetPath)}
+          >
+            {importing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
+            Import File…
+          </ContextMenuItem>
           <ContextMenuItem onClick={() => setCreateCabinetOpen(true)}>
             <Archive className="h-4 w-4 mr-2" />
             Create Cabinet Here
@@ -301,6 +550,12 @@ export function TreeNode({
             <Pencil className="h-4 w-4 mr-2" />
             Rename
           </ContextMenuItem>
+          {onMoveToRequest && (
+            <ContextMenuItem onClick={() => onMoveToRequest(node)}>
+              <ArrowRightLeft className="h-4 w-4 mr-2" />
+              Move to…
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={() => navigator.clipboard.writeText(node.path)}>
             <Copy className="h-4 w-4 mr-2" />
             Copy Relative Path
@@ -333,15 +588,28 @@ export function TreeNode({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      </div>
 
       {hasChildren && isExpanded && (
         <div>
-          {node.children!.map((child) => (
+          {node.children!.map((child, childIndex) => (
             <TreeNode
               key={child.path}
               node={child}
               depth={depth + 1}
               contextCabinetPath={contextCabinetPath}
+              siblings={node.children!}
+              onMoveToRequest={onMoveToRequest}
+              animationDelayMs={
+                hasAnimation
+                  ? Math.min(
+                      animationDelayMs! +
+                        ANIMATION_CHILD_BASE_BUMP_MS +
+                        childIndex * ANIMATION_CHILD_SIBLING_MS,
+                      ANIMATION_MAX_DELAY_MS
+                    )
+                  : undefined
+              }
             />
           ))}
         </div>

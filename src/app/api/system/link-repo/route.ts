@@ -27,7 +27,7 @@ async function detectGitMetadata(localPath: string): Promise<{
   remote?: string;
 }> {
   try {
-    const git = simpleGit(localPath);
+    const git = simpleGit(/*turbopackIgnore: true*/ localPath);
     const isRepo = await git.checkIsRepo();
     if (!isRepo) return { isRepo: false };
 
@@ -65,8 +65,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    localPath = path.resolve(localPathInput);
-    const stat = await fs.stat(localPath).catch(() => null);
+    localPath = path.resolve(/*turbopackIgnore: true*/ localPathInput);
+    const stat = await fs.stat(/*turbopackIgnore: true*/ localPath).catch(() => null);
     if (!stat || !stat.isDirectory()) {
       return NextResponse.json(
         { error: "Local path must be an existing directory." },
@@ -119,7 +119,10 @@ export async function POST(req: NextRequest) {
     const description = body.description?.trim() || undefined;
 
     // Write linked-folder metadata into the target directory.
-    const cabinetMetaPath = path.join(localPath, CABINET_LINK_META_FILE);
+    const cabinetMetaPath = path.join(
+      /*turbopackIgnore: true*/ localPath,
+      CABINET_LINK_META_FILE
+    );
     const cabinetMeta = {
       title: derivedName,
       tags: isRepo ? ["repo"] : ["knowledge"],
@@ -135,7 +138,10 @@ export async function POST(req: NextRequest) {
     // Write .repo.yaml into the target directory (for git repos, skip if already exists)
     let warning: string | undefined;
     if (isRepo) {
-      const repoYamlPath = path.join(localPath, ".repo.yaml");
+      const repoYamlPath = path.join(
+        /*turbopackIgnore: true*/ localPath,
+        ".repo.yaml"
+      );
       if (await fileExists(repoYamlPath)) {
         warning = ".repo.yaml already exists in the target directory — skipped writing.";
       } else {

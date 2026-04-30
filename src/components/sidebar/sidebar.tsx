@@ -10,7 +10,10 @@ import {
 import {
   PanelLeftClose,
   PanelLeft,
+  Plus,
   Settings,
+  UserPlus,
+  Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +21,7 @@ import { TreeView } from "./tree-view";
 import { NewPageDialog } from "./new-page-dialog";
 import { NewCabinetDialog } from "./new-cabinet-dialog";
 import { useAppStore } from "@/stores/app-store";
+import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 
 function useIsMobile() {
   const isMobile = useSyncExternalStore(
@@ -46,6 +50,7 @@ export function Sidebar() {
   const setCollapsed = useAppStore((s) => s.setSidebarCollapsed);
   const section = useAppStore((s) => s.section);
   const setSection = useAppStore((s) => s.setSection);
+  const sidebarDrawer = useAppStore((s) => s.sidebarDrawer);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
     const storedWidth = window.localStorage.getItem("cabinet-sidebar-width");
@@ -112,7 +117,7 @@ export function Sidebar() {
       <aside
         suppressHydrationWarning
         className={cn(
-          "flex flex-col bg-sidebar transition-all duration-200 h-screen overflow-hidden",
+          "flex flex-col bg-sidebar transition-all duration-200 h-screen overflow-hidden [&_button]:cursor-pointer",
           isMobile ? mobileClass : desktopClass
         )}
         style={!isMobile && !collapsed ? { width: sidebarWidth } : undefined}
@@ -121,14 +126,19 @@ export function Sidebar() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSection({ type: "home" })}
-              className="font-logo text-[22px] italic tracking-[-0.01em] text-foreground hover:text-foreground/80 transition-colors"
+              className="group flex items-center gap-1.5 rounded px-1 -ml-1 font-logo text-[22px] italic tracking-[-0.01em] text-foreground hover:text-foreground/80 hover:bg-accent/60 transition-colors cursor-pointer"
+              title="Go to home"
+              aria-label="Go to home"
             >
               cabinet
+              <Home className="size-3.5 not-italic opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
             </button>
           </div>
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
             className="h-7 w-7"
             onClick={() => setCollapsed(true)}
           >
@@ -138,18 +148,62 @@ export function Sidebar() {
         <TreeView />
 
         <div className="p-2 flex items-center gap-1">
-          <div className="flex-1">
-            <NewPageDialog />
-          </div>
-          <div className="flex-1">
-            <NewCabinetDialog />
-          </div>
+          {sidebarDrawer === "data" && (
+            <>
+              <div className="min-w-0 flex-1">
+                <NewPageDialog />
+              </div>
+              <div className="min-w-0 flex-1">
+                <NewCabinetDialog />
+              </div>
+            </>
+          )}
+          {sidebarDrawer === "agents" && (
+            <button
+              type="button"
+              title="New Agent"
+              onClick={() => {
+                setSection({
+                  type: "agents",
+                  cabinetPath: section.cabinetPath || ROOT_CABINET_PATH,
+                });
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent("cabinet:open-add-agent"));
+                }, 100);
+              }}
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+            >
+              <UserPlus className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 truncate">New Agent</span>
+            </button>
+          )}
+          {sidebarDrawer === "tasks" && (
+            <button
+              type="button"
+              title="New Task"
+              onClick={() => {
+                setSection({
+                  type: "tasks",
+                  cabinetPath: section.cabinetPath || ROOT_CABINET_PATH,
+                });
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent("cabinet:open-create-task"));
+                }, 100);
+              }}
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 truncate">New Task</span>
+            </button>
+          )}
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Settings"
+            title="Settings"
             className={cn(
               "h-7 w-7 shrink-0",
-              (section.type === "settings") && "bg-accent text-foreground"
+              section.type === "settings" && "bg-accent text-foreground"
             )}
             onClick={() => setSection({ type: "settings" })}
           >
@@ -162,8 +216,10 @@ export function Sidebar() {
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Resize sidebar"
+            aria-label="Resize sidebar — double-click to reset"
+            title="Double-click to reset width"
             onPointerDown={startResize}
+            onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
             className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
           />
         </div>
@@ -172,6 +228,8 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
           className={cn(
             "absolute top-3 h-7 w-7",
             isMobile ? "left-3 z-50" : "left-2 z-20"

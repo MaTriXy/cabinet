@@ -71,12 +71,15 @@ export function AgentLivePanel({ persona, onBack }: AgentLivePanelProps) {
   );
 
   const fetchHistory = useCallback(async () => {
-    const res = await fetch(`/api/agents/personas/${persona.slug}`);
+    const qs = persona.cabinetPath
+      ? `?cabinetPath=${encodeURIComponent(persona.cabinetPath)}`
+      : "";
+    const res = await fetch(`/api/agents/personas/${persona.slug}${qs}`);
     if (res.ok) {
       const data = await res.json();
       setHistory((data.history || []).slice(0, 20));
     }
-  }, [persona.slug]);
+  }, [persona.slug, persona.cabinetPath]);
 
   useEffect(() => {
     fetchHistory();
@@ -92,10 +95,12 @@ export function AgentLivePanel({ persona, onBack }: AgentLivePanelProps) {
   const handleRun = async () => {
     setRunning(true);
     try {
+      const body: Record<string, unknown> = { action: "run" };
+      if (persona.cabinetPath) body.cabinetPath = persona.cabinetPath;
       const res = await fetch(`/api/agents/personas/${persona.slug}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "run" }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.ok && data.sessionId) {

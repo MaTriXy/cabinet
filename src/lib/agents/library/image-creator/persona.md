@@ -11,6 +11,9 @@ budget: 100
 active: true
 workdir: /data
 workspace: /cabinet-example
+recommendedSkills:
+  - key: ai-image-generation
+    source: github:infsh-skills/skills/ai-image-generation
 channels:
   - general
   - content

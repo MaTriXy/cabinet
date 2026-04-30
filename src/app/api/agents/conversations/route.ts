@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { defaultAdapterTypeForProvider } from "@/lib/agents/adapters";
 import {
   buildEditorConversationPrompt,
   buildManualConversationPrompt,
   startConversationRun,
 } from "@/lib/agents/conversation-runner";
 import { buildConversationInstanceKey } from "@/lib/agents/conversation-identity";
-import { listConversationMetas } from "@/lib/agents/conversation-store";
-import { readMemory, writeMemory } from "@/lib/agents/persona-manager";
+import { createConversation, listConversationMetas } from "@/lib/agents/conversation-store";
+import { normalizeAgentSlug, readMemory, writeMemory } from "@/lib/agents/persona-manager";
+import { normalizeRuntimeOverride } from "@/lib/agents/runtime-overrides";
 import { readCabinetOverview } from "@/lib/cabinets/overview";
 import { findOwningCabinetPathForPage } from "@/lib/cabinets/server-paths";
 import type { CabinetVisibilityMode } from "@/types/cabinets";
@@ -82,11 +82,24 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const source = body.source === "editor" ? "editor" : "manual";
-    const agentSlug = source === "editor" ? "editor" : body.agentSlug || "general";
+    const agentSlug =
+      source === "editor" ? "editor" : normalizeAgentSlug(body.agentSlug);
     const userMessage = (body.userMessage || "").trim();
     const mentionedPaths = Array.isArray(body.mentionedPaths)
       ? body.mentionedPaths.filter((value: unknown): value is string => typeof value === "string")
       : [];
+    const mentionedSkills = Array.isArray(body.mentionedSkills)
+      ? body.mentionedSkills.filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const attachmentPaths = Array.isArray(body.attachmentPaths)
+      ? body.attachmentPaths.filter(
+          (value: unknown): value is string => typeof value === "string"
+        )
+      : [];
+    const stagingClientUuid =
+      typeof body.stagingClientUuid === "string" && body.stagingClientUuid.trim()
+        ? body.stagingClientUuid.trim()
+        : undefined;
     const pagePath =
       typeof body.pagePath === "string" && body.pagePath.trim()
         ? body.pagePath.trim()
@@ -95,23 +108,6 @@ export async function POST(req: NextRequest) {
       typeof body.cabinetPath === "string" && body.cabinetPath.trim()
         ? body.cabinetPath.trim()
         : undefined;
-    const requestedProviderId =
-      typeof body.providerId === "string" && body.providerId.trim()
-        ? body.providerId.trim()
-        : undefined;
-    const requestedAdapterType =
-      typeof body.adapterType === "string" && body.adapterType.trim()
-        ? body.adapterType.trim()
-        : undefined;
-    const requestedModel =
-      typeof body.model === "string" && body.model.trim()
-        ? body.model.trim()
-        : undefined;
-    const requestedEffort =
-      typeof body.effort === "string" && body.effort.trim()
-        ? body.effort.trim()
-        : undefined;
-
     if (!userMessage) {
       return NextResponse.json(
         { error: "userMessage is required" },
@@ -126,6 +122,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // draftOnly: create idle conversation without starting the runner.
+    if (body.draftOnly === true) {
+      const draftInput = await buildManualConversationPrompt({
+        agentSlug,
+        userMessage,
+        mentionedPaths,
+        cabinetPath,
+      });
+      const runtime = normalizeRuntimeOverride(
+        { providerId: body.providerId, adapterType: body.adapterType, model: body.model, effort: body.effort, runtimeMode: body.runtimeMode },
+        { providerId: draftInput.providerId, adapterType: draftInput.adapterType, adapterConfig: draftInput.adapterConfig }
+      );
+      const conversation = await createConversation({
+        agentSlug,
+        title: draftInput.title,
+        trigger: "manual",
+        prompt: draftInput.prompt,
+        cabinetPath: draftInput.cabinetPath ?? cabinetPath,
+        mentionedPaths,
+        providerId: runtime.providerId,
+        adapterType: runtime.adapterType,
+        adapterConfig: runtime.adapterConfig,
+        initialStatus: "idle",
+      });
+      return NextResponse.json({ ok: true, conversation }, { status: 201 });
+    }
+
     const editorCabinetPath =
       source === "editor" && pagePath
         ? await findOwningCabinetPathForPage(pagePath)
@@ -137,53 +160,55 @@ export async function POST(req: NextRequest) {
             pagePath,
             userMessage,
             mentionedPaths,
+            mentionedSkills,
             cabinetPath: editorCabinetPath,
           })
         : await buildManualConversationPrompt({
             agentSlug,
             userMessage,
             mentionedPaths,
+            mentionedSkills,
             cabinetPath,
           });
 
     const conversationCabinetPath =
       editorCabinetPath ??
       ("cabinetPath" in conversationInput ? conversationInput.cabinetPath : cabinetPath);
-    const resolvedProviderId = requestedProviderId || conversationInput.providerId;
-    const resolvedAdapterType =
-      requestedAdapterType ||
-      (requestedProviderId
-        ? defaultAdapterTypeForProvider(requestedProviderId)
-        : conversationInput.adapterType);
-    const adapterConfigBase =
-      requestedProviderId && requestedProviderId !== conversationInput.providerId
-        ? {}
-        : { ...(conversationInput.adapterConfig || {}) };
-    if (requestedModel) {
-      adapterConfigBase.model = requestedModel;
-    }
-    if (requestedEffort) {
-      adapterConfigBase.effort = requestedEffort;
-    }
-    const resolvedAdapterConfig =
-      Object.keys(adapterConfigBase).length > 0 ? adapterConfigBase : undefined;
+
+    const runtime = normalizeRuntimeOverride(
+      {
+        providerId: body.providerId,
+        adapterType: body.adapterType,
+        model: body.model,
+        effort: body.effort,
+        runtimeMode: body.runtimeMode,
+      },
+      {
+        providerId: conversationInput.providerId,
+        adapterType: conversationInput.adapterType,
+        adapterConfig: conversationInput.adapterConfig,
+      }
+    );
 
     const conversation = await startConversationRun({
       agentSlug,
       title: conversationInput.title,
       trigger: "manual",
       prompt: conversationInput.prompt,
-      adapterType: resolvedAdapterType,
-      adapterConfig: resolvedAdapterConfig,
-      providerId: resolvedProviderId,
+      adapterType: runtime.adapterType,
+      adapterConfig: runtime.adapterConfig,
+      providerId: runtime.providerId,
       mentionedPaths:
         "mentionedPaths" in conversationInput
           ? conversationInput.mentionedPaths
           : mentionedPaths,
+      mentionedSkills,
+      attachmentPaths,
+      stagingClientUuid,
       cwd: conversationInput.cwd,
       cabinetPath: conversationCabinetPath,
       onComplete: async (completion) => {
-        if (agentSlug === "general" || !completion.meta.contextSummary) return;
+        if (!completion.meta.contextSummary) return;
         const timestamp = new Date().toISOString();
         const completionCabinetPath = completion.meta.cabinetPath || conversationCabinetPath;
         const existingContext = await readMemory(

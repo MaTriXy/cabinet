@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createTtlCache } from "@/lib/cache/ttl-cache";
 import { CABINET_MANIFEST_FILE } from "@/lib/cabinets/files";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
 import { cabinetPathFromFs } from "@/lib/cabinets/server-paths";
@@ -48,10 +49,20 @@ function walkCabinetsSync(dir: string, results: string[]): void {
   }
 }
 
+// 10-second TTL. Cabinet discovery walks the full data/ tree; hit by the
+// events SSE every 3s, scheduler, gallery, and persona manager.
+const discoveryCache = createTtlCache<string[]>({ ttlMs: 10_000 });
+
+export function invalidateCabinetDiscoveryCache() {
+  discoveryCache.invalidate();
+}
+
 export async function discoverCabinetPaths(): Promise<string[]> {
-  const results = [ROOT_CABINET_PATH];
-  await walkCabinets(DATA_DIR, results);
-  return results;
+  return discoveryCache.get("all", async () => {
+    const results = [ROOT_CABINET_PATH];
+    await walkCabinets(DATA_DIR, results);
+    return results;
+  });
 }
 
 export function discoverCabinetPathsSync(): string[] {

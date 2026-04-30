@@ -1,4 +1,6 @@
 import type { CabinetAgentSummary, CabinetJobSummary } from "@/types/cabinets";
+import type { ConversationMeta, ConversationStatus } from "@/types/conversations";
+import { AGENT_PALETTE } from "@/lib/themes";
 
 /* ─── Cron → next run computation ─── */
 
@@ -57,21 +59,50 @@ export function computeNextCronRun(cronExpr: string, after: Date): Date | null {
   return null;
 }
 
+/* ─── Scheduled-run lookup key ─── */
+
+export function minuteIso(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return new Date(Math.round(d.getTime() / 60000) * 60000).toISOString();
+}
+
+export function buildScheduledKey(
+  agentSlug: string,
+  sourceType: "job" | "heartbeat",
+  jobId: string | undefined | null,
+  when: Date | string,
+): string {
+  return `${agentSlug}::${sourceType}::${jobId || "-"}::${minuteIso(when)}`;
+}
+
 /* ─── Schedule event type ─── */
+
+export type ScheduleSourceType = "job" | "heartbeat" | "manual";
 
 export interface ScheduleEvent {
   id: string;
-  sourceType: "job" | "heartbeat";
+  sourceType: ScheduleSourceType;
   sourceId: string;
   label: string;
   agentEmoji: string;
   agentName: string;
   agentSlug: string;
   enabled: boolean;
+  /**
+   * Cron expression that produced this event. Empty string for manual events
+   * (they're one-off, not recurring).
+   */
   cronExpr: string;
   time: Date;
   jobRef?: CabinetJobSummary;
   agentRef?: CabinetAgentSummary;
+  /**
+   * Present only for `sourceType === "manual"`. Points back at the
+   * ConversationMeta so click handlers can route straight to the task viewer.
+   */
+  conversationId?: string;
+  /** Terminal status of the backing conversation (for "manual" events). */
+  conversationStatus?: ConversationStatus;
 }
 
 /* ─── Generate events for a date range ─── */
@@ -87,6 +118,23 @@ export function getScheduleEvents(
     agentMap.set(a.scopedId, a);
     agentMap.set(a.slug, a);
   }
+
+  // Audit #070/#116: in multi-cabinet "all" views, the same agent appears
+  // once per cabinet that exposes it. The events loop below previously
+  // generated one heartbeat-event per (agent, occurrence), so a heartbeat
+  // visible across N cabinets produced N copies in the same time slot —
+  // which read as "the same week renders 6× in the calendar". Dedup by a
+  // logical-event key (agentSlug + sourceType + sourceId + ISO time +
+  // cronExpr) so cross-cabinet duplicates collapse into one rendered pill.
+  const seen = new Set<string>();
+  const dedupKey = (
+    agentSlug: string,
+    sourceType: ScheduleEvent["sourceType"],
+    sourceId: string,
+    time: Date,
+    cronExpr: string,
+  ): string =>
+    `${agentSlug}|${sourceType}|${sourceId}|${time.toISOString()}|${cronExpr}`;
 
   const events: ScheduleEvent[] = [];
   const MAX_EVENTS_PER_SOURCE = 500;
@@ -105,20 +153,25 @@ export function getScheduleEvents(
       const next = computeNextCronRun(job.schedule, cursor);
       if (!next || next.getTime() >= rangeEnd.getTime()) break;
       if (next.getTime() >= rangeStart.getTime()) {
-        events.push({
-          id: `job:${job.scopedId}:${next.toISOString()}`,
-          sourceType: "job",
-          sourceId: job.scopedId,
-          label: job.name,
-          agentEmoji: owner?.emoji || "🤖",
-          agentName: owner?.name || job.ownerAgent || "Unknown",
-          agentSlug: owner?.slug || job.ownerAgent || "",
-          enabled: job.enabled,
-          cronExpr: job.schedule,
-          time: next,
-          jobRef: job,
-          agentRef: owner,
-        });
+        const slug = owner?.slug || job.ownerAgent || "";
+        const key = dedupKey(slug, "job", job.scopedId, next, job.schedule);
+        if (!seen.has(key)) {
+          seen.add(key);
+          events.push({
+            id: `job:${job.scopedId}:${next.toISOString()}`,
+            sourceType: "job",
+            sourceId: job.scopedId,
+            label: job.name,
+            agentEmoji: owner?.emoji || "🤖",
+            agentName: owner?.name || job.ownerAgent || "Unknown",
+            agentSlug: slug,
+            enabled: job.enabled,
+            cronExpr: job.schedule,
+            time: next,
+            jobRef: job,
+            agentRef: owner,
+          });
+        }
       }
       cursor = next;
       count++;
@@ -135,23 +188,90 @@ export function getScheduleEvents(
       const next = computeNextCronRun(agent.heartbeat, cursor);
       if (!next || next.getTime() >= rangeEnd.getTime()) break;
       if (next.getTime() >= rangeStart.getTime()) {
-        events.push({
-          id: `hb:${agent.scopedId}:${next.toISOString()}`,
-          sourceType: "heartbeat",
-          sourceId: agent.scopedId,
-          label: agent.name,
-          agentEmoji: agent.emoji || "🤖",
-          agentName: agent.name,
-          agentSlug: agent.slug,
-          enabled: agent.active,
-          cronExpr: agent.heartbeat,
-          time: next,
-          agentRef: agent,
-        });
+        // Heartbeat dedup key uses slug (not scopedId): two cabinets each
+        // exposing the same agent with the same heartbeat are the same
+        // logical event; we don't want one pill per cabinet stacked at the
+        // same minute.
+        const key = dedupKey(
+          agent.slug,
+          "heartbeat",
+          agent.slug,
+          next,
+          agent.heartbeat,
+        );
+        if (!seen.has(key)) {
+          seen.add(key);
+          events.push({
+            id: `hb:${agent.scopedId}:${next.toISOString()}`,
+            sourceType: "heartbeat",
+            sourceId: agent.scopedId,
+            label: agent.name,
+            agentEmoji: agent.emoji || "🤖",
+            agentName: agent.name,
+            agentSlug: agent.slug,
+            enabled: agent.active,
+            cronExpr: agent.heartbeat,
+            time: next,
+            agentRef: agent,
+          });
+        }
       }
       cursor = next;
       count++;
     }
+  }
+
+  events.sort((a, b) => a.time.getTime() - b.time.getTime());
+  return events;
+}
+
+/* ─── Manual conversations → ScheduleEvent ─── */
+
+/**
+ * Synthesize ScheduleEvent rows for past manual conversations that fall
+ * inside the visible window. Manual runs aren't cron-driven so they have
+ * no future tail — they only paint in past slots.
+ */
+export function getManualScheduleEvents(
+  conversations: ConversationMeta[],
+  agents: CabinetAgentSummary[],
+  rangeStart: Date,
+  rangeEnd: Date
+): ScheduleEvent[] {
+  if (conversations.length === 0) return [];
+
+  const agentMap = new Map<string, CabinetAgentSummary>();
+  for (const a of agents) {
+    agentMap.set(a.scopedId, a);
+    agentMap.set(a.slug, a);
+  }
+
+  const events: ScheduleEvent[] = [];
+  for (const convo of conversations) {
+    if (convo.trigger !== "manual") continue;
+    const when = convo.startedAt ? new Date(convo.startedAt) : null;
+    if (!when || Number.isNaN(when.getTime())) continue;
+    if (when.getTime() < rangeStart.getTime()) continue;
+    if (when.getTime() >= rangeEnd.getTime()) continue;
+
+    const owner = agentMap.get(convo.agentSlug);
+    const label = convo.title || convo.summary || "Manual run";
+
+    events.push({
+      id: `manual:${convo.id}`,
+      sourceType: "manual",
+      sourceId: convo.id,
+      label,
+      agentEmoji: owner?.emoji || "💬",
+      agentName: owner?.name || convo.agentSlug || "Manual",
+      agentSlug: owner?.slug || convo.agentSlug || "editor",
+      enabled: convo.status !== "cancelled",
+      cronExpr: "",
+      time: when,
+      agentRef: owner,
+      conversationId: convo.id,
+      conversationStatus: convo.status,
+    });
   }
 
   events.sort((a, b) => a.time.getTime() - b.time.getTime());
@@ -196,21 +316,33 @@ export function getViewRange(
 
 /* ─── Agent color palette ─── */
 
-const AGENT_COLORS = [
-  { bg: "rgba(139, 94, 60, 0.18)", text: "rgb(139, 94, 60)" },
-  { bg: "rgba(180, 120, 70, 0.18)", text: "rgb(160, 100, 50)" },
-  { bg: "rgba(100, 140, 80, 0.18)", text: "rgb(80, 120, 60)" },
-  { bg: "rgba(70, 100, 150, 0.18)", text: "rgb(60, 90, 140)" },
-  { bg: "rgba(150, 80, 100, 0.18)", text: "rgb(140, 70, 90)" },
-  { bg: "rgba(120, 100, 150, 0.18)", text: "rgb(100, 80, 130)" },
-  { bg: "rgba(150, 130, 60, 0.18)", text: "rgb(130, 110, 40)" },
-  { bg: "rgba(80, 130, 130, 0.18)", text: "rgb(60, 110, 110)" },
-];
-
 export function getAgentColor(slug: string): { bg: string; text: string } {
   let hash = 0;
   for (let i = 0; i < slug.length; i++) {
     hash = ((hash << 5) - hash + slug.charCodeAt(i)) | 0;
   }
-  return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length];
+  return AGENT_PALETTE[Math.abs(hash) % AGENT_PALETTE.length];
+}
+
+// Derive the tinted { bg, text } pair from a user-picked hex color.
+// Mirrors the existing palette look: 8% alpha bg, full-saturation text.
+export function tintFromHex(hex: string): { bg: string; text: string } {
+  const clean = hex.trim().replace(/^#/, "");
+  const full =
+    clean.length === 3
+      ? clean
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : clean;
+  if (full.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(full)) {
+    return AGENT_PALETTE[0];
+  }
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return {
+    bg: `rgba(${r}, ${g}, ${b}, 0.08)`,
+    text: `rgb(${r}, ${g}, ${b})`,
+  };
 }

@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
-import { Users, Download, Loader2 } from "lucide-react";
+import { selectDaemonLevel, useHealthStore } from "@/stores/health-store";
+import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
+import { Download, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { flattenTree } from "@/lib/tree-utils";
 import { createConversation } from "@/lib/agents/conversation-client";
@@ -12,7 +15,15 @@ import {
   TaskRuntimePicker,
   type TaskRuntimeSelection,
 } from "@/components/composer/task-runtime-picker";
+import {
+  StartWorkDialog,
+  WhenChip,
+  type StartWorkMode,
+} from "@/components/composer/start-work-dialog";
 import { useComposer, type MentionableItem } from "@/hooks/use-composer";
+import { useSkillMentionItems } from "@/hooks/use-skill-mention-items";
+import { useComposerAttachments } from "@/components/composer/use-composer-attachments";
+import type { CabinetAgentSummary } from "@/types/cabinets";
 import {
   Dialog,
   DialogContent,
@@ -21,31 +32,78 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { AgentListItem } from "@/types/agents";
 import type { RegistryTemplate } from "@/lib/registry/registry-manifest";
+import { TiltCard } from "@/components/ui/tilt-card";
 
-const QUICK_ACTIONS = [
-  "Brainstorm ideas",
-  "Map user journey",
-  "Plan roadmap",
-  "Create research plan",
-  "Create requirements doc",
-];
-
-const DOMAIN_COLORS: Record<string, string> = {
-  "Marketing": "bg-blue-500/15 text-blue-400",
-  "E-commerce": "bg-emerald-500/15 text-emerald-400",
-  "Media": "bg-purple-500/15 text-purple-400",
-  "Software": "bg-orange-500/15 text-orange-400",
-  "Sales": "bg-rose-500/15 text-rose-400",
-  "Finance": "bg-yellow-500/15 text-yellow-400",
-  "Professional Services": "bg-cyan-500/15 text-cyan-400",
-  "Data & Research": "bg-indigo-500/15 text-indigo-400",
-  "Education": "bg-teal-500/15 text-teal-400",
-  "Operations": "bg-slate-500/15 text-slate-400",
-  "Paid Social": "bg-pink-500/15 text-pink-400",
-  "Content Ops": "bg-amber-500/15 text-amber-400",
+type QuickAction = {
+  label: string;
+  prompt: string;
+  // For delegation chips: ordered list of preferred dispatcher slugs. The
+  // first one that exists in the user's cabinet is used; if none exist, the
+  // chip is hidden so we never ship a "showcase" that silently routes to a
+  // non-dispatcher (e.g. editor) and quietly degrades to a solo task.
+  // Solo chips omit this field and use the composer's default routing.
+  preferredAgents?: string[];
 };
+
+// Common dispatch-enabled lead slugs. Per
+// `data/getting-started/delegating-between-agents`, leads default to
+// canDispatch:true. We try them in order; the first one present wins.
+const LEAD_FALLBACKS = ["ceo", "cto", "pm"];
+
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    label: "Launch 10 song-writing editors",
+    preferredAgents: LEAD_FALLBACKS,
+    prompt:
+      "Launch 10 LAUNCH_TASKs to the editor in parallel. Each one writes a short song from the perspective of a different Harry Potter character (Harry, Hermione, Ron, Dumbledore, Snape, Hagrid, Luna, Draco, Neville, McGonagall). Save each as its own page under @Songs. Use effort=low.",
+  },
+  {
+    label: "Daily review at 9am",
+    preferredAgents: LEAD_FALLBACKS,
+    prompt:
+      "Schedule a SCHEDULE_JOB on the editor with cron `0 9 * * *` — every day at 9am, write a short daily review of yesterday and what's on today, and append it to @Daily Review.",
+  },
+  {
+    label: "Weekly review next Monday",
+    preferredAgents: LEAD_FALLBACKS,
+    prompt:
+      "Schedule a SCHEDULE_TASK on the assistant for next Monday 09:00 — review what I worked on this past week by inspecting recently-modified files in this cabinet, then write @Weekly Review and a @Tasks for Next Week list.",
+  },
+  {
+    label: "Plan my Thailand trip",
+    preferredAgents: LEAD_FALLBACKS,
+    prompt:
+      "Plan a 2-week Thailand trip. Dispatch a LAUNCH_TASK to the librarian (effort=high) to research itinerary, places to stay, and food spots, and a LAUNCH_TASK to the editor (effort=medium) to compile the findings into one @Thailand Trip page with a day-by-day schedule and a rough budget.",
+  },
+  {
+    label: "Build me a physics study app",
+    prompt:
+      "Create an interactive webapp inside this cabinet so I can study physics for beginners. Include clear explanations, simple animations where useful, and quick checks for understanding.",
+  },
+  {
+    label: "Summarise my recent work",
+    prompt:
+      "Read the most recently modified pages in this cabinet and write a concise summary of what I've been working on. Group by theme, note any open threads, and save the result as @Recent Work Summary.",
+  },
+  {
+    label: "Draft a recruiter reply",
+    prompt:
+      "Write a polite, direct reply to a recruiter outreach message. Ask the key qualifying questions (role, comp range, company stage, remote policy) without committing to anything. Keep it under 100 words.",
+  },
+  {
+    label: "Map article connections",
+    preferredAgents: LEAD_FALLBACKS,
+    prompt:
+      "Pipeline of two LAUNCH_TASKs: first dispatch the librarian to identify the articles in this cabinet and map connections between their ideas, people, and concepts. Then dispatch the editor to build an interactive webapp that visualises that graph.",
+  },
+  {
+    label: "Spin up a 6-module physics course",
+    preferredAgents: LEAD_FALLBACKS,
+    prompt:
+      "Plan a beginner physics curriculum across 6 modules (motion, forces, energy, waves, electricity, light). Dispatch one LAUNCH_TASK per module to the editor (effort=high) to build an interactive lesson page. Save them under @Physics 101.",
+  },
+];
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -61,36 +119,46 @@ function CabinetCard({
   template: RegistryTemplate;
   onClick: () => void;
 }) {
-  const colorClass =
-    DOMAIN_COLORS[template.domain] || "bg-muted text-muted-foreground";
-
   return (
-    <button
-      onClick={onClick}
-      className="group flex-shrink-0 w-64 h-36 rounded-xl border border-border bg-card p-4 flex flex-col text-left cursor-pointer transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
-    >
-      <h3 className="text-sm font-medium text-foreground leading-tight">
-        {template.name}
-      </h3>
-      <p className="text-xs text-muted-foreground leading-relaxed mt-2 line-clamp-2">
-        {template.description}
-      </p>
-      <div className="flex items-center justify-between mt-auto pt-3">
-        <span
-          className={cn(
-            "text-[10px] font-medium px-2 py-0.5 rounded-full",
-            colorClass
-          )}
+    <TiltCard className="flex-shrink-0 w-48">
+      <button
+        onClick={onClick}
+        className="fancy-card w-full border border-border bg-card flex flex-col text-left"
+      >
+        <div
+          className="relative h-20 w-full bg-muted"
+          style={
+            template.coverUrl
+              ? {
+                  backgroundImage: `url(${template.coverUrl})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                }
+              : undefined
+          }
+          aria-hidden
         >
-          {template.domain}
-        </span>
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Users className="h-3 w-3" />
-          {template.agentCount} agents
-          <Download className="h-3 w-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </span>
-      </div>
-    </button>
+          {!template.coverUrl && (
+            <div className="absolute inset-0 flex items-center justify-center text-xl opacity-40">
+              📦
+            </div>
+          )}
+        </div>
+        <div className="p-2.5 flex flex-col gap-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-[11px] font-medium leading-tight line-clamp-1 flex-1 min-w-0 text-foreground">
+              {template.name}
+            </p>
+            <span className="text-[9px] shrink-0 text-muted-foreground">
+              {template.agentCount} agents
+            </span>
+          </div>
+          <p className="text-[9px] leading-snug line-clamp-2 text-muted-foreground">
+            {template.description}
+          </p>
+        </div>
+      </button>
+    </TiltCard>
   );
 }
 
@@ -132,19 +200,29 @@ function RegistryCarousel({
 
   return (
     <div
-      className="relative w-full overflow-hidden"
+      className="tilt-carousel relative w-full py-6"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
       <div ref={scrollRef} className="flex gap-3 will-change-transform">
-        {doubled.map((template, i) => (
-          <CabinetCard
-            key={`${template.slug}-${i}`}
-            template={template}
-            onClick={() => onSelect(template)}
-          />
-        ))}
+        {doubled.map((template, i) => {
+          const isClone = i >= templates.length;
+          return (
+            <div
+              key={`${template.slug}-${i}`}
+              aria-hidden={isClone || undefined}
+              inert={isClone || undefined}
+            >
+              <CabinetCard
+                template={template}
+                onClick={() => onSelect(template)}
+              />
+            </div>
+          );
+        })}
       </div>
+      <div className="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-background to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-background to-transparent" />
     </div>
   );
 }
@@ -271,7 +349,9 @@ export function HomeScreen() {
   const setSection = useAppStore((s) => s.setSection);
   const treeNodes = useTreeStore((s) => s.nodes);
   const [userName, setUserName] = useState<string | null>(null);
-  const [agents, setAgents] = useState<AgentListItem[]>([]);
+  const [agents, setAgents] = useState<CabinetAgentSummary[]>([]);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [handoffMode, setHandoffMode] = useState<StartWorkMode>("recurring");
   const [registryTemplates, setRegistryTemplates] = useState<
     RegistryTemplate[]
   >([]);
@@ -280,32 +360,32 @@ export function HomeScreen() {
   const [importOpen, setImportOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [taskRuntime, setTaskRuntime] = useState<TaskRuntimeSelection>({});
+  const [quickRunning, setQuickRunning] = useState(false);
+  // Hold the chip row until the agents fetch has settled — only then do we
+  // know which delegation chips to show. Animating before that point causes
+  // the second wave of chips to pop in at scrambled positions and reflow the
+  // layout. The 2.5s timeout is a safety net for a hung request; in practice
+  // the local overview fetch settles in under 200ms.
+  const [chipsReady, setChipsReady] = useState(false);
 
   useEffect(() => {
-    fetch("/api/agents/config")
+    fetch("/api/user/profile")
       .then((r) => r.json())
       .then((data) => {
-        if (data.company?.name) {
-          setUserName(data.company.name);
+        const profileName: string | undefined =
+          data?.profile?.displayName || data?.profile?.name;
+        if (profileName) {
+          setUserName(profileName);
         }
       })
       .catch(() => {});
 
-    fetch("/api/cabinets/overview?path=.&visibility=all")
-      .then((r) => r.json())
+    fetchCabinetOverviewClient(".", "all")
       .then((data) => {
-        const overview = (data.agents || []).map(
-          (a: Record<string, unknown>) => ({
-            name: a.name as string,
-            slug: a.slug as string,
-            emoji: (a.emoji as string) || "",
-            role: (a.role as string) || "",
-            active: a.active as boolean,
-          })
-        ) as AgentListItem[];
-        setAgents(overview);
+        setAgents((data.agents || []) as CabinetAgentSummary[]);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setChipsReady(true));
 
     fetch("/api/registry")
       .then((r) => r.json())
@@ -313,11 +393,16 @@ export function HomeScreen() {
         if (data.templates) setRegistryTemplates(data.templates);
       })
       .catch(() => {});
+
+    const safetyTimer = setTimeout(() => setChipsReady(true), 2500);
+    return () => clearTimeout(safetyTimer);
   }, []);
+
+  const skillItems = useSkillMentionItems();
 
   const mentionItems: MentionableItem[] = [
     ...agents
-      .filter((a) => a.slug !== "general" && a.slug !== "editor")
+      .filter((a) => a.slug !== "editor")
       .map((a) => ({
         type: "agent" as const,
         id: a.slug,
@@ -325,6 +410,7 @@ export function HomeScreen() {
         sublabel: a.role || "",
         icon: a.emoji,
       })),
+    ...skillItems,
     ...flattenTree(treeNodes).map((p) => ({
       type: "page" as const,
       id: p.path,
@@ -333,47 +419,145 @@ export function HomeScreen() {
     })),
   ];
 
+  const stagingClientUuid = useMemo(
+    () =>
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `c-${Date.now()}`,
+    []
+  );
+  const attachments = useComposerAttachments({
+    // Home-screen has no cabinet context — attachments land at the root
+    // cabinet (data/.agents/.conversations/_pending/...).
+    cabinetPath: undefined,
+    clientAttachmentId: stagingClientUuid,
+  });
+
   const composer = useComposer({
     items: mentionItems,
-    onSubmit: async ({ message, mentionedPaths, mentionedAgents }) => {
+    attachments,
+    stagingClientUuid,
+    onSubmit: async ({
+      message,
+      mentionedPaths,
+      mentionedAgents,
+      mentionedSkills,
+      attachmentPaths,
+      stagingClientUuid: turnStagingUuid,
+    }) => {
       const targetAgent =
-        mentionedAgents.length > 0 ? mentionedAgents[0] : "general";
+        mentionedAgents.length > 0 ? mentionedAgents[0] : "editor";
 
       const data = await createConversation({
         agentSlug: targetAgent,
         userMessage: message,
         mentionedPaths,
+        mentionedSkills,
+        attachmentPaths,
+        stagingClientUuid: turnStagingUuid,
         ...taskRuntime,
       });
       setSection({
-        type: "agent",
-        mode: "ops",
-        slug: targetAgent,
-        conversationId: data.conversation?.id,
+        type: "task",
+        taskId: data.conversation?.id,
+        cabinetPath: ROOT_CABINET_PATH,
       });
     },
   });
 
+  const dispatcherFor = (action: QuickAction): string | null => {
+    if (!action.preferredAgents) return null;
+    const have = new Set(agents.map((a) => a.slug));
+    for (const slug of action.preferredAgents) {
+      if (have.has(slug)) return slug;
+    }
+    return null;
+  };
+
+  // Solo chips always render. Delegation chips only render once we've
+  // confirmed a dispatcher slug they prefer is actually installed in this
+  // cabinet — keeps the showcase honest on trimmed installs without a CEO.
+  const visibleActions = QUICK_ACTIONS.filter((action) => {
+    if (!action.preferredAgents) return true;
+    if (agents.length === 0) return false;
+    return dispatcherFor(action) !== null;
+  });
+
+  const runQuickAction = async (action: QuickAction) => {
+    if (composer.submitting || quickRunning) return;
+    const dispatcher = dispatcherFor(action);
+    if (!dispatcher) {
+      void composer.submit(action.prompt);
+      return;
+    }
+    setQuickRunning(true);
+    try {
+      const data = await createConversation({
+        agentSlug: dispatcher,
+        userMessage: action.prompt,
+        mentionedPaths: [],
+        attachmentPaths: [],
+        ...taskRuntime,
+      });
+      if (data.conversation?.id) {
+        setSection({
+          type: "task",
+          taskId: data.conversation.id,
+          cabinetPath: ROOT_CABINET_PATH,
+        });
+      }
+    } catch {
+      // Best-effort: chip clicks fail silently; the composer stays interactive.
+    } finally {
+      setQuickRunning(false);
+    }
+  };
+
   const greeting = getGreeting();
-  const displayName = userName || "there";
+  const headline = userName ? `${greeting}, ${userName}.` : `${greeting}.`;
+
+  // Daemon owns agent execution — if it's confirmed down (≥2 missed polls)
+  // disable the prompt and surface why, instead of letting the user fire a
+  // request that will silently fail.
+  const daemonLevel = useHealthStore(selectDaemonLevel);
+  const daemonDown = daemonLevel === "down";
+  const composerPlaceholder = daemonDown
+    ? "Agent daemon offline — restart to send"
+    : "I want to create...";
 
   return (
     <div className="flex-1 flex flex-col items-center px-4 overflow-hidden">
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-xl space-y-8">
         <h1 className="text-3xl md:text-4xl font-semibold text-center text-foreground tracking-tight">
-          {greeting}, {displayName}.<br />
-          What are we working on today?
+          {headline}
         </h1>
 
         <ComposerInput
           composer={composer}
-          placeholder="I want to create..."
+          placeholder={composerPlaceholder}
           variant="card"
           items={mentionItems}
+          attachments={attachments}
           autoFocus
+          disabled={daemonDown}
           className="w-full"
           minHeight="44px"
           maxHeight="160px"
+          mentionDropdownPlacement="below"
+          topRightOverlay={
+            <WhenChip
+              mode="now"
+              // Audit #020: home-screen composer has no agent context yet,
+              // so "Heartbeat" doesn't apply. Surface it only on agent
+              // detail / mid-conversation composers.
+              allowHeartbeat={false}
+              onChange={(next) => {
+                if (next === "now") return;
+                setHandoffMode(next);
+                setHandoffOpen(true);
+              }}
+            />
+          }
           actionsStart={
             <TaskRuntimePicker
               value={taskRuntime}
@@ -382,23 +566,35 @@ export function HomeScreen() {
           }
         />
 
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {QUICK_ACTIONS.map((action) => (
-            <button
-              key={action}
-              onClick={() => void composer.submit(action)}
-              disabled={composer.submitting}
-              className={cn(
-                "rounded-full border border-border px-4 py-1.5",
-                "text-sm text-foreground/80",
-                "hover:bg-accent hover:text-accent-foreground",
-                "transition-colors",
-                composer.submitting && "opacity-50 cursor-not-allowed"
-              )}
-            >
-              {action}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-start justify-center content-start gap-1.5 min-h-[8rem]">
+          {chipsReady &&
+            visibleActions.map((action, index) => {
+              const disabled = composer.submitting || quickRunning || daemonDown;
+              return (
+                <button
+                  key={action.label}
+                  onClick={() => void runQuickAction(action)}
+                  disabled={disabled}
+                  title={action.prompt}
+                  style={{
+                    fontFamily:
+                      "var(--font-heading-theme, var(--font-theme, var(--font-sans)))",
+                    animationDelay: `${Math.min(index, 12) * 50}ms`,
+                    animationFillMode: "backwards",
+                  }}
+                  className={cn(
+                    "rounded-full border border-border/70 bg-card/80 px-3 py-1",
+                    "text-xs text-foreground/85",
+                    "hover:bg-secondary hover:border-border hover:text-foreground",
+                    "transition-colors",
+                    "animate-in fade-in slide-in-from-top-1 duration-200 ease-out",
+                    disabled && "opacity-50 cursor-not-allowed"
+                  )}
+                >
+                  {action.label}
+                </button>
+              );
+            })}
         </div>
       </div>
 
@@ -409,7 +605,7 @@ export function HomeScreen() {
           </h2>
           <button
             onClick={() => setSection({ type: "registry" })}
-            className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+            className="text-xs font-medium text-primary hover:text-primary/80 underline underline-offset-2 cursor-pointer transition-colors"
           >
             Browse all &rarr;
           </button>
@@ -432,6 +628,23 @@ export function HomeScreen() {
         }}
         onImportStart={() => setImporting(true)}
         onImportEnd={() => setImporting(false)}
+      />
+
+      <StartWorkDialog
+        open={handoffOpen}
+        onOpenChange={setHandoffOpen}
+        cabinetPath={ROOT_CABINET_PATH}
+        agents={agents}
+        initialMode={handoffMode}
+        initialPrompt={composer.input}
+        onStarted={(conversationId) => {
+          composer.reset();
+          setSection({
+            type: "task",
+            taskId: conversationId,
+            cabinetPath: ROOT_CABINET_PATH,
+          });
+        }}
       />
 
       {importing && (

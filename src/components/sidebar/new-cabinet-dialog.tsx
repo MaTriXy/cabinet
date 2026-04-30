@@ -82,7 +82,6 @@ function NewCabinetOverlay({
       selectPage(data.path);
       setSection({
         type: "cabinet",
-        mode: "cabinet",
         cabinetPath: data.path,
       });
       onOpenChange(false);
@@ -206,22 +205,26 @@ export function NewCabinetDialog({
       <>
         <button
           onClick={() => setInternalOpen(true)}
-          className="flex items-center gap-1.5 w-full text-xs px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer whitespace-nowrap"
+          title="New Cabinet"
+          className="flex min-w-0 items-center gap-1.5 w-full text-xs px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
         >
-          <Archive className="h-4 w-4" />
-          New Cabinet
+          <Archive className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate">New Cabinet</span>
         </button>
-        <NewCabinetOverlay
-          open={open}
-          onOpenChange={setOpen}
-          parentPath={parentPath}
-          defaultName={defaultName}
-        />
+        {open && (
+          <NewCabinetOverlay
+            open={open}
+            onOpenChange={setOpen}
+            parentPath={parentPath}
+            defaultName={defaultName}
+          />
+        )}
       </>
     );
   }
 
   // Controlled mode
+  if (!open) return null;
   return (
     <NewCabinetOverlay
       open={open}

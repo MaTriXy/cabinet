@@ -24,63 +24,39 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { LinkRepoDialog } from "./link-repo-dialog";
+import { MoveToDialog } from "./move-to-dialog";
+import { RecentTasks } from "./recent-tasks";
+import type { TreeNode as TreeNodeType } from "@/types";
 import {
   CornerLeftUp,
-  ChevronRight,
   Plus,
   BookOpen,
   Users,
-  Bot,
   SquareKanban,
   Pencil,
   FilePlus,
+  UserPlus,
+  ListPlus,
   FolderOpen,
   GitBranch,
   ClipboardCopy,
   Copy,
   Trash2,
   Archive,
-  Crown,
-  Megaphone,
-  Search,
-  ShieldCheck,
-  Code,
-  BarChart3,
-  Briefcase,
-  DollarSign,
-  Wrench,
-  Palette,
-  Smartphone,
-  Rocket,
-  Handshake,
-  PenTool,
-  UserCheck,
-  Scale,
   TriangleAlert,
-  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { cronToShortLabel } from "@/lib/agents/cron-utils";
+import { AgentAvatar, getAgentDisplayName } from "@/components/agents/agent-avatar";
+import { EditAgentIdentityDialog } from "@/components/agents/edit-agent-identity-dialog";
 import {
   findNodeByPath,
   findParentCabinetNode,
   findRootCabinetNode,
 } from "@/lib/cabinets/tree";
 import { ROOT_CABINET_PATH } from "@/lib/cabinets/paths";
-import {
-  cabinetVisibilityModeLabel,
-  CABINET_VISIBILITY_OPTIONS,
-} from "@/lib/cabinets/visibility";
+import { fetchCabinetOverviewClient } from "@/lib/cabinets/overview-client";
 import { getDataDir } from "@/lib/data-dir-cache";
-import type { CabinetOverview, CabinetVisibilityMode } from "@/types/cabinets";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DepthDropdown } from "@/components/cabinets/depth-dropdown";
 
 interface AgentSummary {
   scopedId?: string;
@@ -95,46 +71,20 @@ interface AgentSummary {
   cabinetPath?: string;
   cabinetName?: string;
   inherited?: boolean;
-}
-
-const AGENT_ICONS: Record<string, LucideIcon> = {
-  general: Bot,
-  editor: Pencil,
-  ceo: Crown,
-  coo: Briefcase,
-  cfo: DollarSign,
-  cto: Wrench,
-  "content-marketer": Megaphone,
-  seo: Search,
-  "seo-specialist": Search,
-  qa: ShieldCheck,
-  "qa-agent": ShieldCheck,
-  sales: BarChart3,
-  "sales-agent": BarChart3,
-  "product-manager": Briefcase,
-  "ux-designer": Palette,
-  "data-analyst": BarChart3,
-  "social-media": Smartphone,
-  "growth-marketer": Rocket,
-  "customer-success": Handshake,
-  copywriter: PenTool,
-  devops: Code,
-  developer: Code,
-  "people-ops": UserCheck,
-  legal: Scale,
-  researcher: Search,
-};
-
-function getAgentIcon(slug: string): LucideIcon {
-  return AGENT_ICONS[slug] || Bot;
+  displayName?: string;
+  iconKey?: string;
+  color?: string;
+  avatar?: string;
+  avatarExt?: string;
+  role?: string;
 }
 
 /* ── item style matching TreeNode exactly ──────────────────── */
 
 const itemClass = (active: boolean) =>
   cn(
-    "flex items-center gap-1.5 w-full text-left py-1.5 px-2 text-[13px] rounded-md transition-colors",
-    "hover:bg-accent/50",
+    "flex items-center gap-2 w-full text-left py-1 px-2 text-[12px] text-foreground/75 rounded-md transition-colors cursor-pointer",
+    "hover:bg-foreground/[0.03] hover:text-foreground",
     active && "bg-accent text-accent-foreground font-medium"
   );
 
@@ -148,20 +98,62 @@ export function TreeView() {
   const setSection = useAppStore((s) => s.setSection);
   const cabinetVisibilityModes = useAppStore((s) => s.cabinetVisibilityModes);
   const setCabinetVisibilityMode = useAppStore((s) => s.setCabinetVisibilityMode);
+  const activeDrawer = useAppStore((s) => s.sidebarDrawer);
+  const setActiveDrawer = useAppStore((s) => s.setSidebarDrawer);
 
   const [cabinetExpanded, setCabinetExpanded] = useState(true);
-  const [agentsExpanded, setAgentsExpanded] = useState(true);
-  const [kbExpanded, setKbExpanded] = useState(true);
+
+  // Cabinet-drawer UI: the sidebar exposes three "drawers" — Agents, Tasks, and
+  // Data — as a horizontal tab row. Only one is open at a time. The previous
+  // vertical-accordion `agentsExpanded` / `tasksExpanded` / `kbExpanded` flags
+  // are now derived from `activeDrawer` for minimal downstream churn. The
+  // active drawer lives in the app-store so the sidebar footer (which renders
+  // tab-specific quick actions) can stay in sync.
+  type DrawerId = "agents" | "tasks" | "data";
+
+  // When the route changes under us (hash nav, shortcut, etc.), auto-open the
+  // matching drawer so the sidebar and main are always in sync.
+  useEffect(() => {
+    if (section.type === "agent" || section.type === "agents") {
+      setActiveDrawer("agents");
+    } else if (section.type === "task" || section.type === "tasks") {
+      setActiveDrawer("tasks");
+    }
+    // Other section types keep the user's last manual choice.
+  }, [section.type, setActiveDrawer]);
+
+  const agentsExpanded = activeDrawer === "agents";
+  const tasksExpanded = activeDrawer === "tasks";
+  const kbExpanded = activeDrawer === "data";
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [cabinetAgentScopeName, setCabinetAgentScopeName] = useState<string | null>(null);
+  const [cabinetAgentScopeName, setCabinetAgentScopeName] = useState<string | null>(() => {
+    // Audit #027: seed from localStorage on first paint so we don't flash
+    // the bare "Cabinet" placeholder before the cabinet-overview API
+    // responds. The active cabinet path isn't known here yet (depends on
+    // section state), so we read root's name as the initial fallback.
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(`cabinet.name.${ROOT_CABINET_PATH}`);
+    } catch {
+      return null;
+    }
+  });
   const [kbSubPageOpen, setKbSubPageOpen] = useState(false);
   const [kbSubPageTitle, setKbSubPageTitle] = useState("");
   const [cabinetDeleteOpen, setCabinetDeleteOpen] = useState(false);
   const [kbCreating, setKbCreating] = useState(false);
   const [linkRepoOpen, setLinkRepoOpen] = useState(false);
+  const [moveToOpen, setMoveToOpen] = useState(false);
+  const [moveToSource, setMoveToSource] = useState<TreeNodeType | null>(null);
+  const [editingAgent, setEditingAgent] = useState<{ slug: string; cabinetPath?: string } | null>(null);
+
+  const requestMoveTo = useCallback((node: TreeNodeType) => {
+    setMoveToSource(node);
+    setMoveToOpen(true);
+  }, []);
 
   const rootCabinet = useMemo(() => findRootCabinetNode(nodes), [nodes]);
-  const routeCabinetPath = section.mode === "cabinet" ? section.cabinetPath : undefined;
+  const routeCabinetPath = section.cabinetPath;
   const activeCabinet = useMemo(() => {
     if (!routeCabinetPath) return null;
     return findNodeByPath(nodes, routeCabinetPath);
@@ -172,7 +164,7 @@ export function TreeView() {
   }, [activeCabinet, nodes]);
   const effectiveCabinetPath = activeCabinet?.path || ROOT_CABINET_PATH;
   const cabinetVisibilityMode =
-    cabinetVisibilityModes[effectiveCabinetPath] || (activeCabinet ? "own" : "all");
+    cabinetVisibilityModes[effectiveCabinetPath] || "own";
   const visibleTreeNodes = activeCabinet?.children || rootCabinet?.children || nodes;
   const kbSectionLabel = "Data";
 
@@ -180,34 +172,42 @@ export function TreeView() {
 
   const loadAgents = useCallback(async () => {
     try {
-      const params = new URLSearchParams({
-        path: activeCabinet?.path || ROOT_CABINET_PATH,
-        visibility: cabinetVisibilityMode,
-      });
-      const res = await fetch(`/api/cabinets/overview?${params.toString()}`, {
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const data = (await res.json()) as CabinetOverview;
-        setCabinetAgentScopeName(data.cabinet.name || "Cabinet");
-        setAgents(
-          (data.agents || []).map((agent) => ({
-            scopedId: agent.scopedId,
-            name: agent.name,
-            slug: agent.slug,
-            emoji: agent.emoji,
-            active: agent.active,
-            runningCount: 0,
-            jobCount: agent.jobCount || 0,
-            taskCount: agent.taskCount || 0,
-            heartbeat: agent.heartbeat || "",
-            cabinetPath: agent.cabinetPath,
-            cabinetName: agent.cabinetName,
-            inherited: agent.inherited,
-          }))
-        );
-        return;
-      }
+      const data = await fetchCabinetOverviewClient(
+        activeCabinet?.path || ROOT_CABINET_PATH,
+        cabinetVisibilityMode,
+        { force: true }
+      );
+      // Audit #027: cache the resolved name so the next cold paint can
+      // skip the "Cabinet" flicker before the API responds.
+      const resolved = data.cabinet.name || "Cabinet";
+      try {
+        if (resolved && resolved !== "Cabinet") {
+          localStorage.setItem(`cabinet.name.${activeCabinet?.path || ROOT_CABINET_PATH}`, resolved);
+        }
+      } catch { /* ignore storage failures */ }
+      setCabinetAgentScopeName(resolved);
+      setAgents(
+        (data.agents || []).map((agent) => ({
+          scopedId: agent.scopedId,
+          name: agent.name,
+          slug: agent.slug,
+          emoji: agent.emoji,
+          active: agent.active,
+          runningCount: 0,
+          jobCount: agent.jobCount || 0,
+          taskCount: agent.taskCount || 0,
+          heartbeat: agent.heartbeat || "",
+          cabinetPath: agent.cabinetPath,
+          cabinetName: agent.cabinetName,
+          inherited: agent.inherited,
+          displayName: agent.displayName,
+          iconKey: agent.iconKey,
+          color: agent.color,
+          avatar: agent.avatar,
+          avatarExt: agent.avatarExt,
+          role: agent.role,
+        }))
+      );
     } catch {
       if (activeCabinet) {
         setCabinetAgentScopeName(
@@ -225,8 +225,10 @@ export function TreeView() {
     const initialLoad = window.setTimeout(() => {
       void loadAgents();
     }, 0);
+    // Pause polling while the tab is hidden — the sidebar isn't visible, and
+    // each tick would walk the server-side cabinet tree.
     const interval = window.setInterval(() => {
-      void loadAgents();
+      if (document.visibilityState === "visible") void loadAgents();
     }, 5000);
     window.addEventListener("focus", loadAgents);
     return () => {
@@ -235,6 +237,22 @@ export function TreeView() {
       window.removeEventListener("focus", loadAgents);
     };
   }, [loadAgents]);
+
+  // Cmd+Shift+M to open Move To… for the currently selected node
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "m") {
+        const { selectedPath, nodes } = useTreeStore.getState();
+        if (!selectedPath) return;
+        const node = findNodeByPath(nodes, selectedPath);
+        if (!node) return;
+        e.preventDefault();
+        requestMoveTo(node);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [requestMoveTo]);
 
   if (loading) {
     return (
@@ -263,19 +281,99 @@ export function TreeView() {
     void loadPage(targetCabinetPath);
     setSection({
       type: "cabinet",
-      mode: "cabinet",
       cabinetPath: targetCabinetPath,
     });
   };
 
-  const openCabinetDataPage = (targetCabinetPath = cabinetPath) => {
+  const openCabinetDataPage = (targetCabinetPath = cabinetPath, restoreLastPage = false) => {
+    if (restoreLastPage) {
+      // When switching back to the Data drawer in-session, preserve the last
+      // open page rather than jumping to the cabinet root. selectedPath is
+      // never cleared on section switch, so it still holds the last page.
+      const currentSelected = useTreeStore.getState().selectedPath;
+      if (currentSelected && currentSelected !== targetCabinetPath) {
+        setSection({ type: "page", cabinetPath: targetCabinetPath });
+        void loadPage(currentSelected);
+        return;
+      }
+    }
     selectPage(targetCabinetPath);
     void loadPage(targetCabinetPath);
     setSection({
       type: "page",
-      mode: "cabinet",
       cabinetPath: targetCabinetPath,
     });
+  };
+
+  const renderAgentRow = (
+    key: string,
+    agent: {
+      slug: string;
+      cabinetPath?: string;
+      displayName?: string;
+      name?: string;
+      iconKey?: string;
+      color?: string;
+      avatar?: string;
+      avatarExt?: string;
+    },
+    opts: {
+      selected: boolean;
+      onClick: () => void;
+      activeDot?: boolean;
+      editable?: { slug: string; cabinetPath?: string };
+    }
+  ) => {
+    const row = (
+      <button
+        onClick={opts.onClick}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-foreground/[0.03]",
+          opts.selected && "bg-accent text-accent-foreground"
+        )}
+        style={pad(1)}
+      >
+        <AgentAvatar
+          agent={{
+            slug: agent.slug,
+            cabinetPath: agent.cabinetPath,
+            displayName: agent.displayName,
+            iconKey: agent.iconKey,
+            color: agent.color,
+            avatar: agent.avatar,
+            avatarExt: agent.avatarExt,
+          }}
+          size="sm"
+          shape="square"
+        />
+        <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/75">
+          {getAgentDisplayName(agent)}
+        </span>
+        {typeof opts.activeDot === "boolean" && (
+          <span
+            className={cn(
+              "ml-auto h-1.5 w-1.5 shrink-0 rounded-full",
+              opts.activeDot ? "bg-green-500" : "bg-muted-foreground/30"
+            )}
+          />
+        )}
+      </button>
+    );
+
+    if (!opts.editable) return <div key={key}>{row}</div>;
+
+    const editable = opts.editable;
+    return (
+      <ContextMenu key={key}>
+        <ContextMenuTrigger>{row}</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => setEditingAgent(editable)}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />
+            Edit agent
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
   };
 
   const openParentCabinet = () => {
@@ -285,7 +383,7 @@ export function TreeView() {
 
   return (
     <>
-    <ScrollArea className="flex-1 min-h-0">
+    <ScrollArea className="flex-1 min-h-0 [&_[data-slot=scroll-area-scrollbar]]:w-1.5 [&_[data-slot=scroll-area-scrollbar]]:py-0 [&_[data-slot=scroll-area-scrollbar]]:pr-0 [&_[data-slot=scroll-area-scrollbar]]:pl-0.5 [&_[data-slot=scroll-area-scrollbar]]:border-l-0">
       <div className="py-1">
         {/* ── Back to parent cabinet ────────────────────── */}
         {activeCabinet && parentCabinet ? (
@@ -300,16 +398,22 @@ export function TreeView() {
           </button>
         ) : null}
 
-        {/* ── Cabinet (depth 0) ───────────────────────────── */}
-        <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 w-full" style={pad(0)}>
+        {/* ── Cabinet header + drawer tabs (H variant) ─────
+             Header rail (always) + drawer-tab strip (flush below) wrapped
+             in one `px-2 pt-3` column. Strip is `mx-[9px]`-inset so the
+             header reads as a wider crown over the drawer frame. */}
+        <div className="px-2 pt-3">
+        <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5 ring-1 ring-border/60 hover:bg-muted/80 transition-colors">
           <ContextMenu>
           <ContextMenuTrigger>
           <button
             onClick={() => openCabinetOverview(activeCabinet?.path || cabinetPath)}
-            className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex min-w-0 flex-1 items-center gap-1.5 text-left hover:text-foreground/80 transition-colors"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-            {cabinetAgentScopeName || activeCabinet?.frontmatter?.title || activeCabinet?.name || "Cabinet"}
+            <Archive className="h-[18px] w-[18px] shrink-0 text-amber-400" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
+              {cabinetAgentScopeName || activeCabinet?.frontmatter?.title || activeCabinet?.name || "Cabinet"}
+            </span>
           </button>
           </ContextMenuTrigger>
           <ContextMenuContent>
@@ -364,327 +468,234 @@ export function TreeView() {
           </ContextMenuContent>
           </ContextMenu>
 
-          <Select
-            items={CABINET_VISIBILITY_OPTIONS.map((opt) => ({
-              label: opt.shortLabel,
-              value: opt.value,
-            }))}
-            value={cabinetVisibilityMode}
-            onValueChange={(value) =>
-              setCabinetVisibilityMode(
-                effectiveCabinetPath,
-                value as CabinetVisibilityMode
-              )
+          <DepthDropdown
+            mode={cabinetVisibilityMode}
+            onChange={(mode) =>
+              setCabinetVisibilityMode(effectiveCabinetPath, mode)
             }
+            compact
+            className="ml-auto"
+          />
+        </div>
+
+        {cabinetExpanded && (
+          /* ── Cabinet drawers ───────────────────────────────
+             Three drawer-pull tabs (Data · Agents · Tasks) flush against the
+             header above, inset by mx-[9px] so the header reads as a crown. */
+          <div
+            role="tablist"
+            aria-label="Cabinet drawers"
+            className="mx-[9px] grid grid-cols-3 gap-1 rounded-b-lg bg-muted/40 p-1 pt-2 border border-border/60"
           >
-            <SelectTrigger
-              size="sm"
-              className="ml-auto h-5 min-w-0 w-auto gap-0.5 rounded border-none bg-transparent px-1.5 py-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 shadow-none hover:text-foreground/80 focus-visible:ring-0"
-            >
-              <SelectValue placeholder="Own" />
-            </SelectTrigger>
-            <SelectContent align="end" className="min-w-[200px]">
-              <SelectGroup>
-                {CABINET_VISIBILITY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    <span className="font-medium">{opt.shortLabel}</span>
-                    <span className="ml-1.5 text-xs text-muted-foreground">
-                      {opt.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+                {([
+                  {
+                    id: "data" as DrawerId,
+                    label: "Data",
+                    addLabel: "New Page",
+                    icon: BookOpen,
+                    addIcon: FilePlus,
+                    onOpen: () => {
+                      if (activeCabinet) {
+                        openCabinetDataPage(activeCabinet.path, true);
+                        return;
+                      }
+                      if (
+                        section.type !== "home" &&
+                        section.type !== "page" &&
+                        section.type !== "cabinet"
+                      ) {
+                        setSection({ type: "home" });
+                      }
+                    },
+                    onAdd: () => {
+                      if (activeCabinet) {
+                        setKbSubPageOpen(true);
+                      } else {
+                        const btn = document.querySelector<HTMLButtonElement>(
+                          "[data-new-page-trigger]"
+                        );
+                        btn?.click();
+                      }
+                    },
+                  },
+                  {
+                    id: "agents" as DrawerId,
+                    label: "Agents",
+                    addLabel: "New Agent",
+                    icon: Users,
+                    addIcon: UserPlus,
+                    onOpen: () =>
+                      setSection({
+                        type: "agents",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      }),
+                    onAdd: () => {
+                      setSection({
+                        type: "agents",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      });
+                      setTimeout(() => {
+                        window.dispatchEvent(
+                          new CustomEvent("cabinet:open-add-agent")
+                        );
+                      }, 100);
+                    },
+                  },
+                  {
+                    id: "tasks" as DrawerId,
+                    label: "Tasks",
+                    addLabel: "New Task",
+                    icon: SquareKanban,
+                    addIcon: ListPlus,
+                    onOpen: () =>
+                      setSection({
+                        type: "tasks",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      }),
+                    onAdd: () => {
+                      setSection({
+                        type: "tasks",
+                        cabinetPath: activeCabinet?.path || ROOT_CABINET_PATH,
+                      });
+                      setTimeout(() => {
+                        window.dispatchEvent(
+                          new CustomEvent("cabinet:open-create-task")
+                        );
+                      }, 100);
+                    },
+                  },
+                ] as const).map((drawer, drawerIdx) => {
+                  const Icon = drawer.icon;
+                  const AddIcon = drawer.addIcon;
+                  const active = activeDrawer === drawer.id;
+                  const shortcutNum = drawerIdx + 1;
+                  return (
+                    <div key={drawer.id} className="relative group">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        aria-label={`${drawer.label} drawer (⌘${shortcutNum})`}
+                        title={`${drawer.label} — ⌘${shortcutNum}`}
+                        onClick={() => {
+                          setActiveDrawer(drawer.id);
+                          drawer.onOpen();
+                        }}
+                        className={cn(
+                          "relative flex w-full flex-col items-center gap-0.5 rounded-md px-1.5 pt-3 pb-2 transition-all duration-150",
+                          active
+                            ? "-translate-y-px bg-background text-foreground shadow-[0_1px_0_rgba(0,0,0,0.06),0_6px_14px_-10px_rgba(0,0,0,0.35)] ring-1 ring-border/70"
+                            : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                        )}
+                      >
+                        {/* drawer pull handle */}
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "absolute left-1/2 top-1 h-[2px] w-4 -translate-x-1/2 rounded-full transition-colors",
+                            active ? "bg-amber-400/50" : "bg-muted-foreground/30"
+                          )}
+                        />
+                        <Icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="text-[8px] font-semibold uppercase tracking-[0.1em]">
+                          {drawer.label}
+                        </span>
+                      </button>
+                      {active && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            drawer.onAdd();
+                          }}
+                          title={drawer.addLabel}
+                          aria-label={drawer.addLabel}
+                          className="absolute right-1 top-1 inline-flex size-4 items-center justify-center rounded text-muted-foreground/70 opacity-0 transition-opacity duration-150 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                        >
+                          <AddIcon className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+          </div>
+        )}
         </div>
 
         {cabinetExpanded && (
           <>
-
-            {/* ── Agents (depth 1) ─────────────────────────── */}
-            <div
-              className="group flex items-center gap-1.5 px-3 pt-4 pb-1 w-full"
-              style={pad(0)}
-            >
-              <button
-                onClick={() => setAgentsExpanded(!agentsExpanded)}
-                className="text-muted-foreground/50 hover:text-foreground/80 transition-colors shrink-0"
-              >
-                <ChevronRight
-                  className={cn(
-                    "h-3 w-3 shrink-0 transition-transform duration-150",
-                    agentsExpanded && "rotate-90"
-                  )}
-                />
-              </button>
-              <button
-                onClick={() => {
-                  if (activeCabinet) {
-                    setSection({
-                      type: "agents",
-                      mode: "cabinet",
-                      cabinetPath: activeCabinet.path,
-                    });
-                    return;
-                  }
-                  setSection({ type: "agents", mode: "ops" });
-                }}
-                className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 hover:text-foreground/80 transition-colors"
-              >
-                <Users className="h-3.5 w-3.5 shrink-0" />
-                Agents
-              </button>
-              {activeCabinet ? null : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSection({ type: "agents", mode: "ops" });
-                    setTimeout(() => {
-                      window.dispatchEvent(new CustomEvent("cabinet:open-add-agent"));
-                    }, 100);
-                  }}
-                  className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                  title="Add agent"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
             {agentsExpanded && (
-              <>
-                {activeCabinet ? (
-                  agents.length > 0 ? (
-                    agents.map((agent) => (
-                      <button
-                        key={agent.scopedId || agent.slug}
-                        onClick={() =>
-                          setSection({
-                            type: "agent",
-                            mode: "cabinet",
-                            slug: agent.slug,
-                            cabinetPath: agent.cabinetPath || activeCabinet?.path,
-                            agentScopedId:
-                              agent.scopedId ||
-                              `${agent.cabinetPath || activeCabinet?.path}::agent::${agent.slug}`,
-                          })
-                        }
-                        className={cn(
-                          "flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/50",
-                          selectedAgentScopedId ===
-                            (agent.scopedId ||
-                              `${agent.cabinetPath || activeCabinet?.path}::agent::${agent.slug}`) &&
-                            "bg-accent text-accent-foreground"
-                        )}
-                        style={pad(2)}
-                      >
-                        <span className="w-3.5 shrink-0" />
-                        {(() => {
-                          const Icon = getAgentIcon(agent.slug);
-                          return (
-                            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                          );
-                        })()}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-[13px]">{agent.name}</span>
-                            <span
-                              className={cn(
-                                "ml-auto h-1.5 w-1.5 shrink-0 rounded-full",
-                                agent.active ? "bg-green-500" : "bg-muted-foreground/30"
-                              )}
-                            />
-                          </div>
-                          <p className="mt-0.5 truncate text-[10px] text-muted-foreground/70">
-                            {[
-                              agent.inherited ? agent.cabinetName : null,
-                              `${agent.jobCount || 0} ${(agent.jobCount || 0) === 1 ? "job" : "jobs"}`,
-                              `${agent.taskCount || 0} ${(agent.taskCount || 0) === 1 ? "task" : "tasks"}`,
-                              agent.heartbeat ? cronToShortLabel(agent.heartbeat) : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
+              <div
+                key="drawer-agents"
+                className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+              >
+                {[
+                  ...agents.filter((a) => a.slug === "editor"),
+                  ...agents.filter((a) => a.slug !== "editor"),
+                ].map((agent, i) => {
+                  const cabinetPathForAgent =
+                    agent.cabinetPath ||
+                    activeCabinet?.path ||
+                    ROOT_CABINET_PATH;
+                  const scopedId =
+                    agent.scopedId ||
+                    `${cabinetPathForAgent}::agent::${agent.slug}`;
+                  return (
                     <div
-                      className="px-3 py-2 text-[12px] text-muted-foreground"
-                      style={pad(2)}
+                      key={agent.scopedId || agent.slug}
+                      className="animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+                      style={{ animationDelay: `${Math.min(i, 10) * 20}ms`, animationFillMode: "backwards" }}
                     >
-                      {cabinetVisibilityMode === "own"
-                        ? "This cabinet does not have local agents yet."
-                        : "No agents are visible in the selected cabinet scope."}
-                    </div>
-                  )
-                ) : (
-                  <>
-                    {/* General agent (depth 2) */}
-                    <button
-                      onClick={() =>
-                        setSection({ type: "agent", mode: "ops", slug: "general" })
-                      }
-                      className={itemClass(
-                        section.type === "agent" && section.slug === "general"
-                      )}
-                      style={pad(2)}
-                    >
-                      <span className="w-3.5" />
-                      <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">General</span>
-                    </button>
-                    {/* Editor first, then rest (depth 2) */}
-                    {[
-                      ...agents.filter((a) => a.slug === "editor"),
-                      ...agents.filter((a) => a.slug !== "editor"),
-                    ].map((agent) => (
-                      <button
-                        key={agent.scopedId || agent.slug}
-                        onClick={() => {
-                          if (agent.cabinetPath) {
+                      {renderAgentRow(
+                        agent.scopedId || agent.slug,
+                        agent,
+                        {
+                          selected:
+                            selectedAgentScopedId === scopedId ||
+                            (section.type === "agent" &&
+                              section.slug === agent.slug),
+                          activeDot: (agent.runningCount || 0) > 0,
+                          onClick: () =>
                             setSection({
                               type: "agent",
-                              mode: "cabinet",
                               slug: agent.slug,
-                              cabinetPath: agent.cabinetPath,
-                              agentScopedId:
-                                agent.scopedId ||
-                                `${agent.cabinetPath}::agent::${agent.slug}`,
-                            });
-                            return;
-                          }
-                          setSection({ type: "agent", mode: "ops", slug: agent.slug });
-                        }}
-                        className={itemClass(
-                          selectedAgentScopedId ===
-                            (agent.scopedId ||
-                              (agent.cabinetPath
-                                ? `${agent.cabinetPath}::agent::${agent.slug}`
-                                : null)) ||
-                            (section.mode === "ops" &&
-                              section.type === "agent" &&
-                              section.slug === agent.slug)
-                        )}
-                        style={pad(2)}
-                      >
-                        <span className="w-3.5" />
-                        {(() => {
-                          const Icon = getAgentIcon(agent.slug);
-                          return <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />;
-                        })()}
-                        <span className="truncate">{agent.name}</span>
-                        <span
-                          className={cn(
-                            "ml-auto w-1.5 h-1.5 rounded-full shrink-0",
-                            (agent.runningCount || 0) > 0
-                              ? "bg-green-500"
-                              : "bg-muted-foreground/30"
-                          )}
-                        />
-                      </button>
-                    ))}
-                  </>
-                )}
-              </>
+                              cabinetPath: cabinetPathForAgent,
+                              agentScopedId: scopedId,
+                            }),
+                          editable: {
+                            slug: agent.slug,
+                            cabinetPath: cabinetPathForAgent,
+                          },
+                        }
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
 
-            {/* ── Divider ──────────────────────────────────── */}
-            <div className="mx-3 my-1.5 border-t border-border" />
-
-            {/* ── Tasks ───────────────────────────────────── */}
-            <button
-              onClick={() => {
-                if (activeCabinet) {
-                  setSection({
-                    type: "tasks",
-                    mode: "cabinet",
-                    cabinetPath: activeCabinet.path,
-                  });
-                  return;
-                }
-                setSection({ type: "tasks", mode: "ops" });
-              }}
-              className={cn(
-                "text-[10px] font-semibold uppercase tracking-wider px-3 pt-2 pb-1 w-full text-left flex items-center gap-1.5 transition-colors",
-                section.type === "tasks" &&
-                  ((activeCabinet && section.cabinetPath === activeCabinet.path) ||
-                    (!activeCabinet && section.mode === "ops"))
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground/80"
-              )}
-              style={pad(0)}
-            >
-              <ChevronRight className="h-3 w-3 shrink-0 invisible" />
-              <SquareKanban className="h-3.5 w-3.5 shrink-0" />
-              Tasks
-            </button>
-
-            {/* ── Divider ──────────────────────────────────── */}
-            <div className="mx-3 my-1.5 border-t border-border" />
-
-            {/* ── Knowledge Base label ──────────────────────── */}
-            <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 w-full" style={pad(0)}>
-              <button
-                onClick={() => setKbExpanded(!kbExpanded)}
-                className="shrink-0 text-muted-foreground/50 hover:text-foreground/80 transition-colors"
+            {tasksExpanded && (
+              <div
+                key="drawer-tasks"
+                className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
               >
-                <ChevronRight
-                  className={cn(
-                    "h-3 w-3 shrink-0 transition-transform duration-150",
-                    kbExpanded && "rotate-90"
-                  )}
+                <RecentTasks
+                  active
+                  padStyle={pad(1)}
+                  itemClass={itemClass}
+                  cabinetPath={activeCabinet?.path}
+                  agents={agents}
                 />
-              </button>
-              <ContextMenu>
-              <ContextMenuTrigger>
-                <button
-                  onClick={() => {
-                    if (activeCabinet) {
-                      openCabinetDataPage(activeCabinet.path);
-                      return;
-                    }
-                    setSection({ type: "home" });
-                  }}
-                  className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left flex items-center gap-1.5 hover:text-foreground/80 transition-colors"
-                >
-                  <BookOpen className="h-3.5 w-3.5 shrink-0" />
-                  {kbSectionLabel}
-                </button>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem onClick={() => setKbSubPageOpen(true)}>
-                  <FilePlus className="h-4 w-4 mr-2" />
-                  Add Sub Page
-                </ContextMenuItem>
-                <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
-                  <GitBranch className="h-4 w-4 mr-2" />
-                  Load Knowledge
-                </ContextMenuItem>
-                <ContextMenuItem onClick={async () => {
-                  const dir = await getDataDir();
-                  navigator.clipboard.writeText(
-                    dataRootPath ? `${dir}/${dataRootPath}` : dir
-                  );
-                }}>
-                  <ClipboardCopy className="h-4 w-4 mr-2" />
-                  Copy Full Path
-                </ContextMenuItem>
-                <ContextMenuItem onClick={() => {
-                  fetch("/api/system/open-data-dir", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ subpath: dataRootPath }),
-                  });
-                }}>
-                  <FolderOpen className="h-4 w-4 mr-2" />
-                  Open in Finder
-                </ContextMenuItem>
-              </ContextMenuContent>
-              </ContextMenu>
-            </div>
+              </div>
+            )}
 
             {kbExpanded && (
+              <ContextMenu>
+                <ContextMenuTrigger>
+                  <div
+                    key="drawer-data"
+                    className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200 ease-out"
+                  >
               <>
                 {visibleTreeNodes.length === 0 ? (
                   <button
@@ -699,23 +710,61 @@ export function TreeView() {
                       }
                     }}
                     className={itemClass(false)}
-                    style={pad(2)}
+                    style={pad(1)}
                   >
-                    <span className="w-3.5" />
-                    <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     {activeCabinet ? "Add cabinet data" : "Add your first page"}
                   </button>
                 ) : (
-                  visibleTreeNodes.map((node) => (
+                  visibleTreeNodes.map((node, index) => (
                     <TreeNode
                       key={node.path}
                       node={node}
-                      depth={2}
+                      depth={1}
                       contextCabinetPath={activeCabinet?.path || null}
+                      siblings={visibleTreeNodes}
+                      onMoveToRequest={requestMoveTo}
+                      animationDelayMs={index * 22}
                     />
                   ))
                 )}
               </>
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem onClick={() => setKbSubPageOpen(true)}>
+                    <FilePlus className="h-4 w-4 mr-2" />
+                    Add Sub Page
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
+                    <GitBranch className="h-4 w-4 mr-2" />
+                    Load Knowledge
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={async () => {
+                      const dir = await getDataDir();
+                      navigator.clipboard.writeText(
+                        dataRootPath ? `${dir}/${dataRootPath}` : dir
+                      );
+                    }}
+                  >
+                    <ClipboardCopy className="h-4 w-4 mr-2" />
+                    Copy Full Path
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={() => {
+                      fetch("/api/system/open-data-dir", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ subpath: dataRootPath }),
+                      });
+                    }}
+                  >
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Open in Finder
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             )}
           </>
         )}
@@ -748,7 +797,6 @@ export function TreeView() {
                 activeCabinet
                   ? {
                       type: "page",
-                      mode: "cabinet",
                       cabinetPath: activeCabinet.path,
                     }
                   : { type: "page" }
@@ -777,6 +825,22 @@ export function TreeView() {
     </Dialog>
 
     <LinkRepoDialog open={linkRepoOpen} onOpenChange={setLinkRepoOpen} />
+
+    <MoveToDialog
+      open={moveToOpen}
+      onOpenChange={setMoveToOpen}
+      source={moveToSource}
+    />
+
+    <EditAgentIdentityDialog
+      target={editingAgent}
+      onOpenChange={(open) => {
+        if (!open) setEditingAgent(null);
+      }}
+      onSaved={() => {
+        void loadAgents();
+      }}
+    />
 
     <Dialog open={cabinetDeleteOpen} onOpenChange={setCabinetDeleteOpen}>
       <DialogContent className="sm:max-w-md">

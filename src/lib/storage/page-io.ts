@@ -13,6 +13,12 @@ import {
   deleteFileOrDir,
   unlinkSymlink,
 } from "./fs-operations";
+import {
+  appendOrder,
+  computeInsertOrder,
+  removeSidecarEntry,
+  setEntryOrder,
+} from "./order-store";
 
 function defaultFrontmatter(title: string): FrontMatter {
   const now = new Date().toISOString();
@@ -53,6 +59,8 @@ export async function readPage(virtualPath: string): Promise<PageData> {
         tags: data.tags || [],
         icon: data.icon,
         order: data.order,
+        dir: data.dir,
+        google: data.google,
       },
     };
   }
@@ -126,7 +134,12 @@ export async function createPage(
   }
 
   await ensureDirectory(dirPath);
-  const fm = defaultFrontmatter(title);
+  const parentVirtual = virtualPath.split("/").slice(0, -1).join("/");
+  const order = await appendOrder(parentVirtual);
+  const fm: FrontMatter & { order?: number } = {
+    ...defaultFrontmatter(title),
+    order,
+  };
   const output = matter.stringify(`\n# ${title}\n`, fm);
   await writeFileContent(filePath, output);
 }
@@ -143,7 +156,8 @@ export async function deletePage(virtualPath: string): Promise<void> {
 
 export async function movePage(
   fromPath: string,
-  toParentPath: string
+  toParentPath: string,
+  options: { prevName?: string | null; nextName?: string | null } = {}
 ): Promise<string> {
   const fromResolved = resolveContentPath(fromPath);
   const name = path.basename(fromResolved);
@@ -152,14 +166,47 @@ export async function movePage(
     : resolveContentPath("");
   const toResolved = path.join(toDir, name);
 
-  if (fromResolved === toResolved) return fromPath;
   if (toResolved.startsWith(fromResolved + "/")) {
     throw new Error("Cannot move a page into itself");
   }
 
-  await ensureDirectory(toDir);
-  const fs = await import("fs/promises");
-  await fs.rename(fromResolved, toResolved);
+  const fromParentVirtual = fromPath.split("/").slice(0, -1).join("/");
+  const isReorder = fromResolved === toResolved;
+
+  if (!isReorder) {
+    await ensureDirectory(toDir);
+    const fsp = await import("fs/promises");
+    try {
+      await fsp.rename(fromResolved, toResolved);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EXDEV") {
+        // Cross-device move (e.g. linked external cabinet on another mount).
+        // Fall back to recursive copy + delete.
+        await fsp.cp(fromResolved, toResolved, { recursive: true });
+        await fsp.rm(fromResolved, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
+    }
+    // Clean stale sidecar entry from source dir.
+    await removeSidecarEntry(fromParentVirtual, name).catch(() => {});
+  }
+
+  const { prevName, nextName } = options;
+  if (prevName !== undefined || nextName !== undefined) {
+    const order = await computeInsertOrder(
+      toParentPath,
+      prevName ?? null,
+      nextName ?? null,
+      name
+    );
+    await setEntryOrder(toParentPath, name, order);
+  } else if (!isReorder) {
+    // Cross-dir move with no neighbors → append at end.
+    const order = await appendOrder(toParentPath);
+    await setEntryOrder(toParentPath, name, order);
+  }
 
   return toParentPath ? `${toParentPath}/${name}` : name;
 }

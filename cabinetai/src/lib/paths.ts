@@ -21,6 +21,25 @@ export function globalConfigPath(): string {
   return path.join(CABINET_HOME, "config.json");
 }
 
+/**
+ * Telemetry directory. Mirrors src/lib/telemetry/paths.ts so the CLI can clean
+ * up the same location the running app writes to.
+ */
+export function telemetryDir(): string {
+  const override = process.env.CABINET_TELEMETRY_DIR?.trim();
+  if (override) return path.resolve(override);
+  const home = os.homedir();
+  if (process.platform === "darwin") {
+    return path.join(home, "Library", "Application Support", "cabinet-telemetry");
+  }
+  if (process.platform === "win32") {
+    const roaming = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+    return path.join(roaming, "cabinet-telemetry");
+  }
+  const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, ".config");
+  return path.join(xdgConfig, "cabinet");
+}
+
 /** The .cabinet manifest filename */
 export const CABINET_MANIFEST = ".cabinet";
 

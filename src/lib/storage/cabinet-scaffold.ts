@@ -1,7 +1,6 @@
 import path from "path";
 import fs from "fs/promises";
 import yaml from "js-yaml";
-import { DATA_DIR } from "@/lib/storage/path-utils";
 import { PROJECT_ROOT } from "@/lib/runtime/runtime-config";
 
 export interface ScaffoldCabinetOptions {
@@ -53,24 +52,17 @@ async function copyDirectoryMerge(src: string, dest: string): Promise<void> {
 
 async function resolveGettingStartedSeedDir(targetDir: string): Promise<string | null> {
   const destinationDir = path.resolve(targetDir, GETTING_STARTED_DIRNAME);
-  const candidates = [
-    path.join(DATA_DIR, GETTING_STARTED_DIRNAME),
-    path.join(PROJECT_ROOT, "data", GETTING_STARTED_DIRNAME),
-  ];
+  const sourceDir = path.join(PROJECT_ROOT, "resources", GETTING_STARTED_DIRNAME);
 
-  for (const candidate of candidates) {
-    if (!(await pathExists(candidate))) {
-      continue;
-    }
-
-    if (path.resolve(candidate) === destinationDir) {
-      continue;
-    }
-
-    return candidate;
+  if (path.resolve(sourceDir) === destinationDir) {
+    return null;
   }
 
-  return null;
+  if (!(await pathExists(sourceDir))) {
+    return null;
+  }
+
+  return sourceDir;
 }
 
 export async function seedGettingStartedDir(targetDir: string): Promise<void> {

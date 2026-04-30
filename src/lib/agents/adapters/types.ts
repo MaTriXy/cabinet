@@ -101,6 +101,23 @@ export type AgentAdapterExecutionEngine =
   | "http"
   | "process";
 
+export interface AdapterSessionCodec {
+  deserialize(raw: unknown): Record<string, unknown> | null;
+  serialize(params: Record<string, unknown>): Record<string, unknown> | null;
+  getDisplayId?(params: Record<string, unknown>): string | null;
+}
+
+export interface AdapterSkillEntry {
+  key: string;
+  runtimeName: string;
+  source: string;
+}
+
+export interface AdapterSkillSnapshot {
+  entries: AdapterSkillEntry[];
+  skillsHome?: string;
+}
+
 export interface AgentExecutionAdapter {
   type: string;
   name: string;
@@ -112,8 +129,25 @@ export interface AgentExecutionAdapter {
   supportsDetachedRuns?: boolean;
   models?: AgentAdapterModel[];
   effortLevels?: AgentAdapterEffortLevel[];
+  sessionCodec?: AdapterSessionCodec;
+  listModels?(): Promise<AgentAdapterModel[]>;
+  listSkills?(ctx: { cwd?: string }): Promise<AdapterSkillSnapshot>;
+  syncSkills?(
+    ctx: { cwd?: string },
+    desiredSkills: string[]
+  ): Promise<AdapterSkillSnapshot>;
   testEnvironment(
     ctx?: AdapterEnvironmentTestContext
   ): Promise<AdapterEnvironmentTestResult>;
   execute?(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult>;
+  /**
+   * Map a failed run's stderr + exit code into the canonical
+   * `ConversationErrorKind` taxonomy so the UI can offer targeted remediation
+   * (install / re-auth / retry / compact) without branching on providerId.
+   * Called by the runner on any failed `execute` result.
+   */
+  classifyError?(
+    stderr: string,
+    exitCode: number | null
+  ): import("../../../types/conversations").ConversationErrorClassification;
 }

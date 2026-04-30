@@ -83,12 +83,32 @@ export interface AgentListItem {
   status?: "active" | "running" | "idle";
   cabinetPath?: string;
   cabinetName?: string;
+  /**
+   * "global" when the persona file lives in `data/.global-agents/<slug>/`
+   * — i.e., one shared identity across all cabinets. Surfaces render a
+   * "Global" badge so users know edits apply everywhere.
+   */
+  scope?: "global" | "cabinet";
+  // Identity customization (optional; surfaces render from these when set)
+  displayName?: string;
+  iconKey?: string;
+  color?: string;
+  avatar?: string;
+  avatarExt?: string;
 }
+export type ProviderModelRequires = "any" | "chatgpt_plan" | "api_key";
+
 export interface ProviderModel {
   id: string;
   name: string;
   description?: string;
   effortLevels?: ProviderEffortLevel[];
+  /**
+   * Auth/plan gate advertised by the provider. UIs should badge models
+   * that `requires === "api_key"` so users don't pick an unsupported
+   * model on a ChatGPT-plan Codex account.
+   */
+  requires?: ProviderModelRequires;
 }
 
 export interface ProviderEffortLevel {
@@ -102,6 +122,7 @@ export interface ProviderInfo {
   name: string;
   type: "cli" | "api";
   icon?: string;
+  iconAsset?: string;
   enabled?: boolean;
   available: boolean;
   authenticated?: boolean;
@@ -117,6 +138,13 @@ export interface ProviderInfo {
   models?: ProviderModel[];
   effortLevels?: ProviderEffortLevel[];
   defaultAdapterType?: string;
+  /**
+   * True when the CLI supports resuming a prior terminal-mode session via
+   * its own flag (Claude `--resume`, Cursor `--resume`, OpenCode `--session`).
+   * UI surfaces use this to decide whether to show "New session — prior
+   * context not preserved" on Continue for providers without resume.
+   */
+  supportsTerminalResume?: boolean;
   adapters?: Array<{
     type: string;
     name: string;
