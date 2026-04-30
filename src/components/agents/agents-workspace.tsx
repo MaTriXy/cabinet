@@ -320,6 +320,55 @@ function blankJobDraft(
   };
 }
 
+// Heartbeats "Pause/Resume all" button. Extracted to its own component so
+// the `useState` hook stays at a stable position relative to the parent
+// component's hook list — calling `useState` inside an IIFE in JSX violates
+// Rules of Hooks and triggers "Rendered fewer hooks than expected" when the
+// surrounding view conditionally renders.
+function ToggleAllHeartbeatsButton({
+  heartbeatAgents,
+  anyActive,
+  effectiveCabinetPath,
+  refreshAgents,
+}: {
+  heartbeatAgents: AgentListItem[];
+  anyActive: boolean;
+  effectiveCabinetPath: string | undefined;
+  refreshAgents: () => Promise<void>;
+}) {
+  const [toggling, setToggling] = useState(false);
+  if (heartbeatAgents.length === 0) return null;
+  const toggleAll = async () => {
+    if (toggling) return;
+    setToggling(true);
+    try {
+      await fetch("/api/agents/scheduler", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: anyActive ? "stop-all" : "start-all",
+          cabinetPath: effectiveCabinetPath,
+        }),
+      });
+      await refreshAgents();
+    } finally {
+      setToggling(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={() => void toggleAll()}
+      disabled={toggling}
+      className="inline-flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+      title={anyActive ? "Pause all heartbeats in this cabinet" : "Resume all heartbeats in this cabinet"}
+    >
+      {anyActive ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+      {anyActive ? "Pause all" : "Resume all"}
+    </button>
+  );
+}
+
 export function AgentsWorkspace({
   selectedAgentSlug,
   selectedScope = "all",
@@ -3108,40 +3157,12 @@ export function AgentsWorkspace({
                           change its rhythm or pause it.
                         </p>
                       </div>
-                      {(() => {
-                        const heartbeatAgents = agents.filter((a) => !!a.heartbeat);
-                        const anyActive = heartbeatAgents.some((a) => a.active);
-                        const [toggling, setToggling] = useState(false);
-                        const toggleAll = async () => {
-                          if (toggling || heartbeatAgents.length === 0) return;
-                          setToggling(true);
-                          try {
-                            await fetch("/api/agents/scheduler", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                action: anyActive ? "stop-all" : "start-all",
-                                cabinetPath: effectiveCabinetPath,
-                              }),
-                            });
-                            await refreshAgents();
-                          } finally {
-                            setToggling(false);
-                          }
-                        };
-                        return heartbeatAgents.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => void toggleAll()}
-                            disabled={toggling}
-                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
-                            title={anyActive ? "Pause all heartbeats in this cabinet" : "Resume all heartbeats in this cabinet"}
-                          >
-                            {anyActive ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-                            {anyActive ? "Pause all" : "Resume all"}
-                          </button>
-                        ) : null;
-                      })()}
+                      <ToggleAllHeartbeatsButton
+                        heartbeatAgents={agents.filter((a) => !!a.heartbeat)}
+                        anyActive={agents.filter((a) => !!a.heartbeat).some((a) => a.active)}
+                        effectiveCabinetPath={effectiveCabinetPath}
+                        refreshAgents={refreshAgents}
+                      />
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           className={cn(
