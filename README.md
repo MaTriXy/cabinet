@@ -272,8 +272,20 @@ See [CHANGELOG.md](CHANGELOG.md) for breaking changes, or follow the full releas
 ## Privacy
 
 Cabinet sends anonymous usage telemetry by default (event counts, versions,
-platform — never file contents, paths, prompts, or secrets). See
-[TELEMETRY.md](TELEMETRY.md) for the full list and how to turn it off.
+platform — never file contents, paths, prompts, or secrets).
+
+To turn it off, pick one:
+
+```bash
+export CABINET_TELEMETRY_DISABLED=1   # env var (any shell session)
+```
+
+…or open **Settings → Privacy** and toggle **Send anonymous usage telemetry**
+off. To also wipe the local install ID and queue, run
+`npx cabinetai uninstall --all`.
+
+See [TELEMETRY.md](TELEMETRY.md) for the full event list, payload schema,
+and where data is stored.
 
 ## Community
 

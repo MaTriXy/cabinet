@@ -9,6 +9,7 @@ import {
 } from "./queue";
 import { getOrCreateSessionId } from "./session";
 import { readState } from "./state";
+import { version as pkgVersion } from "../../../package.json";
 
 const DEFAULT_ENDPOINT = "https://reports.runcabinet.com/telemetry";
 const BATCH_SIZE = 25;
@@ -19,7 +20,10 @@ function getEndpoint(): string {
 }
 
 function getClientVersion(): string | undefined {
-  return process.env.npm_package_version;
+  // npm_package_version is only set when running via `npm run …` — packaged
+  // CLI/electron builds don't have it. Read from the bundled package.json so
+  // the version is always present.
+  return pkgVersion || process.env.npm_package_version;
 }
 
 function getSessionId(): string {
