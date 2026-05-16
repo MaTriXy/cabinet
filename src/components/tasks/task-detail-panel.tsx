@@ -252,7 +252,10 @@ export function TaskDetailPanel() {
               collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
             )}
           >
-            <p className="min-h-0 overflow-hidden truncate text-[11px] text-muted-foreground">
+            <p
+              dir="auto"
+              className="min-h-0 overflow-hidden truncate text-[11px] text-muted-foreground"
+            >
               {startCase(conversation.agentSlug)}
               {" · "}
               {formatRelative(conversation.startedAt)}
@@ -267,6 +270,7 @@ export function TaskDetailPanel() {
           {/* Row 3: title — wraps when expanded, eases down to a one-line
               ellipsis when collapsed (max-height tween). */}
           <p
+            dir="auto"
             className={cn(
               "overflow-hidden text-[14px] font-semibold leading-snug text-foreground transition-[max-height]",
               ease,

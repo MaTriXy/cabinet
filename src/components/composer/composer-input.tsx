@@ -222,6 +222,10 @@ export function ComposerInput({
             // on agent pages, etc.) so it doubles as the accessible label.
             aria-label={typeof placeholder === "string" ? placeholder : "Compose"}
             name="composer-input"
+            // Resolve direction from the first strong character of the
+            // current value: typing Hebrew/Arabic flips the field RTL,
+            // English/code stays LTR — per input, regardless of UI locale.
+            dir="auto"
             value={composer.input}
             onChange={composer.handleChange}
             onPaste={attachmentsEnabled ? handlePaste : undefined}

@@ -1527,6 +1527,7 @@ export function TaskConversationPage({
               ) : (
                 <>
                   <p
+                    dir="auto"
                     className={cn(
                       "min-w-0 flex-1 overflow-hidden text-[13px] text-foreground/80 transition-[max-height]",
                       ease,

@@ -29,13 +29,20 @@ export function Markdown({
 
   if (html === null) {
     return (
-      <div className={cn("whitespace-pre-wrap", className)}>{content}</div>
+      <div
+        dir="auto"
+        className={cn("rtl-aware whitespace-pre-wrap", className)}
+      >
+        {content}
+      </div>
     );
   }
 
   return (
     <div
+      dir="auto"
       className={cn(
+        "rtl-aware",
         "prose prose-sm max-w-none dark:prose-invert",
         "prose-p:my-2 prose-p:leading-[1.65]",
         "prose-pre:my-3 prose-pre:rounded-lg prose-pre:bg-muted/60 prose-pre:text-[12.5px]",

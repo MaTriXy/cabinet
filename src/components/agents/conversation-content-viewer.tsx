@@ -65,7 +65,7 @@ function DiffBlock({ block }: { block: Extract<Block, { type: "diff" }> }) {
   const removals = block.lines.filter((line) => line.kind === "remove").length;
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border">
+    <div dir="ltr" className="my-3 overflow-hidden rounded-xl border border-border">
       {fileName ? (
         <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5">
           <span className="font-mono text-[11px] font-medium text-foreground">
@@ -110,7 +110,7 @@ function DiffBlock({ block }: { block: Extract<Block, { type: "diff" }> }) {
 
 function CodeBlock({ block }: { block: Extract<Block, { type: "code" }> }) {
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border">
+    <div dir="ltr" className="my-3 overflow-hidden rounded-xl border border-border">
       {block.lang && block.lang !== "text" ? (
         <div className="border-b border-border bg-muted/40 px-3 py-1">
           <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -137,7 +137,10 @@ function StructuredBadge({ label, value }: { label: string; value: string }) {
       >
         {label}
       </span>
-      <span className="text-[12px] leading-relaxed text-foreground/85">
+      <span
+        dir="auto"
+        className="text-[12px] leading-relaxed text-foreground/85 [unicode-bidi:plaintext]"
+      >
         {renderInlineFormatting(value)}
       </span>
     </div>
@@ -185,10 +188,16 @@ function ActionsBlock({ block }: { block: Extract<Block, { type: "actions" }> })
               {action.type}
             </span>
             <div className="min-w-0">
-              <div className="text-[12px] font-medium text-foreground/90">
+              <div
+                dir="auto"
+                className="text-[12px] font-medium text-foreground/90 [unicode-bidi:plaintext]"
+              >
                 {headline}
               </div>
-              <div className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-foreground/70">
+              <div
+                dir="auto"
+                className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-foreground/70 [unicode-bidi:plaintext]"
+              >
                 {action.prompt}
               </div>
             </div>

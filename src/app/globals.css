@@ -1155,3 +1155,34 @@ html[data-custom-theme="cyber"] :where(button:not([data-no-bevel])):hover {
   .ai-drawer-anim-up,
   .ai-scrim-anim { animation: none; }
 }
+
+/* Bidi-aware text. Each block resolves its own direction from its first
+   strong character (unicode-bidi: plaintext === per-paragraph dir="auto"),
+   so a Hebrew paragraph reads RTL and an English/code one reads LTR within
+   the same message regardless of the UI locale. text-align: start follows
+   the resolved direction. Code stays LTR and isolated so Hebrew comments
+   or prose around it don't reorder the source. */
+.rtl-aware,
+.rtl-aware p,
+.rtl-aware li,
+.rtl-aware h1,
+.rtl-aware h2,
+.rtl-aware h3,
+.rtl-aware h4,
+.rtl-aware h5,
+.rtl-aware h6,
+.rtl-aware blockquote,
+.rtl-aware td,
+.rtl-aware th,
+.rtl-aware dd,
+.rtl-aware dt {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.rtl-aware pre,
+.rtl-aware pre code,
+.rtl-aware kbd {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+}
