@@ -56,6 +56,39 @@ export function parseOpenCodeModels(stdout: string | null | undefined) {
   return parsed.length > 0 ? parsed : withVariants(OPENCODE_FALLBACK_MODELS);
 }
 
+export interface OpenCodeAuthSummary {
+  credentials: number;
+  envProviders: number;
+  configured: boolean;
+}
+
+// Strip ANSI SGR escapes (\x1b[..m) from `opencode auth list` before parsing.
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+/**
+ * Pure parser for `opencode auth list` stdout. OpenCode is a multi-provider
+ * router — "authenticated" means *some* provider is keyed, via stored
+ * credentials (`opencode auth login`) or environment variables. The summary
+ * box prints stable "N credentials" / "N environment variables" lines; we
+ * strip ANSI and read those counts. Used only to make the readiness *text*
+ * honest — never to flip selectability (Zen `-free` models run with no key,
+ * so OpenCode stays usable/selectable even when `configured` is false).
+ */
+export function parseOpenCodeAuth(
+  stdout: string | null | undefined
+): OpenCodeAuthSummary {
+  const text = (stdout || "").replace(ANSI_RE, "");
+  const credMatch = text.match(/(\d+)\s+credentials?\b/i);
+  const envMatch = text.match(/(\d+)\s+environment variables?\b/i);
+  const credentials = credMatch ? parseInt(credMatch[1], 10) : 0;
+  const envProviders = envMatch ? parseInt(envMatch[1], 10) : 0;
+  return {
+    credentials,
+    envProviders,
+    configured: credentials > 0 || envProviders > 0,
+  };
+}
+
 export const openCodeProvider: AgentProvider = {
   id: "opencode",
   name: "OpenCode",
@@ -124,17 +157,25 @@ export const openCodeProvider: AgentProvider = {
     };
   },
 
+  buildVerifyCommand(defaultModel?: string | null): string {
+    // Mirrors the install step (`opencode run 'Reply with exactly OK'`) but
+    // pins the resolved default model so "verify passed" means *that* model
+    // works, not OpenCode's opaque internal default. Model ids are
+    // vendor/model (no shell metachars) but single-quote defensively.
+    const modelArg = defaultModel ? ` --model '${defaultModel}'` : "";
+    return `opencode run${modelArg} 'Reply with exactly OK'`;
+  },
+
   async listModels() {
-    try {
-      const cmd = resolveCliCommand(this);
-      // Steady state this is a local cache read (~/.cache/opencode/models.json),
-      // but the very first run on a fresh machine populates that cache from
-      // models.dev — give it headroom so cold starts don't fall back.
-      const out = await execCli(cmd, ["models"], { timeout: 15_000 });
-      return parseOpenCodeModels(out);
-    } catch {
-      return withVariants(OPENCODE_FALLBACK_MODELS);
-    }
+    // Throws on a genuine CLI failure (not installed / not runnable) — the
+    // models API route catches that and serves the offline fallback with
+    // `dynamic:false`, so the picker can honestly say "offline defaults".
+    // Steady state this is a local cache read (~/.cache/opencode/models.json);
+    // the first run on a fresh machine populates it from models.dev, hence
+    // the generous timeout. `parseOpenCodeModels` still guards empty output.
+    const cmd = resolveCliCommand(this);
+    const out = await execCli(cmd, ["models"], { timeout: 15_000 });
+    return parseOpenCodeModels(out);
   },
 
   async isAvailable(): Promise<boolean> {
@@ -155,11 +196,33 @@ export const openCodeProvider: AgentProvider = {
       try {
         const cmd = resolveCliCommand(this);
         const version = await execCli(cmd, ["--version"], { timeout: 5000 });
+        const base = version ? `OpenCode ${version}` : "OpenCode installed";
+
+        // OpenCode routes to many providers; "ready" must not imply full
+        // model access. Probe configured providers and make the status TEXT
+        // honest — but keep authenticated:true regardless, because Zen
+        // `-free` models run with no key (flipping it would hide OpenCode
+        // from the composer picker entirely).
+        let suffix = "";
+        try {
+          const authOut = await execCli(cmd, ["auth", "list"], {
+            timeout: 6000,
+          });
+          const auth = parseOpenCodeAuth(authOut);
+          suffix = auth.configured
+            ? ` · ${auth.credentials + auth.envProviders} provider${
+                auth.credentials + auth.envProviders === 1 ? "" : "s"
+              } configured`
+            : " · no provider keys — Zen free models only";
+        } catch {
+          // auth list unavailable (old CLI / odd output) — don't regress,
+          // just show the plain version string.
+        }
 
         return {
           available: true,
           authenticated: true,
-          version: version ? `OpenCode ${version}` : "OpenCode installed",
+          version: `${base}${suffix}`,
         };
       } catch {
         return {

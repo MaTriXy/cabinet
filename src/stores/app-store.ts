@@ -305,18 +305,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!response.ok) return;
         const data = (await response.json()) as {
           models?: ProviderInfo["models"];
+          dynamic?: boolean;
         };
         const models = data.models;
         if (!Array.isArray(models)) return;
+        // Only treat the list as authoritative when it's the provider's live
+        // list. An offline fallback (dynamic:false — CLI not runnable) still
+        // gets merged for display, but modelsHydrated stays false so
+        // resolveProviderModel keeps preserving a saved id instead of
+        // snapping it to the fallback's first entry just because we're
+        // transiently offline. A later interaction retries.
+        const isLive = data.dynamic === true;
         set((state) => ({
           providers: state.providers.map((p) =>
             p.id === providerId
               ? {
                   ...p,
-                  // Empty result (CLI failed server-side → fallback already
-                  // returned) shouldn't wipe the offline fallback list.
                   models: models.length > 0 ? models : p.models,
-                  modelsHydrated: true,
+                  modelsHydrated: isLive ? true : p.modelsHydrated,
                 }
               : p
           ),

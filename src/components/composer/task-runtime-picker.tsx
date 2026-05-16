@@ -575,6 +575,9 @@ function ProviderModelCombobox({
   const [fetchedModels, setFetchedModels] = useState<ProviderModel[] | null>(
     null
   );
+  // null = unknown/loading, "live" = real per-machine list, "offline" = the
+  // CLI couldn't be queried and we're showing static defaults.
+  const [discovery, setDiscovery] = useState<"live" | "offline" | null>(null);
 
   const loadModels = useCallback(
     async (refresh: boolean) => {
@@ -585,13 +588,21 @@ function ProviderModelCombobox({
             refresh ? "?refresh=1" : ""
           }`
         );
-        if (!response.ok) return;
-        const data = (await response.json()) as { models?: ProviderModel[] };
+        if (!response.ok) {
+          setDiscovery("offline");
+          return;
+        }
+        const data = (await response.json()) as {
+          models?: ProviderModel[];
+          dynamic?: boolean;
+        };
+        setDiscovery(data.dynamic === true ? "live" : "offline");
         if (Array.isArray(data.models) && data.models.length > 0) {
           setFetchedModels(data.models);
         }
       } catch {
         // keep the offline fallback already on `provider.models`
+        setDiscovery("offline");
       }
     },
     [ensureProviderModels, provider.id]
@@ -599,10 +610,14 @@ function ProviderModelCombobox({
 
   useEffect(() => {
     setFetchedModels(null);
+    setDiscovery(null);
     void loadModels(false);
   }, [loadModels]);
 
-  const models = fetchedModels ?? provider.models ?? [];
+  const models = useMemo(
+    () => fetchedModels ?? provider.models ?? [],
+    [fetchedModels, provider.models]
+  );
   const hydrating =
     Boolean(provider.dynamicModels) &&
     fetchedModels === null &&
@@ -660,6 +675,19 @@ function ProviderModelCombobox({
           <RefreshCw className={cn("size-3", refreshing && "animate-spin")} />
         </button>
       </div>
+
+      {discovery === "offline" && (
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[9.5px] leading-relaxed text-amber-700 dark:text-amber-400">
+          Showing offline defaults — {provider.name} couldn&apos;t be queried.
+          Install &amp; configure it (set a provider API key or run{" "}
+          <code className="rounded bg-amber-500/15 px-1 py-px font-mono">
+            {provider.id === "pi" ? "pi --list-models" : "opencode auth login"}
+          </code>
+          ), then hit{" "}
+          <RefreshCw className="inline size-2.5 -mt-px" /> Refresh to see your
+          own models.
+        </div>
+      )}
 
       <div className="max-h-[15rem] overflow-y-auto">
         {hydrating && models.length === 0 ? (

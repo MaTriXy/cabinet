@@ -118,14 +118,21 @@ export const piProvider: AgentProvider = {
     };
   },
 
+  buildVerifyCommand(defaultModel?: string | null): string {
+    // Mirrors the install step (`pi --mode json -p 'Reply with exactly OK'`)
+    // but pins the resolved default model so verification exercises the
+    // user's actual path, not Pi's internal default.
+    const modelArg = defaultModel ? ` --model '${defaultModel}'` : "";
+    return `pi --mode json${modelArg} -p 'Reply with exactly OK'`;
+  },
+
   async listModels() {
-    try {
-      const cmd = resolveCliCommand(this);
-      const out = await execCli(cmd, ["--list-models"], { timeout: 15_000 });
-      return parsePiModels(out);
-    } catch {
-      return withThinkingLevels(PI_FALLBACK_MODELS);
-    }
+    // Throws on a genuine CLI failure so the models API route serves the
+    // offline fallback with `dynamic:false` (honest "offline defaults" hint).
+    // `parsePiModels` still guards empty / banner-only output.
+    const cmd = resolveCliCommand(this);
+    const out = await execCli(cmd, ["--list-models"], { timeout: 15_000 });
+    return parsePiModels(out);
   },
 
   async isAvailable(): Promise<boolean> {
