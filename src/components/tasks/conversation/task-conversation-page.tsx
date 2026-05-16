@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Archive,
-  ArrowLeft,
   Check,
   CheckCircle2,
   Circle,
@@ -1037,13 +1036,6 @@ export function TaskConversationPage({
         {showTranscript ? (
           <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
             <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/30 px-3">
-              <Link
-                href="/"
-                className="inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title={t("tasks:conversation.back")}
-              >
-                <ArrowLeft className="size-3.5" />
-              </Link>
               <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium">
                 {task?.meta.title ?? "Loading…"}
               </h1>
@@ -1072,13 +1064,6 @@ export function TaskConversationPage({
         ) : showDetails ? (
           <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
             <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/30 px-3">
-              <Link
-                href="/"
-                className="inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title={t("tasks:conversation.back")}
-              >
-                <ArrowLeft className="size-3.5" />
-              </Link>
               <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium">
                 {task?.meta.title ?? "Loading…"}
               </h1>
@@ -1139,13 +1124,6 @@ export function TaskConversationPage({
         <>
         {/* Thin top strip */}
         <header className="flex h-10 shrink-0 items-center gap-2 border-t border-zinc-800 border-b border-b-zinc-800 bg-zinc-900 px-3">
-          <Link
-            href="/"
-            className="inline-flex size-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-            title={t("tasks:conversation.back")}
-          >
-            <ArrowLeft className="size-3.5" />
-          </Link>
           <Terminal className="size-3.5 shrink-0 text-emerald-400" />
           <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-100">
             {task?.meta.title ??
@@ -1358,13 +1336,10 @@ export function TaskConversationPage({
     >
       {/* Top bar (hidden in compact variant) */}
       {!isCompact ? (
-      <header className="flex items-center gap-3 border-b border-border/70 px-6 py-3">
-        <Link
-          href="/"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-        </Link>
+      <header
+        className="flex items-center gap-3 border-b border-border/70 px-6 py-3 transition-[padding] duration-200"
+        style={{ paddingInlineStart: `calc(1.5rem + var(--sidebar-toggle-offset, 0px))` }}
+      >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {isTerminalMode && (
