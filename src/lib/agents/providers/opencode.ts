@@ -27,6 +27,35 @@ const OPENCODE_FALLBACK_MODELS = [
   { id: "xai/grok-4.3", name: "xai/grok-4.3" },
 ] as const;
 
+function withVariants<T extends { id: string; name: string }>(models: readonly T[]) {
+  return models.map((model) => ({
+    ...model,
+    effortLevels: [...OPENCODE_VARIANT_LEVELS],
+  }));
+}
+
+/**
+ * Pure parser for `opencode models` stdout. Each usable line is a
+ * `vendor/model` id (the command is entitlement-gated server-side — it only
+ * lists providers the user has authed + the always-on OpenCode Zen subset).
+ * Lines without a `/` are CLI chrome/noise and are dropped. Empty output →
+ * the offline fallback list so the picker is never blank.
+ */
+export function parseOpenCodeModels(stdout: string | null | undefined) {
+  const out = (stdout || "").trim();
+  if (!out) return withVariants(OPENCODE_FALLBACK_MODELS);
+  const parsed = out
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && line.includes("/"))
+    .map((id) => ({
+      id,
+      name: id,
+      effortLevels: [...OPENCODE_VARIANT_LEVELS],
+    }));
+  return parsed.length > 0 ? parsed : withVariants(OPENCODE_FALLBACK_MODELS);
+}
+
 export const openCodeProvider: AgentProvider = {
   id: "opencode",
   name: "OpenCode",
@@ -98,19 +127,13 @@ export const openCodeProvider: AgentProvider = {
   async listModels() {
     try {
       const cmd = resolveCliCommand(this);
-      const out = await execCli(cmd, ["models"], { timeout: 10_000 });
-      if (!out) return [...OPENCODE_FALLBACK_MODELS].map((m) => ({ ...m, effortLevels: [...OPENCODE_VARIANT_LEVELS] }));
-      return out
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line && line.includes("/"))
-        .map((id) => ({
-          id,
-          name: id,
-          effortLevels: [...OPENCODE_VARIANT_LEVELS],
-        }));
+      // Steady state this is a local cache read (~/.cache/opencode/models.json),
+      // but the very first run on a fresh machine populates that cache from
+      // models.dev — give it headroom so cold starts don't fall back.
+      const out = await execCli(cmd, ["models"], { timeout: 15_000 });
+      return parseOpenCodeModels(out);
     } catch {
-      return [...OPENCODE_FALLBACK_MODELS].map((m) => ({ ...m, effortLevels: [...OPENCODE_VARIANT_LEVELS] }));
+      return withVariants(OPENCODE_FALLBACK_MODELS);
     }
   },
 

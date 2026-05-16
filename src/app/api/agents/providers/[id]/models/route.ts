@@ -11,7 +11,7 @@ const CACHE_TTL_MS = 60_000;
 const cache = new Map<string, CachedModels>();
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await ctx.params;
@@ -20,9 +20,14 @@ export async function GET(
     return NextResponse.json({ error: `Unknown provider: ${id}` }, { status: 404 });
   }
 
+  // `?refresh=1` bypasses the cache. opencode's own env/auth gating is live
+  // (add a key, re-run, the models appear) so the only staleness is *this*
+  // 60s cache — refresh lets a freshly-added key surface in seconds.
+  const refresh = new URL(req.url).searchParams.get("refresh") === "1";
+
   const now = Date.now();
   const cached = cache.get(id);
-  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+  if (!refresh && cached && now - cached.fetchedAt < CACHE_TTL_MS) {
     return NextResponse.json({
       providerId: id,
       models: cached.models,
