@@ -316,9 +316,7 @@
     "stopHint": "Hentikan proses ini sekarang (mengirim SIGTERM)",
     "restart": "Mulai Ulang",
     "restartHint": "Jalankan lagi dari perintah asli",
-    "runHint": "Mulai tugas ini sekarang",
-    "reassign": "Tugaskan Ulang",
-    "reassignHint": "Serahkan tugas ini ke agen lain"
+    "runHint": "Mulai tugas ini sekarang"
   },
   "schedulesPanel": {
     "title": "Tugas terjadwal",

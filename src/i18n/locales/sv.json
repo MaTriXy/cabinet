@@ -316,9 +316,7 @@
     "stopHint": "Stoppa denna körning nu (skickar SIGTERM)",
     "restart": "Starta om",
     "restartHint": "Kör igen från den ursprungliga prompten",
-    "runHint": "Starta denna uppgift nu",
-    "reassign": "Omfördela",
-    "reassignHint": "Överlämna denna uppgift till en annan agent"
+    "runHint": "Starta denna uppgift nu"
   },
   "schedulesPanel": {
     "title": "Schemalagda jobb",

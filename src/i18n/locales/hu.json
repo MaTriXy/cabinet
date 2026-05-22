@@ -316,9 +316,7 @@
     "stopHint": "A futtatás azonnali leállítása (SIGTERM küldése)",
     "restart": "Újraindítás",
     "restartHint": "Futtatás újra az eredeti promptból",
-    "runHint": "Feladat indítása most",
-    "reassign": "Újrahozzárendelés",
-    "reassignHint": "A feladat átadása egy másik ügynöknek"
+    "runHint": "Feladat indítása most"
   },
   "schedulesPanel": {
     "title": "Ütemezett feladatok",

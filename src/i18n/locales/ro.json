@@ -316,9 +316,7 @@
     "stopHint": "Oprește această rulare acum (trimite SIGTERM)",
     "restart": "Repornește",
     "restartHint": "Rulează din nou de la promptul original",
-    "runHint": "Începe această sarcină acum",
-    "reassign": "Reatribuie",
-    "reassignHint": "Transferă această sarcină unui alt agent"
+    "runHint": "Începe această sarcină acum"
   },
   "schedulesPanel": {
     "title": "Sarcini programate",

@@ -316,9 +316,7 @@
     "stopHint": "Diesen Lauf jetzt stoppen (sendet SIGTERM)",
     "restart": "Neustarten",
     "restartHint": "Erneut vom ursprünglichen Prompt ausführen",
-    "runHint": "Diese Aufgabe jetzt starten",
-    "reassign": "Neu zuweisen",
-    "reassignHint": "Diese Aufgabe einem anderen Agenten übergeben"
+    "runHint": "Diese Aufgabe jetzt starten"
   },
   "schedulesPanel": {
     "title": "Geplante Jobs",

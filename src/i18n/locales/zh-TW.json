@@ -316,9 +316,7 @@
     "stopHint": "立即停止此執行(送出 SIGTERM)",
     "restart": "重新啟動",
     "restartHint": "從原始提示詞重新執行",
-    "runHint": "立即開始此任務",
-    "reassign": "重新指派",
-    "reassignHint": "將此任務交給其他智慧代理"
+    "runHint": "立即開始此任務"
   },
   "schedulesPanel": {
     "title": "已排程任務",

@@ -316,9 +316,7 @@
     "stopHint": "이 실행을 지금 중지 (SIGTERM 전송)",
     "restart": "다시 시작",
     "restartHint": "원래 프롬프트에서 다시 실행",
-    "runHint": "이 작업 지금 시작",
-    "reassign": "재할당",
-    "reassignHint": "이 작업을 다른 에이전트에게 넘기기"
+    "runHint": "이 작업 지금 시작"
   },
   "schedulesPanel": {
     "title": "예약된 작업",

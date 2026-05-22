@@ -316,9 +316,7 @@
     "stopHint": "この実行を今すぐ停止 (SIGTERMを送信します)",
     "restart": "再起動",
     "restartHint": "元のプロンプトから再度実行",
-    "runHint": "このタスクを今すぐ開始",
-    "reassign": "再割り当て",
-    "reassignHint": "このタスクを別のエージェントに渡す"
+    "runHint": "このタスクを今すぐ開始"
   },
   "schedulesPanel": {
     "title": "スケジュールされたジョブ",

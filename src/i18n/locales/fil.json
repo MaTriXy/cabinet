@@ -316,9 +316,7 @@
     "stopHint": "Ihinto ang pagpapatakbo na ito ngayon (nagpapadala ng SIGTERM)",
     "restart": "I-restart",
     "restartHint": "Patakbuhin muli mula sa orihinal na prompt",
-    "runHint": "Simulan ang gawaing ito ngayon",
-    "reassign": "Muling Italaga",
-    "reassignHint": "Ipasa ang gawaing ito sa ibang ahente"
+    "runHint": "Simulan ang gawaing ito ngayon"
   },
   "schedulesPanel": {
     "title": "Naka-iskedyul na mga trabaho",

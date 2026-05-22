@@ -316,9 +316,7 @@
     "stopHint": "Stop this run now (sends SIGTERM)",
     "restart": "Restart",
     "restartHint": "Run again from the original prompt",
-    "runHint": "Start this task now",
-    "reassign": "Reassign",
-    "reassignHint": "Hand this task off to a different agent"
+    "runHint": "Start this task now"
   },
   "schedulesPanel": {
     "title": "Scheduled jobs",

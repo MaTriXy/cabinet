@@ -316,9 +316,7 @@
     "stopHint": "Zatrzymaj to uruchomienie teraz (wysyła SIGTERM)",
     "restart": "Uruchom ponownie",
     "restartHint": "Uruchom ponownie z oryginalnego monitu",
-    "runHint": "Rozpocznij to zadanie teraz",
-    "reassign": "Przekaż",
-    "reassignHint": "Przekaż to zadanie innemu agentowi"
+    "runHint": "Rozpocznij to zadanie teraz"
   },
   "schedulesPanel": {
     "title": "Zaplanowane zadania",

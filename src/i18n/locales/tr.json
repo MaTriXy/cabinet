@@ -316,9 +316,7 @@
     "stopHint": "Bu çalıştırmayı şimdi durdur (SIGTERM gönderir)",
     "restart": "Yeniden Başlat",
     "restartHint": "Orijinal istemden tekrar çalıştır",
-    "runHint": "Bu görevi şimdi başlat",
-    "reassign": "Yeniden Ata",
-    "reassignHint": "Bu görevi farklı bir aracıya devret"
+    "runHint": "Bu görevi şimdi başlat"
   },
   "schedulesPanel": {
     "title": "Zamanlanmış işler",

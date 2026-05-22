@@ -316,9 +316,7 @@
     "stopHint": "Dakatar da wannan gudu yanzu (yana aika SIGTERM)",
     "restart": "Sake farawa",
     "restartHint": "Sake aiwatarwa daga asalin umarni",
-    "runHint": "Fara wannan aiki yanzu",
-    "reassign": "Sake sanyawa",
-    "reassignHint": "Miƙa wannan aiki ga wani wakili daban"
+    "runHint": "Fara wannan aiki yanzu"
   },
   "schedulesPanel": {
     "title": "Ayyukan da aka tsara",

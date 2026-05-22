@@ -316,9 +316,7 @@
     "stopHint": "Zastavit toto spuštění nyní (odešle SIGTERM)",
     "restart": "Restartovat",
     "restartHint": "Spustit znovu z původní výzvy",
-    "runHint": "Spustit tento úkol nyní",
-    "reassign": "Přidělit znovu",
-    "reassignHint": "Předat tento úkol jinému agentovi"
+    "runHint": "Spustit tento úkol nyní"
   },
   "schedulesPanel": {
     "title": "Naplánované úlohy",

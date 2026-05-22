@@ -316,9 +316,7 @@
     "stopHint": "Duro ṣiṣe yii ni bayi (fi SIGTERM ranṣẹ)",
     "restart": "Tun bẹrẹ",
     "restartHint": "Ṣiṣe lẹẹkansi lati ibeere atilẹba",
-    "runHint": "Bẹrẹ iṣẹ yii ni bayi",
-    "reassign": "Tun yan",
-    "reassignHint": "Fi iṣẹ yii fun aṣoju miiran"
+    "runHint": "Bẹrẹ iṣẹ yii ni bayi"
   },
   "schedulesPanel": {
     "title": "Awọn iṣẹ ti a ṣeto",

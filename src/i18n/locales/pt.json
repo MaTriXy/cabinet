@@ -316,9 +316,7 @@
     "stopHint": "Parar esta execução agora (envia SIGTERM)",
     "restart": "Reiniciar",
     "restartHint": "Executar novamente a partir do prompt original",
-    "runHint": "Iniciar esta tarefa agora",
-    "reassign": "Reatribuir",
-    "reassignHint": "Atribuir esta tarefa a um agente diferente"
+    "runHint": "Iniciar esta tarefa agora"
   },
   "schedulesPanel": {
     "title": "Tarefas agendadas",

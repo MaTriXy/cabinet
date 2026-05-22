@@ -316,9 +316,7 @@
     "stopHint": "Ferma questa esecuzione ora (invia SIGTERM)",
     "restart": "Riavvia",
     "restartHint": "Esegui di nuovo dal prompt originale",
-    "runHint": "Avvia questa attività ora",
-    "reassign": "Riassegna",
-    "reassignHint": "Assegna questa attività a un agente diverso"
+    "runHint": "Avvia questa attività ora"
   },
   "schedulesPanel": {
     "title": "Lavori programmati",

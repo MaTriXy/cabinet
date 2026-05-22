@@ -316,9 +316,7 @@
     "stopHint": "Simamisha utekelezaji huu sasa (inatuma SIGTERM)",
     "restart": "Anzisha Upya",
     "restartHint": "Tekeleza tena kutoka kwenye kidokezo asili",
-    "runHint": "Anzisha kazi hii sasa",
-    "reassign": "Pangia Upya",
-    "reassignHint": "Kabidhi kazi hii kwa wakala tofauti"
+    "runHint": "Anzisha kazi hii sasa"
   },
   "schedulesPanel": {
     "title": "Kazi zilizopangwa",

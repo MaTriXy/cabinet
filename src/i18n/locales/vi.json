@@ -316,9 +316,7 @@
     "stopHint": "Dừng chạy này ngay bây giờ (gửi SIGTERM)",
     "restart": "Khởi động lại",
     "restartHint": "Chạy lại từ lời nhắc ban đầu",
-    "runHint": "Bắt đầu tác vụ này ngay bây giờ",
-    "reassign": "Chỉ định lại",
-    "reassignHint": "Chuyển giao tác vụ này cho một tác nhân khác"
+    "runHint": "Bắt đầu tác vụ này ngay bây giờ"
   },
   "schedulesPanel": {
     "title": "Tác vụ đã lên lịch",

@@ -316,9 +316,7 @@
     "stopHint": "Detener esta ejecución ahora (envía SIGTERM)",
     "restart": "Reiniciar",
     "restartHint": "Ejecutar de nuevo desde la indicación original",
-    "runHint": "Iniciar esta tarea ahora",
-    "reassign": "Reasignar",
-    "reassignHint": "Asignar esta tarea a un agente diferente"
+    "runHint": "Iniciar esta tarea ahora"
   },
   "schedulesPanel": {
     "title": "Tareas programadas",

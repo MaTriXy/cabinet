@@ -316,9 +316,7 @@
     "stopHint": "Arrêter cette exécution maintenant (envoie SIGTERM)",
     "restart": "Redémarrer",
     "restartHint": "Exécuter à nouveau depuis l'invite d'origine",
-    "runHint": "Démarrer cette tâche maintenant",
-    "reassign": "Réaffecter",
-    "reassignHint": "Confier cette tâche à un autre agent"
+    "runHint": "Démarrer cette tâche maintenant"
   },
   "schedulesPanel": {
     "title": "Tâches planifiées",

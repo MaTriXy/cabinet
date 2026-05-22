@@ -316,9 +316,7 @@
     "stopHint": "Stop deze uitvoering nu (verstuurt SIGTERM)",
     "restart": "Herstarten",
     "restartHint": "Opnieuw uitvoeren vanaf de oorspronkelijke prompt",
-    "runHint": "Start deze taak nu",
-    "reassign": "Opnieuw toewijzen",
-    "reassignHint": "Wijs deze taak toe aan een andere agent"
+    "runHint": "Start deze taak nu"
   },
   "schedulesPanel": {
     "title": "Geplande taken",
