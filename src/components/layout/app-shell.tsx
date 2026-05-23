@@ -466,11 +466,9 @@ export function AppShell() {
   // CTA. We mount the dialog at AppShell level so the user can land on the
   // composer popup wherever they were — no jarring section change to /tasks.
   const [tourTaskOpen, setTourTaskOpen] = useState(false);
-  const [tourTaskPrompt, setTourTaskPrompt] = useState<string | undefined>(undefined);
   const [tourTaskAgents, setTourTaskAgents] = useState<CabinetAgentSummary[]>([]);
 
-  const handleLaunchTourTask = useCallback((initialPrompt: string) => {
-    setTourTaskPrompt(initialPrompt);
+  const handleLaunchTourTask = useCallback(() => {
     setTourTaskOpen(true);
     // Refresh the agent roster on each open so the agent picker reflects
     // whatever the user has installed.
@@ -524,6 +522,19 @@ export function AppShell() {
     if (!raw || raw.toLowerCase() === "you") return "";
     return raw.trim().split(/\s+/)[0];
   }, [profileState]);
+
+  // Post-tour first task: a friendly, templated opener shown as the composer
+  // placeholder (a suggestion the user can send or rewrite, not a pre-filled
+  // value). The agent learns the user's goal by asking, so we don't need to
+  // interpolate it here.
+  const tourStarterPlaceholder = useMemo(() => {
+    const hi = userFirstName ? `Hi, I'm ${userFirstName}! ` : "Hi! ";
+    return (
+      `${hi}I just created this Cabinet and I want it to help me get my work done. ` +
+      "Tell me about your goals - what work would you like to accomplish? " +
+      "Create useful pages, beautiful dashboards, and web apps for me."
+    );
+  }, [userFirstName]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -946,7 +957,7 @@ export function AppShell() {
         cabinetPath={ROOT_CABINET_PATH}
         agents={tourTaskAgents}
         initialMode="now"
-        initialPrompt={tourTaskPrompt}
+        placeholderOverride={tourStarterPlaceholder}
         onStarted={(conversationId) => {
           setTourTaskOpen(false);
           setSection({
