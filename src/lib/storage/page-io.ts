@@ -224,7 +224,23 @@ export async function movePage(
   toParentPath: string,
   options: { prevName?: string | null; nextName?: string | null } = {}
 ): Promise<string> {
-  const fromResolved = resolveContentPath(fromPath);
+  const fromResolvedVirtual = resolveContentPath(fromPath);
+
+  // Tree-builder strips ".md" from standalone-markdown virtual paths, so the
+  // resolved path can point at a file that only exists with a ".md" suffix on
+  // disk. Resolve the real source (and its on-disk name) so the rename below
+  // doesn't ENOENT — and so the returned virtual path keeps tree-builder's
+  // extension-less shape for those files.
+  let fromResolved = fromResolvedVirtual;
+  let isStandaloneMd = false;
+  if (
+    !(await fileExists(fromResolvedVirtual)) &&
+    (await fileExists(`${fromResolvedVirtual}.md`))
+  ) {
+    fromResolved = `${fromResolvedVirtual}.md`;
+    isStandaloneMd = true;
+  }
+
   const name = path.basename(fromResolved);
   const toDir = toParentPath
     ? resolveContentPath(toParentPath)
@@ -296,7 +312,10 @@ export async function movePage(
     await setEntryOrder(toParentPath, name, order);
   }
 
-  return toParentPath ? `${toParentPath}/${name}` : name;
+  // Mirror tree-builder's virtual-path shape: standalone .md files are
+  // addressed without their extension.
+  const virtualName = isStandaloneMd ? name.replace(/\.md$/, "") : name;
+  return toParentPath ? `${toParentPath}/${virtualName}` : virtualName;
 }
 
 export interface RenameReferencesSummary {
