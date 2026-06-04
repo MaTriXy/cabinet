@@ -4,6 +4,7 @@ import type {
   LaunchTaskAction,
   ScheduleJobAction,
   ScheduleTaskAction,
+  SendEmailAction,
 } from "@/types/actions";
 import type { ConversationMeta } from "@/types/conversations";
 import type { JobConfig } from "@/types/jobs";
@@ -158,6 +159,8 @@ export async function dispatchApprovedActions(
         const out = await dispatchScheduleTask(meta, item);
         results.push(out);
         if (out.status === "dispatched" && out.jobId) scheduledAny = true;
+      } else if (item.action.type === "SEND_EMAIL") {
+        results.push(await dispatchSendEmail(item));
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : "dispatch failed";
@@ -337,6 +340,40 @@ async function dispatchScheduleTask(
     status: "dispatched",
     jobId: saved.id,
   });
+}
+
+async function dispatchSendEmail(
+  item: DispatchInput
+): Promise<DispatchedAction> {
+  const action = item.action as SendEmailAction;
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"}/api/gmail/send`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: action.to,
+          subject: action.subject,
+          body: action.body,
+          replyToMessageId: action.replyToMessageId,
+        }),
+      }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      return makeDispatched({
+        id: item.id,
+        action,
+        status: "rejected",
+        reason: data.error ?? `Send failed with status ${res.status}`,
+      });
+    }
+    return makeDispatched({ id: item.id, action, status: "dispatched" });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "send failed";
+    return makeDispatched({ id: item.id, action, status: "rejected", reason });
+  }
 }
 
 /**

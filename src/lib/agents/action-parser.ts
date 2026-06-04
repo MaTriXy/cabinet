@@ -230,6 +230,9 @@ function splitPipe(value: string): string[] {
 }
 
 export function fingerprint(action: AgentAction): string {
+  if (action.type === "SEND_EMAIL") {
+    return `SEND_EMAIL:${action.to.join(",")}:${action.subject}:${action.body.slice(0, 80)}`;
+  }
   const runtime = `${action.providerId ?? ""}:${action.adapterType ?? ""}:${action.model ?? ""}:${action.effort ?? ""}`;
   switch (action.type) {
     case "LAUNCH_TASK":
