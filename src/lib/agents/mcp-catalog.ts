@@ -213,21 +213,21 @@ const DISCORD: CatalogEntry = {
   iconSlug: "discord",
   bgImage: "/integrations/discord-bg.webp",
   logo: "/integrations/discord-logo.png",
-  // Cabinet maintains its own server (mcp-discord/ in this repo): Discord has no
+  // Cabinet maintains its own server (mcps/mcp-discord/ in this repo): Discord has no
   // first-party MCP, and the community ones hand the model 60–139 tools incl.
   // destructive admin by default. Ours is a curated read+post+threads surface
   // with admin gated behind DISCORD_ALLOW_ADMIN. Tier `cabinet` = first-party,
   // Cabinet-maintained (distinct from vendor-`official`). The server is released
   // on its own cadence (NOT coupled to the app's CI) — bump this pin when a new
   // cabinet-mcp-discord is published to npm.
-  sourceUrl: "https://github.com/hilash/cabinet/tree/main/mcp-discord",
+  sourceUrl: "https://github.com/hilash/cabinet/tree/main/mcps/mcp-discord",
   trustTier: "cabinet",
   authBackend: "token",
   transport: "stdio",
   mcpServerName: "cabinet-discord",
   command: "npx",
   args: ["-y", "cabinet-mcp-discord@0.1.0"],
-  localBuild: "mcp-discord/dist/index.js",
+  localBuild: "mcps/mcp-discord/dist/index.js",
   serverEnv: { DISCORD_TOKEN: "${DISCORD_TOKEN}" },
   credentials: [
     {
