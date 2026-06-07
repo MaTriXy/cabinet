@@ -75,11 +75,7 @@ export function IntegrationDetailPage({
                     Coming soon
                   </span>
                 )}
-                {entry?.trustTier === "cabinet" && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.05] px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    <Sparkles className="h-3 w-3" /> Maintained by Cabinet
-                  </span>
-                )}
+                {entry && <TierBadge tier={entry.trustTier} />}
               </div>
               <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">
                 {item.blurb}
@@ -159,6 +155,36 @@ export function IntegrationDetailPage({
         </aside>
       </div>
     </div>
+  );
+}
+
+/** Trust-tier pill shown in the hero next to the availability badge. */
+function TierBadge({ tier }: { tier: string }) {
+  if (tier === "official") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+        <ShieldCheck className="h-3 w-3" /> Official
+      </span>
+    );
+  }
+  if (tier === "cabinet") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.05] px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+        <Sparkles className="h-3 w-3" /> Maintained by Cabinet
+      </span>
+    );
+  }
+  if (tier === "registry") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-600 dark:text-sky-400">
+        <ShieldCheck className="h-3 w-3" /> Registry-listed
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-foreground/[0.04] px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground/80">
+      Community
+    </span>
   );
 }
 

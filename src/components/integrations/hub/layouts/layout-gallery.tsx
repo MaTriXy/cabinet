@@ -1,7 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { Check, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { showSuccess } from "@/lib/ui/toast";
 import {
   type IntegrationItem,
   CATEGORY_META,
@@ -9,7 +12,6 @@ import {
 } from "@/lib/integrations/preview-catalog";
 import {
   LogoTile,
-  StatusBadge,
   DimWhenComingSoon,
 } from "@/components/integrations/hub/integration-visuals";
 
@@ -26,9 +28,12 @@ import {
 export function LayoutGallery({
   items,
   onOpen,
+  connectedIds,
 }: {
   items: IntegrationItem[];
   onOpen: (id: string) => void;
+  /** Ids (incl. suite ids) that are currently connected. */
+  connectedIds: Set<string>;
 }) {
   const groups = groupByCategory(items);
 
@@ -36,9 +41,9 @@ export function LayoutGallery({
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-6 py-6">
         {items.length === 0 ? (
-          <div className="flex min-h-[40vh] items-center justify-center">
+          <div className="flex min-h-[24vh] items-center justify-center">
             <p className="text-sm text-muted-foreground">
-              No integrations found.
+              No integrations match your search.
             </p>
           </div>
         ) : (
@@ -62,6 +67,7 @@ export function LayoutGallery({
                       key={item.id}
                       item={item}
                       onOpen={onOpen}
+                      connectedIds={connectedIds}
                     />
                   ))}
                 </div>
@@ -69,6 +75,8 @@ export function LayoutGallery({
             ))}
           </div>
         )}
+
+        <RequestSection />
       </div>
     </div>
   );
@@ -85,10 +93,15 @@ const GIGGLE_FRAMES = [
 function GalleryTile({
   item,
   onOpen,
+  connectedIds,
 }: {
   item: IntegrationItem;
   onOpen: (id: string) => void;
+  connectedIds: Set<string>;
 }) {
+  const connected =
+    connectedIds.has(item.id) ||
+    (!!item.coveredBy && connectedIds.has(item.coveredBy));
   const tileRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<Animation | null>(null);
 
@@ -151,8 +164,50 @@ function GalleryTile({
         </span>
       </DimWhenComingSoon>
 
-      {/* Status sits below the dimmed block so the pill stays legible. */}
-      <StatusBadge implemented={item.implemented} />
+      {/* Only connected integrations get a badge — available/soon is conveyed by
+          the card's full vs. dimmed treatment, not a pill. */}
+      {connected && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+          <Check className="h-2.5 w-2.5" /> Connected
+        </span>
+      )}
     </button>
+  );
+}
+
+/** "Don't see your integration?" — capture requests right from the gallery. */
+function RequestSection() {
+  const [value, setValue] = useState("");
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = value.trim();
+    if (!v) return;
+    showSuccess(`Thanks — we’ll look into “${v}”.`);
+    setValue("");
+  };
+  return (
+    <section className="mt-12 rounded-2xl bg-foreground/[0.025] px-6 py-8 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-foreground/[0.06]">
+        <Sparkles className="h-5 w-5 text-muted-foreground" />
+      </div>
+      <h3 className="mt-3 text-[14px] font-semibold text-foreground">
+        Don’t see your integration?
+      </h3>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        Tell us what you need — we prioritize what people ask for most.
+      </p>
+      <form onSubmit={submit} className="mx-auto mt-4 flex max-w-md items-center gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="e.g. Airtable, QuickBooks, HubSpot…"
+          className="h-9 flex-1 rounded-lg bg-foreground/[0.05] px-3 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none transition-colors focus:bg-foreground/[0.08]"
+        />
+        <Button type="submit" disabled={!value.trim()}>
+          Request
+        </Button>
+      </form>
+    </section>
   );
 }

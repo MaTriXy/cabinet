@@ -14,6 +14,8 @@
  * brand marks under /public/integrations.
  */
 
+import { MCP_CATALOG } from "@/lib/agents/mcp-catalog";
+
 export type IntegrationCategory =
   | "communication"
   | "productivity"
@@ -22,7 +24,8 @@ export type IntegrationCategory =
   | "crm"
   | "finance"
   | "data"
-  | "hr";
+  | "hr"
+  | "automation";
 
 export interface IntegrationItem {
   /** Stable slug; also the i18n/analytics key. */
@@ -39,6 +42,11 @@ export interface IntegrationItem {
   implemented: boolean;
   /** Shown on the detail page: concrete agent capabilities. */
   actions: string[];
+  /**
+   * Sub-product that connects through a suite's single OAuth (e.g. Gmail →
+   * google-workspace, Teams → microsoft-365). Opening the card opens the suite.
+   */
+  coveredBy?: string;
 }
 
 export const CATEGORY_META: Record<
@@ -53,6 +61,7 @@ export const CATEGORY_META: Record<
   finance: { label: "Finance & Legal", order: 5 },
   data: { label: "Data & Analytics", order: 6 },
   hr: { label: "People & HR", order: 7 },
+  automation: { label: "Automation & AI", order: 8 },
 };
 
 export const CATEGORY_ORDER: IntegrationCategory[] = (
@@ -61,7 +70,7 @@ export const CATEGORY_ORDER: IntegrationCategory[] = (
 
 const L = (file: string) => `/logos/${file}`;
 
-export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
+const RAW_INTEGRATIONS: IntegrationItem[] = [
   // ── Communication ───────────────────────────────────────────────
   {
     id: "slack",
@@ -82,6 +91,16 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     brand: "#5865f2",
     implemented: true,
     actions: ["Read & summarize channel history", "Post messages and announcements", "Reply in threads & react"],
+  },
+  {
+    id: "telegram",
+    name: "Telegram",
+    category: "communication",
+    logo: L("telegram.svg"),
+    blurb: "Send messages and manage the chats your bot is in.",
+    brand: "#26a5e4",
+    implemented: true,
+    actions: ["Send messages & announcements", "Reply in topics", "React to messages"],
   },
   {
     id: "microsoft-teams",
@@ -126,13 +145,23 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     actions: ["Read & draft email", "Search Drive", "Manage calendar events"],
   },
   {
+    id: "microsoft-365",
+    name: "Microsoft 365",
+    category: "productivity",
+    logo: L("microsoft-365.svg"),
+    blurb: "Outlook, Teams, and SharePoint / OneDrive via Microsoft Graph.",
+    brand: "#0078d4",
+    implemented: true,
+    actions: ["Outlook mail & calendar", "Teams messages", "SharePoint & OneDrive files"],
+  },
+  {
     id: "notion",
     name: "Notion",
     category: "productivity",
     logo: L("notion.svg"),
     blurb: "Read and update pages, databases, and docs.",
     brand: "#000000",
-    implemented: false,
+    implemented: true,
     actions: ["Search workspace", "Create & edit pages", "Query databases"],
   },
   {
@@ -266,7 +295,7 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     logo: L("github.svg"),
     blurb: "Read repos, issues, and PRs — and act on them.",
     brand: "#181717",
-    implemented: false,
+    implemented: true,
     actions: ["Read code & issues", "Triage PRs", "Open issues"],
   },
   {
@@ -284,10 +313,10 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     name: "Jira",
     category: "development",
     logo: L("jira.webp"),
-    blurb: "Create, query, and update issues from agent work.",
+    blurb: "Search and act on Jira issues and Confluence pages.",
     brand: "#2684ff",
-    implemented: false,
-    actions: ["Search issues", "Create tickets", "Update status"],
+    implemented: true,
+    actions: ["Search issues & pages", "Create tickets", "Draft Confluence pages"],
   },
   {
     id: "linear",
@@ -296,7 +325,7 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     logo: L("linear.webp"),
     blurb: "Manage issues and projects at agent speed.",
     brand: "#5e6ad2",
-    implemented: false,
+    implemented: true,
     actions: ["Create issues", "Update cycles", "Summarise projects"],
   },
   {
@@ -400,7 +429,7 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     logo: L("stripe.svg"),
     blurb: "Read payments, customers, and revenue data.",
     brand: "#635bff",
-    implemented: false,
+    implemented: true,
     actions: ["Query payments", "Summarise revenue", "Watch for disputes"],
   },
   {
@@ -527,7 +556,53 @@ export const PREVIEW_INTEGRATIONS: IntegrationItem[] = [
     implemented: false,
     actions: ["Read directory", "Check time-off", "Summarise teams"],
   },
+
+  // ── Added 2026-06-07 (catalog-backed) ───────────────────────────
+  { id: "monday", name: "monday.com", category: "productivity", logo: L("monday.svg"), blurb: "Boards, items, and updates at agent speed.", brand: "#ff3d57", implemented: true, actions: ["Search boards & items", "Create & update items", "Post updates"] },
+  { id: "motion", name: "Motion", category: "productivity", logo: L("motion.svg"), blurb: "AI calendar and auto-scheduled tasks.", brand: "#4c5fd7", implemented: true, actions: ["Read schedule", "Create tasks", "Find time"] },
+  { id: "clockwise", name: "Clockwise", category: "productivity", logo: L("clockwise.svg"), blurb: "Focus time and smart calendar optimization.", brand: "#5b6ee1", implemented: true, actions: ["Read calendar", "Find focus time", "Optimize schedule"] },
+  { id: "miro", name: "Miro", category: "productivity", logo: L("miro.svg"), blurb: "Boards, frames, and sticky notes.", brand: "#ffd02f", implemented: true, actions: ["Read boards", "Create items", "Summarize boards"] },
+  { id: "loom", name: "Loom", category: "communication", logo: L("loom.svg"), blurb: "Video library, transcripts, and shares.", brand: "#625df5", implemented: true, actions: ["Search videos", "Read transcripts", "Summarize recordings"] },
+  { id: "sentry", name: "Sentry", category: "development", logo: L("sentry.svg"), blurb: "Triage errors, issues, and releases.", brand: "#362d59", implemented: true, actions: ["Search issues", "Read stack traces", "Triage & resolve"] },
+  { id: "pagerduty", name: "PagerDuty", category: "development", logo: L("pagerduty.svg"), blurb: "Incidents, services, and on-call schedules.", brand: "#06ac38", implemented: true, actions: ["Read & create incidents", "Check on-call", "Read schedules"] },
+  { id: "pipedrive", name: "Pipedrive", category: "crm", logo: L("pipedrive.svg"), blurb: "Deals, contacts, and pipelines.", brand: "#017737", implemented: true, actions: ["Search deals", "Update stages", "Create contacts"] },
+  { id: "shopify", name: "Shopify", category: "finance", logo: L("shopify.svg"), blurb: "Build on Shopify — docs & GraphQL schema.", brand: "#95bf47", implemented: true, actions: ["Search dev docs", "Explore GraphQL schema", "Validate queries"] },
+  { id: "expensify", name: "Expensify", category: "finance", logo: L("expensify.svg"), blurb: "Expense reports and reimbursements.", brand: "#03d47c", implemented: true, actions: ["Read reports", "Create expenses", "Check status"] },
+  { id: "zapier", name: "Zapier", category: "automation", logo: L("zapier.svg"), blurb: "Reach 8,000+ apps through one MCP endpoint.", brand: "#ff4f00", implemented: true, actions: ["Run actions across 8,000+ apps", "Trigger Zaps", "Search app data"] },
+  { id: "make", name: "Make", category: "automation", logo: L("make.svg"), blurb: "Run scenarios across 2,000+ apps.", brand: "#6d00cc", implemented: true, actions: ["Trigger scenarios", "Run app actions", "Read data"] },
 ];
+
+// A connector is "available" iff it has a live MCP catalog entry — derived so
+// that adding an entry in mcp-catalog.ts automatically lights up its card here.
+const CONNECTABLE = new Set(MCP_CATALOG.map((e) => e.id));
+
+// Sub-products that connect through a suite's single OAuth (no separate server).
+const COVERED_BY: Record<string, string> = {
+  gmail: "google-workspace",
+  "google-calendar": "google-workspace",
+  "google-drive": "google-workspace",
+  "google-meet": "google-workspace",
+  "microsoft-teams": "microsoft-365",
+  onedrive: "microsoft-365",
+  sharepoint: "microsoft-365",
+  confluence: "jira", // the Atlassian server covers Jira + Confluence
+};
+
+export const PREVIEW_INTEGRATIONS: IntegrationItem[] = RAW_INTEGRATIONS.map((i) => {
+  const coveredBy = COVERED_BY[i.id];
+  return {
+    ...i,
+    coveredBy,
+    implemented: CONNECTABLE.has(i.id) || (!!coveredBy && CONNECTABLE.has(coveredBy)),
+  };
+});
+
+/** The catalog id to actually connect for a card — itself, or its suite. */
+export function connectTargetFor(id: string): string {
+  if (CONNECTABLE.has(id)) return id;
+  const covered = COVERED_BY[id];
+  return covered && CONNECTABLE.has(covered) ? covered : id;
+}
 
 /** Quick lookup by id. */
 export const INTEGRATION_BY_ID: Record<string, IntegrationItem> = Object.fromEntries(

@@ -26,7 +26,7 @@ export function SetupGuide({
   return (
     <section className="mt-9">
       <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Set up in {steps.length} steps
+        Set up in {steps.length} {steps.length === 1 ? "step" : "steps"}
       </h2>
       <ol className="mt-4 space-y-5">
         {steps.map((step, i) => {

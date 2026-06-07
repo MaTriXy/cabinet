@@ -32,13 +32,15 @@ export function LogoImg({
 }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
+    // Brand-colored initial chip — a logo-less connector still reads as
+    // intentional (app-icon style) rather than a broken gray box.
     return (
       <span
         className={cn(
-          "flex items-center justify-center rounded-md bg-foreground/10 font-semibold text-foreground/70",
+          "flex items-center justify-center rounded-md font-semibold text-white",
           className,
         )}
-        style={{ width: size, height: size, fontSize: size * 0.42 }}
+        style={{ width: size, height: size, fontSize: size * 0.42, background: item.brand }}
       >
         {item.name.charAt(0)}
       </span>
