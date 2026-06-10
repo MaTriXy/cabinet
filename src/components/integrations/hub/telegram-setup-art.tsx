@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Hint, MockWindow } from "@/components/integrations/hub/setup-art-primitives";
 
 /**
  * "Mini-mockups" for the Telegram setup guide — tiny, theme-aware renditions of
@@ -105,29 +105,7 @@ export function TelegramStepArt({ step, brand }: { step: number; brand: string }
   }
 }
 
-/* ── primitives ─────────────────────────────────────────────────────────── */
-
-function MockWindow({
-  title,
-  brand,
-  children,
-}: {
-  title: string;
-  brand: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card text-[11px] shadow-sm">
-      <div className="flex items-center gap-1.5 border-b border-border bg-muted/40 px-2.5 py-1.5">
-        <span className="h-2 w-2 rounded-full" style={{ background: `${brand}66` }} />
-        <span className="h-2 w-2 rounded-full bg-foreground/15" />
-        <span className="h-2 w-2 rounded-full bg-foreground/15" />
-        <span className="ml-1.5 truncate text-[10px] font-medium text-muted-foreground">{title}</span>
-      </div>
-      <div className="p-3">{children}</div>
-    </div>
-  );
-}
+/* ── primitives (Telegram-specific; shared ones live in setup-art-primitives) ── */
 
 function Bubble({
   side,
@@ -162,14 +140,5 @@ function Avatar({ brand, children }: { brand: string; children: ReactNode }) {
     >
       {children}
     </span>
-  );
-}
-
-function Hint({ brand, children }: { brand: string; children: ReactNode }) {
-  return (
-    <div className="mt-2.5 flex items-start gap-1.5 text-[10.5px] leading-snug text-muted-foreground">
-      <CornerDownRight className="mt-px h-3 w-3 shrink-0" style={{ color: brand }} />
-      <span>{children}</span>
-    </div>
   );
 }

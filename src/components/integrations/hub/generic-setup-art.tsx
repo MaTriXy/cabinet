@@ -5,10 +5,18 @@
 /* eslint-disable react/display-name */
 
 import type { ReactNode } from "react";
-import { Check, CornerDownRight } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { DiscordStepArt } from "@/components/integrations/hub/discord-setup-art";
 import { TelegramStepArt } from "@/components/integrations/hub/telegram-setup-art";
+import {
+  Avatar,
+  BtnMock,
+  CheckRow,
+  FieldMock,
+  Hint,
+  KvRow,
+  MockWindow,
+  ToggleRow,
+} from "@/components/integrations/hub/setup-art-primitives";
 
 /**
  * Per-step "mini-mockup" art for the setup guide of EVERY integration.
@@ -19,8 +27,11 @@ import { TelegramStepArt } from "@/components/integrations/hub/telegram-setup-ar
  *   - bring-your-own URL        → get-URL + paste-URL mocks
  *   - Microsoft 365             → Azure app register / scopes / secret
  *   - Shopify / Figma / Salesforce → tailored single-screen mocks
- * Discord & Telegram keep their fully bespoke art. `stepArtFor` is the
- * dispatcher the detail page calls.
+ *   - LinkedIn                  → install-uv / browser-login / ready-to-connect
+ * Multi-step official-OAuth connectors (Slack / Google / GitHub / Notion) reuse
+ * the consent mock for step 0 and add tailored mocks for their own-app / scopes
+ * / scoping steps. Discord & Telegram keep their fully bespoke art. `stepArtFor`
+ * is the dispatcher the detail page calls.
  */
 
 export function stepArtFor(opts: {
@@ -39,6 +50,15 @@ export function stepArtFor(opts: {
   if (id === "shopify") return () => <ShopifyArt brand={brand} />;
   if (id === "figma") return () => <FigmaArt brand={brand} />;
   if (id === "salesforce") return () => <SalesforceArt brand={brand} />;
+  if (id === "linkedin") return (i) => <LinkedInArt step={i} brand={brand} />;
+
+  // Multi-step official-OAuth connectors: step 0 is the generic consent screen,
+  // but their later "register your own app / scopes / scope the access" steps
+  // need their own tailored mocks (the steps users actually get stuck on).
+  if (id === "slack") return (i) => <SlackArt step={i} label={label} brand={brand} />;
+  if (id === "google-workspace") return (i) => <GoogleArt step={i} label={label} brand={brand} />;
+  if (id === "github") return (i) => <GithubArt step={i} label={label} brand={brand} />;
+  if (id === "notion") return (i) => <NotionArt step={i} label={label} brand={brand} />;
 
   if (transport === "http" && authBackend === "cli-pkce") {
     return (i) => <OAuthConsentArt step={i} label={label} brand={brand} />;
@@ -200,111 +220,150 @@ function SalesforceArt({ brand }: { brand: string }) {
   );
 }
 
-/* ── primitives ─────────────────────────────────────────────────────────── */
-
-function MockWindow({ title, brand, children }: { title: string; brand: string; children: ReactNode }) {
+/** LinkedIn — install uv (0) → browser login (1) → ready to connect (2). */
+function LinkedInArt({ step, brand }: { step: number; brand: string }) {
+  if (step === 0) {
+    return (
+      <MockWindow title="Terminal" brand={brand}>
+        <div className="rounded-md bg-foreground/[0.06] p-2 font-mono text-[10px] leading-relaxed">
+          <div className="text-muted-foreground">
+            <span style={{ color: brand }}>$</span> curl -LsSf https://astral.sh/uv/install.sh | sh
+          </div>
+          <div className="text-foreground">✓ uv installed — uvx ready</div>
+        </div>
+        <Hint brand={brand}>One-time: installs uv so Cabinet can launch the server locally.</Hint>
+      </MockWindow>
+    );
+  }
+  if (step === 1) {
+    return (
+      <MockWindow title="Sign in · LinkedIn" brand={brand}>
+        <div className="flex flex-col items-center text-center">
+          <Avatar brand={brand}>in</Avatar>
+          <div className="mt-2 text-[11px] font-medium text-foreground">Sign in to LinkedIn</div>
+          <div className="mt-2 w-full space-y-1">
+            <FieldMock>you@email.com</FieldMock>
+            <FieldMock>••••••••••</FieldMock>
+          </div>
+          <BtnMock brand={brand} full>
+            Sign in
+          </BtnMock>
+        </div>
+        <Hint brand={brand}>
+          <b>uvx linkedin-scraper-mcp --login</b> opens this in a browser — sign in once; the session stays on this device.
+        </Hint>
+      </MockWindow>
+    );
+  }
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card text-[11px] shadow-sm">
-      <div className="flex items-center gap-1.5 border-b border-border bg-muted/40 px-2.5 py-1.5">
-        <span className="h-2 w-2 rounded-full" style={{ background: `${brand}66` }} />
-        <span className="h-2 w-2 rounded-full bg-foreground/15" />
-        <span className="h-2 w-2 rounded-full bg-foreground/15" />
-        <span className="ml-1.5 truncate text-[10px] font-medium text-muted-foreground">{title}</span>
+    <MockWindow title="Terminal" brand={brand}>
+      <div className="rounded-md bg-foreground/[0.06] p-2 font-mono text-[10px] leading-relaxed">
+        <div className="text-foreground">✓ Logged in — session saved to ~/.linkedin-mcp</div>
       </div>
-      <div className="p-3">{children}</div>
-    </div>
+      <Hint brand={brand}>Now click Connect — your agent drives your own logged-in session.</Hint>
+    </MockWindow>
   );
 }
 
-function Hint({ brand, children }: { brand: string; children: ReactNode }) {
+/* ── multi-step official-OAuth connectors ───────────────────────────────── */
+
+/** Slack: consent (0) → create your own app (1) → user-token scopes (2). */
+function SlackArt({ step, label, brand }: { step: number; label: string; brand: string }) {
+  if (step === 0) return <OAuthConsentArt step={0} label={label} brand={brand} />;
+  if (step === 1) {
+    return (
+      <MockWindow title="api.slack.com/apps" brand={brand}>
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-foreground">Your Apps</span>
+          <BtnMock brand={brand}>Create New App</BtnMock>
+        </div>
+        <div className="mt-2 space-y-1.5">
+          <div className="h-5 rounded bg-muted" />
+          <div className="h-5 w-2/3 rounded bg-muted" />
+        </div>
+        <Hint brand={brand}>
+          Create an app <b>From scratch</b>, pick your workspace, then open <b>OAuth &amp; Permissions</b>.
+        </Hint>
+      </MockWindow>
+    );
+  }
   return (
-    <div className="mt-2.5 flex items-start gap-1.5 text-[10.5px] leading-snug text-muted-foreground">
-      <CornerDownRight className="mt-px h-3 w-3 shrink-0" style={{ color: brand }} />
-      <span>{children}</span>
-    </div>
+    <MockWindow title="OAuth &amp; Permissions · User Token Scopes" brand={brand}>
+      <div className="space-y-1">
+        <CheckRow brand={brand}>search:read.public</CheckRow>
+        <CheckRow brand={brand}>chat:write</CheckRow>
+        <CheckRow brand={brand}>channels:history · channels:read</CheckRow>
+        <CheckRow brand={brand}>files:read · users:read</CheckRow>
+      </div>
+      <div className="mt-2">
+        <BtnMock brand={brand}>+ Add an OAuth Scope</BtnMock>
+      </div>
+      <Hint brand={brand}>
+        Add the user-token scopes (use the <b>Copy</b> button above), then <b>Install to Workspace</b>.
+      </Hint>
+    </MockWindow>
   );
 }
 
-function Avatar({ brand, children }: { brand: string; children: ReactNode }) {
+/** Google Workspace: consent (0) → your own GCP app — APIs + OAuth client (1). */
+function GoogleArt({ step, label, brand }: { step: number; label: string; brand: string }) {
+  if (step === 0) return <OAuthConsentArt step={0} label={label} brand={brand} />;
   return (
-    <span
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-[13px] font-bold uppercase text-white"
-      style={{ background: brand }}
-    >
-      {children}
-    </span>
+    <MockWindow title="Google Cloud Console · APIs &amp; Services" brand={brand}>
+      <div className="space-y-1">
+        <CheckRow brand={brand}>Gmail API — enabled</CheckRow>
+        <CheckRow brand={brand}>Google Calendar API — enabled</CheckRow>
+        <CheckRow brand={brand}>Google Drive API — enabled</CheckRow>
+      </div>
+      <div className="mt-2 flex items-center justify-between rounded-md bg-foreground/[0.06] px-2 py-1.5">
+        <span className="text-[10px] text-muted-foreground">OAuth client (Desktop)</span>
+        <BtnMock brand={brand}>Download JSON</BtnMock>
+      </div>
+      <Hint brand={brand}>
+        Enable the three APIs, create a <b>Desktop</b> OAuth client, download its JSON, then point the path field at it.
+      </Hint>
+    </MockWindow>
   );
 }
 
-function CheckRow({ brand, children }: { brand: string; children: ReactNode }) {
+/** GitHub: consent (0) → scope the access — orgs/repos grant + revoke (1). */
+function GithubArt({ step, label, brand }: { step: number; label: string; brand: string }) {
+  if (step === 0) return <OAuthConsentArt step={0} label={label} brand={brand} />;
   return (
-    <div className="flex items-center gap-1.5 text-[10.5px] text-foreground">
-      <span
-        className="flex h-3 w-3 shrink-0 items-center justify-center rounded-[3px]"
-        style={{ background: brand }}
-      >
-        <Check className="h-2 w-2 text-white" />
-      </span>
-      {children}
-    </div>
+    <MockWindow title="GitHub · Settings · Applications" brand={brand}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Avatar brand={brand}>C</Avatar>
+          <span className="text-foreground">Cabinet</span>
+        </div>
+        <BtnMock>Revoke</BtnMock>
+      </div>
+      <div className="mt-2">
+        <KvRow k="Repository access" v="Only select repos" />
+      </div>
+      <Hint brand={brand}>
+        Grant only the orgs/repos the agent needs — review or revoke here anytime.
+      </Hint>
+    </MockWindow>
   );
 }
 
-function BtnMock({
-  brand,
-  full,
-  children,
-}: {
-  brand?: string;
-  full?: boolean;
-  children: ReactNode;
-}) {
+/** Notion: consent (0) → choose what to share — page/database picker (1). */
+function NotionArt({ step, label, brand }: { step: number; label: string; brand: string }) {
+  if (step === 0) return <OAuthConsentArt step={0} label={label} brand={brand} />;
   return (
-    <span
-      className={cn(
-        "inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[10px] font-semibold",
-        full && "mt-2 w-full",
-        brand ? "text-white" : "bg-foreground/[0.06] text-muted-foreground",
-      )}
-      style={brand ? { background: brand } : undefined}
-    >
-      {children}
-    </span>
-  );
-}
-
-function FieldMock({ children }: { children: ReactNode }) {
-  return (
-    <div className="mt-1 rounded-md bg-foreground/[0.06] px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-      {children}
-    </div>
-  );
-}
-
-function KvRow({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-md bg-foreground/[0.04] px-2 py-1">
-      <span className="text-[10px] text-muted-foreground">{k}</span>
-      <span className="font-mono text-[10px] text-foreground">{v}</span>
-    </div>
-  );
-}
-
-function ToggleRow({ label, on, brand }: { label: string; on?: boolean; brand: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-md px-2 py-1.5" style={{ background: `${brand}14` }}>
-      <span className="text-[10.5px] text-foreground">{label}</span>
-      <span
-        className={cn("relative h-4 w-7 rounded-full", !on && "bg-foreground/15")}
-        style={on ? { background: brand } : undefined}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm",
-            on ? "right-0.5" : "left-0.5",
-          )}
-        />
-      </span>
-    </div>
+    <MockWindow title="Select pages" brand={brand}>
+      <div className="rounded-md bg-foreground/[0.05] px-2 py-1 text-[10px] text-muted-foreground">
+        🔍 Search pages…
+      </div>
+      <div className="mt-2 space-y-1">
+        <CheckRow brand={brand}>📄 Product roadmap</CheckRow>
+        <CheckRow brand={brand} on={false}>📄 Personal notes</CheckRow>
+        <CheckRow brand={brand}>🗄 Tasks database</CheckRow>
+      </div>
+      <Hint brand={brand}>
+        Tick exactly the pages/databases to share — change it anytime in Notion → Connections.
+      </Hint>
+    </MockWindow>
   );
 }

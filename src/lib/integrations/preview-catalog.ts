@@ -420,6 +420,16 @@ const RAW_INTEGRATIONS: IntegrationItem[] = [
     implemented: false,
     actions: ["Track candidates", "Summarise interviews", "Update stages"],
   },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    category: "crm",
+    logo: L("linkedin.svg"),
+    blurb: "Research profiles, search people & jobs, and run your own outreach.",
+    brand: "#0a66c2",
+    implemented: true,
+    actions: ["Research profiles & companies", "Search people & jobs", "Manage messages & invites"],
+  },
 
   // ── Finance & Legal ─────────────────────────────────────────────
   {

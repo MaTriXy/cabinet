@@ -581,6 +581,54 @@ const DISCORD: CatalogEntry = {
   ],
 };
 
+const LINKEDIN: CatalogEntry = {
+  id: "linkedin",
+  label: "LinkedIn",
+  blurb: "Research profiles & companies, search people and jobs, and run your own outreach.",
+  iconSlug: "linkedin",
+  bgImage: "/integrations/linkedin-bg.webp",
+  logo: "/logos/linkedin.svg",
+  // LinkedIn has no official MCP. This is the community Patchright-based server
+  // (stickerdaniel/linkedin-mcp-server, PyPI `linkedin-scraper-mcp`): it drives a
+  // real browser under YOUR own login rather than an API. Powerful but
+  // unofficial, and scraping can run against LinkedIn's ToS — so `community`
+  // tier, personal use. Auth is a local browser profile (~/.linkedin-mcp) created
+  // by `--login`; there is no token/cookie to paste (env-var cookies were dropped
+  // upstream 02/2026), hence empty credentials + no serverEnv. Runs via uvx, so
+  // `uv` must be installed (flagged in the setup steps, like Salesforce's CLI).
+  sourceUrl: "https://github.com/stickerdaniel/linkedin-mcp-server",
+  trustTier: "community",
+  authBackend: "token",
+  transport: "stdio",
+  mcpServerName: "cabinet-linkedin",
+  command: "uvx",
+  args: ["linkedin-scraper-mcp"],
+  credentials: [],
+  actions: [
+    "Research people & company profiles",
+    "Search people and jobs by keyword + location",
+    "Read your messaging inbox & conversations",
+    "Send messages & connection requests on your own account",
+  ],
+  setupSteps: [
+    {
+      title: "Install uv (one-time)",
+      body: "The LinkedIn server runs locally through uv. Install it once, then Cabinet can launch the server for your agents.",
+      href: "https://docs.astral.sh/uv/getting-started/installation/",
+      copy: "curl -LsSf https://astral.sh/uv/install.sh | sh",
+    },
+    {
+      title: "Log in to LinkedIn once",
+      body: "Run the login command in a terminal. A browser window opens — sign in (handle any 2FA / captcha) and it saves a private session profile under ~/.linkedin-mcp on this device. Nothing to paste here.",
+      copy: "uvx linkedin-scraper-mcp --login",
+    },
+    {
+      title: "Connect",
+      body: "Click Connect — Cabinet registers the server with your agent's CLI. It drives your own logged-in session locally; your credentials never leave this device. It's an unofficial scraper for personal use — mind LinkedIn's terms and go easy on volume.",
+    },
+  ],
+};
+
 /** Official public remote (HTTP + the CLI's PKCE OAuth). Nothing to paste. */
 function officialRemote(o: {
   id: string;
@@ -754,6 +802,7 @@ export const MCP_CATALOG: CatalogEntry[] = [
   STRIPE,
   DISCORD,
   TELEGRAM,
+  LINKEDIN,
   ...EXTENDED,
 ];
 
