@@ -13,7 +13,7 @@ _Last updated: 2026-06-16_
 
 - **Launched:** added `microsoft-365` to the `LAUNCHED` set in `preview-catalog.ts` so the card is live (no longer "Soon").
 - **Two connect modes** (chooser in the connect panel):
-  - **Personal account** (outlook.com / hotmail): no fields. A "Sign in with Microsoft" button runs a device-code flow driven by Cabinet's backend — shows the code, you open Microsoft and paste it, Cabinet polls to completion and registers the MCP server. Uses the server's built-in app; no Azure setup.
+  - **Personal account** (outlook.com / hotmail): no fields. Click "Sign in with Microsoft" and Cabinet displays a verification URL plus a short user code. You open that URL in your browser and enter the code on Microsoft's own sign-in page (the code is not pasted back into Cabinet), then approve access. Cabinet polls in the background until you've finished, then registers the MCP server. Uses the server's built-in app; no Azure setup.
   - **Work / school app:** paste your own Entra `MS365_MCP_CLIENT_ID` / `TENANT_ID` / `CLIENT_SECRET` (stored in `.cabinet.env`, 0600). Sign-in happens on first agent use.
 - **Capabilities are account-aware:** personal accounts show Outlook mail & calendar + OneDrive only (Teams and SharePoint are work/school features).
 - **No username/password anywhere** — auth is OAuth via Microsoft Graph. Personal tokens are cached by the connector in the OS keychain; Cabinet stores nothing for personal accounts.

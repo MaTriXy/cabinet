@@ -30,6 +30,10 @@ interface LoginSession {
   userCode?: string;
   error?: string;
   startedAt: number;
+  /** When the session reached a terminal state (success/error/expired). */
+  finishedAt?: number;
+  /** Removal timer scheduled once terminal, so the Map can't grow unbounded. */
+  cleanupTimer?: ReturnType<typeof setTimeout>;
   output: string;
 }
 
@@ -42,6 +46,48 @@ const sessions = (g.__msLoginSessions ??= new Map<string, LoginSession>());
 const DEVICE_CODE_TIMEOUT_MS = 16 * 60 * 1000;
 /** Allow first-run `npx` download + the code to be printed. */
 const CODE_WAIT_MS = 120_000;
+/** Keep a finished session around briefly so the client can read the final
+ *  status, then drop it so the Map doesn't leak on a long-running server. */
+const COMPLETED_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Move a session to a terminal state (idempotent — keeps the first terminal
+ * status) and schedule its removal from the Map after a short grace period.
+ */
+function markTerminal(
+  session: LoginSession,
+  status: Exclude<LoginStatus, "pending">,
+): void {
+  if (session.status === "pending") session.status = status;
+  if (session.finishedAt == null) session.finishedAt = Date.now();
+  if (!session.cleanupTimer) {
+    session.cleanupTimer = setTimeout(() => sessions.delete(session.id), COMPLETED_TTL_MS);
+    session.cleanupTimer.unref?.();
+  }
+}
+
+/**
+ * Defense-in-depth reaper (also covers cleanup timers lost across an HMR
+ * reload): drop finished sessions past their grace window and kill+drop any
+ * pending session orphaned well beyond the device-code lifetime.
+ */
+function sweepSessions(): void {
+  const now = Date.now();
+  for (const [sid, s] of sessions) {
+    if (s.status !== "pending") {
+      if (s.finishedAt != null && now - s.finishedAt > COMPLETED_TTL_MS) {
+        sessions.delete(sid);
+      }
+    } else if (now - s.startedAt > DEVICE_CODE_TIMEOUT_MS + COMPLETED_TTL_MS) {
+      try {
+        s.proc.kill();
+      } catch {
+        /* already gone */
+      }
+      sessions.delete(sid);
+    }
+  }
+}
 
 // Device-code message, e.g.:
 //   "...open the page https://login.microsoft.com/device and enter the code LF25UZJJQ to authenticate."
@@ -68,12 +114,12 @@ export function getLoginStatus(sessionId: string): {
   const s = sessions.get(sessionId);
   if (!s) return null;
   if (s.status === "pending" && Date.now() - s.startedAt > DEVICE_CODE_TIMEOUT_MS) {
-    s.status = "expired";
     try {
       s.proc.kill();
     } catch {
       /* already gone */
     }
+    markTerminal(s, "expired");
   }
   return {
     status: s.status,
@@ -86,6 +132,7 @@ export function getLoginStatus(sessionId: string): {
 export function cancelLogin(sessionId: string): boolean {
   const s = sessions.get(sessionId);
   if (!s) return false;
+  if (s.cleanupTimer) clearTimeout(s.cleanupTimer);
   try {
     s.proc.kill();
   } catch {
@@ -105,6 +152,7 @@ export function startDeviceLogin(): Promise<{
   verificationUri: string;
   userCode: string;
 }> {
+  sweepSessions(); // reap finished/orphaned sessions before adding a new one
   const id = randomUUID();
   const proc = spawn("npx", ["-y", "@softeria/ms-365-mcp-server", "--login"], {
     env: process.env, // no MS365_MCP_* → built-in public-client app (personal)
@@ -122,8 +170,8 @@ export function startDeviceLogin(): Promise<{
   return new Promise((resolve, reject) => {
     let settled = false;
     const fail = (message: string) => {
-      session.status = "error";
-      session.error = message;
+      if (!session.error) session.error = message;
+      markTerminal(session, "error"); // won't clobber an already-recorded success
       if (!settled) {
         settled = true;
         try {
@@ -150,7 +198,7 @@ export function startDeviceLogin(): Promise<{
           });
         }
       }
-      if (SUCCESS_RE.test(session.output)) session.status = "success";
+      if (SUCCESS_RE.test(session.output)) markTerminal(session, "success");
     };
 
     proc.stdout?.on("data", onData);
@@ -158,12 +206,11 @@ export function startDeviceLogin(): Promise<{
 
     proc.on("error", (err) => fail(err.message));
     proc.on("exit", (code) => {
-      if (session.status !== "success") {
-        if (code === 0) session.status = "success";
-        else if (session.status === "pending") {
-          session.status = "error";
-          session.error ??= `Sign-in process exited with code ${code}`;
-        }
+      if (session.status === "success" || code === 0) {
+        markTerminal(session, "success");
+      } else {
+        session.error ??= `Sign-in process exited with code ${code}`;
+        markTerminal(session, "error");
       }
       // Exited before ever emitting a device code → the start call failed.
       if (!settled) fail(session.error ?? "Sign-in ended before a code was issued");
