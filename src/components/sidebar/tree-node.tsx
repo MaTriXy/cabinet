@@ -65,6 +65,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { LinkRepoDialog } from "./link-repo-dialog";
+import { ConnectKnowledgeDialog } from "./connect-knowledge-dialog";
+import { ConnectDriveDialog } from "./connect-drive-dialog";
 import { NewCabinetDialog } from "./new-cabinet-dialog";
 import { NewFileDialog } from "./new-file-dialog";
 import { EditSymlinkDialog } from "./edit-symlink-dialog";
@@ -163,6 +165,8 @@ function TreeNodeImpl({
   const [renameTitle, setRenameTitle] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [linkRepoOpen, setLinkRepoOpen] = useState(false);
+  const [connectKnowledgeOpen, setConnectKnowledgeOpen] = useState(false);
+  const [connectDriveOpen, setConnectDriveOpen] = useState(false);
   const [createCabinetOpen, setCreateCabinetOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [editSymlinkOpen, setEditSymlinkOpen] = useState(false);
@@ -838,12 +842,9 @@ function TreeNodeImpl({
               )}
               {t("treeNode:importFolder")}
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
+            <ContextMenuItem onClick={() => setConnectKnowledgeOpen(true)}>
               <GitBranch className="h-4 w-4 me-2" />
               {t("treeNode:connectKnowledge")}
-              <ContextMenuShortcut className="text-muted-foreground/40">
-                {t("treeNode:symlinkTag")}
-              </ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem onClick={() => setCreateCabinetOpen(true)}>
               <Archive className="h-4 w-4 me-2" />
@@ -1018,6 +1019,22 @@ function TreeNodeImpl({
       </Dialog>
 
       <LinkRepoDialog open={linkRepoOpen} onOpenChange={setLinkRepoOpen} parentPath={node.path} />
+
+      <ConnectKnowledgeDialog
+        open={connectKnowledgeOpen}
+        onOpenChange={setConnectKnowledgeOpen}
+        onPick={(kind) => {
+          setConnectKnowledgeOpen(false);
+          if (kind === "local") setLinkRepoOpen(true);
+          else setConnectDriveOpen(true);
+        }}
+      />
+
+      <ConnectDriveDialog
+        open={connectDriveOpen}
+        onOpenChange={setConnectDriveOpen}
+        cabinetPath={contextCabinetPath || ""}
+      />
 
       <NewCabinetDialog
         open={createCabinetOpen}

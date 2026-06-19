@@ -7,6 +7,7 @@ import { useTreeStore } from "@/stores/tree-store";
 import type { TreeNode, GoogleDriveSection } from "@/types";
 import { cn } from "@/lib/utils";
 import { decodeDrivePath } from "@/lib/google-drive/paths";
+import { providerLogo } from "@/lib/knowledge-sources/providers";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -31,9 +32,15 @@ function loadExpandedPaths(): Set<string> {
   }
 }
 
-function loadCachedSections(): GoogleDriveSection[] {
+// Cache the tree PER ROOM so switching rooms never shows another room's
+// connected Drive folders (knowledge sources are per-room now).
+function driveCacheKey(cabinetPath: string): string {
+  return `${DRIVE_CACHE_KEY}:${cabinetPath || "."}`;
+}
+
+function loadCachedSections(cabinetPath: string): GoogleDriveSection[] {
   try {
-    const cached = localStorage.getItem(DRIVE_CACHE_KEY);
+    const cached = localStorage.getItem(driveCacheKey(cabinetPath));
     return cached ? (JSON.parse(cached) as GoogleDriveSection[]) : [];
   } catch {
     return [];
@@ -52,9 +59,11 @@ interface DriveNodeProps {
   padFn: (depth: number) => React.CSSProperties;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
+  /** Active room — scopes the reveal authorization to this room's mounts. */
+  cabinetPath: string;
 }
 
-function DriveNode({ node, depth, padFn, expandedPaths, onToggle }: DriveNodeProps) {
+function DriveNode({ node, depth, padFn, expandedPaths, onToggle, cabinetPath }: DriveNodeProps) {
   const selectPage = useTreeStore((s) => s.selectPage);
   const setDriveNode = useTreeStore((s) => s.setDriveNode);
   const setDriveLoading = useTreeStore((s) => s.setDriveLoading);
@@ -92,7 +101,7 @@ function DriveNode({ node, depth, padFn, expandedPaths, onToggle }: DriveNodePro
     void fetch("/api/google-drive/reveal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: node.path }),
+      body: JSON.stringify({ path: node.path, cabinet: cabinetPath }),
     });
   };
 
@@ -136,7 +145,7 @@ function DriveNode({ node, depth, padFn, expandedPaths, onToggle }: DriveNodePro
           <span className="text-[10px] shrink-0">📄</span>
         )}
 
-        <span className="min-w-0 flex-1 truncate">
+        <span className="min-w-0 flex-1 truncate text-start">
           {node.frontmatter?.title || node.name}
         </span>
 
@@ -170,6 +179,7 @@ function DriveNode({ node, depth, padFn, expandedPaths, onToggle }: DriveNodePro
               padFn={padFn}
               expandedPaths={expandedPaths}
               onToggle={onToggle}
+              cabinetPath={cabinetPath}
             />
           ))}
         </div>
@@ -182,20 +192,27 @@ interface GoogleDriveTreeSectionProps {
   depth: number;
   padFn: (depth: number) => React.CSSProperties;
   itemClass: (active: boolean) => string;
+  /** The active room; Drive sources are now per-room. */
+  cabinetPath: string;
 }
 
-export function GoogleDriveTreeSection({ depth, padFn }: GoogleDriveTreeSectionProps) {
-  const [sections, setSections] = useState<GoogleDriveSection[]>(loadCachedSections);
+export function GoogleDriveTreeSection({ depth, padFn, cabinetPath }: GoogleDriveTreeSectionProps) {
+  const [sections, setSections] = useState<GoogleDriveSection[]>(() => loadCachedSections(cabinetPath));
   const [sectionExpanded, setSectionExpanded] = useState<Record<string, boolean>>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(loadExpandedPaths);
   const lastFetchRef = useRef<number>(0);
+  // The per-room browser only lists google-drive sources today, so the mount
+  // glyph is the Google Drive mark. When other providers gain a browser
+  // surface, thread the source's provider through and look it up per-section.
+  const driveLogo = providerLogo("google-drive");
 
   const fetchDriveTree = useCallback(async (force = false) => {
     const now = Date.now();
     if (!force && now - lastFetchRef.current < CACHE_TTL_MS) return;
 
     try {
-      const res = await fetch("/api/google-drive/tree", { cache: "no-store" });
+      const qs = cabinetPath ? `?cabinet=${encodeURIComponent(cabinetPath)}` : "";
+      const res = await fetch(`/api/google-drive/tree${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json() as { sections: GoogleDriveSection[] };
       setSections(data.sections);
@@ -209,11 +226,14 @@ export function GoogleDriveTreeSection({ depth, padFn }: GoogleDriveTreeSectionP
         return next;
       });
       try {
-        localStorage.setItem(DRIVE_CACHE_KEY, JSON.stringify(data.sections));
+        localStorage.setItem(driveCacheKey(cabinetPath), JSON.stringify(data.sections));
       } catch { /* ignore */ }
     } catch { /* ignore */ }
-  }, []);
+  }, [cabinetPath]);
 
+  // The parent keys this component on the room (key={cabinetPath}), so a room
+  // switch remounts it and the useState initializer above reloads that room's
+  // cache. Here we just kick off a fresh fetch on mount.
   useEffect(() => {
     // fetchDriveTree awaits the network call before any setState, so there is
     // no synchronous render cascade — the rule false-positives on the async fn.
@@ -269,8 +289,15 @@ export function GoogleDriveTreeSection({ depth, padFn }: GoogleDriveTreeSectionP
               ) : (
                 <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
               )}
-              <Cloud className="h-3.5 w-3.5 shrink-0 text-blue-400" />
-              <span className="min-w-0 flex-1 truncate font-medium">{section.folderName}</span>
+              {driveLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={driveLogo} alt="" className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <Cloud className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+              )}
+              {/* text-start: the sidebar inherits text-align:center; without
+                  this a short name like "My Drive" floats to the middle. */}
+              <span className="min-w-0 flex-1 truncate text-start font-medium">{section.folderName}</span>
             </button>
 
             {expanded && (
@@ -283,6 +310,7 @@ export function GoogleDriveTreeSection({ depth, padFn }: GoogleDriveTreeSectionP
                     padFn={padFn}
                     expandedPaths={expandedPaths}
                     onToggle={togglePath}
+                    cabinetPath={cabinetPath}
                   />
                 ))}
               </div>

@@ -3,7 +3,7 @@ import path from "path";
 import { resolveContentPath } from "@/lib/storage/path-utils";
 import { fileExists } from "@/lib/storage/fs-operations";
 import { autoCommit } from "@/lib/git/git-service";
-import { getDb } from "@/lib/db";
+import { resolveAuthorizedMountPaths } from "@/lib/knowledge-sources/store";
 import { decodeDrivePath } from "@/lib/google-drive/paths";
 import fs from "fs/promises";
 
@@ -67,13 +67,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: "File not found" }, { status: 404 });
       }
 
-      const db = getDb();
-      const mounts = db.prepare("SELECT abs_path FROM google_drive_mounts WHERE enabled = 1").all() as { abs_path: string }[];
+      // Authorize against connected Drive folders: the requesting room's
+      // (?cabinet=) or the union across rooms. Per-room knowledge sources now,
+      // not the old global table.
+      const cabinet = req.nextUrl.searchParams.get("cabinet");
+      const mountPaths = await resolveAuthorizedMountPaths(cabinet);
 
       // Resolve each mount's real path for an apples-to-apples comparison.
       const mountRealpaths = await Promise.all(
-        mounts.map(async (m) => {
-          try { return await fs.realpath(m.abs_path); } catch { return m.abs_path; }
+        mountPaths.map(async (p) => {
+          try { return await fs.realpath(p); } catch { return p; }
         })
       );
       const inMount = mountRealpaths.some(

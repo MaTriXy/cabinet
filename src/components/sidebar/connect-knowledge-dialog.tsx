@@ -1,0 +1,109 @@
+"use client";
+
+import { FolderSymlink, Cloud } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  CONNECT_KNOWLEDGE_TILES,
+  type ConnectKnowledgeTile,
+} from "@/lib/knowledge-sources/providers";
+
+/**
+ * Connect Knowledge picker — a tile grid of knowledge sources styled like the
+ * Integrations Hub "Files & Storage" row. Picking an enabled tile hands off to
+ * the matching flow (Local folder → symlink dialog, Google Drive → folder
+ * picker); "Soon" tiles are disabled placeholders so the grid reads as a
+ * roadmap. See docs/CONNECT_KNOWLEDGE_PRD.md §6/§10.
+ */
+export function ConnectKnowledgeDialog({
+  open,
+  onOpenChange,
+  onPick,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onPick: (kind: "local" | "google-drive") => void;
+}) {
+  const handlePick = (tile: ConnectKnowledgeTile) => {
+    if (tile.kind === "soon") return;
+    onPick(tile.kind);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* sm:max-w-3xl overrides the base sm:max-w-sm cap; px-12/py-8 give the
+          roomy padding the grid needs so the tiles aren't cramped. */}
+      <DialogContent className="sm:max-w-3xl px-12 py-8">
+        <DialogHeader>
+          <DialogTitle>Connect Knowledge</DialogTitle>
+          <DialogDescription>
+            Mount a folder or cloud source into this room. Its contents appear in
+            the tree and are available to agents as context.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-5 gap-4 py-2">
+          {CONNECT_KNOWLEDGE_TILES.map((tile) => {
+            const enabled = tile.kind !== "soon";
+            return (
+              <button
+                key={tile.key}
+                type="button"
+                disabled={!enabled}
+                onClick={() => handlePick(tile)}
+                className={cn(
+                  "group flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors",
+                  enabled
+                    ? "hover:bg-foreground/[0.04] cursor-pointer"
+                    : "cursor-default",
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex h-16 w-16 items-center justify-center rounded-2xl bg-card shadow-sm ring-1 ring-border/50 transition-transform",
+                    enabled
+                      ? "group-hover:-translate-y-0.5 group-hover:shadow-md"
+                      : "opacity-50 grayscale-[0.25]",
+                  )}
+                >
+                  {tile.logo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={tile.logo} alt="" className="h-8 w-8 object-contain" />
+                  ) : tile.kind === "local" ? (
+                    <FolderSymlink className="h-7 w-7 text-foreground/70" />
+                  ) : (
+                    <Cloud className="h-7 w-7 text-sky-400" />
+                  )}
+                </div>
+                <span
+                  className={cn(
+                    "text-[12px] font-medium leading-tight",
+                    enabled ? "text-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {tile.label}
+                </span>
+                {tile.kind === "local" && (
+                  <span className="-mt-1.5 text-[10px] font-normal text-muted-foreground/70">
+                    (symlink)
+                  </span>
+                )}
+                {!enabled && (
+                  <span className="rounded-full bg-foreground/[0.04] px-2 py-0.5 text-[10px] font-medium text-muted-foreground/80">
+                    Soon
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

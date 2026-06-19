@@ -13,7 +13,6 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -27,6 +26,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { LinkRepoDialog } from "./link-repo-dialog";
+import { ConnectDriveDialog } from "./connect-drive-dialog";
+import { ConnectKnowledgeDialog } from "./connect-knowledge-dialog";
 import { NewFileDialog } from "./new-file-dialog";
 import { MoveToDialog } from "./move-to-dialog";
 import { RecentTasks } from "./recent-tasks";
@@ -48,7 +49,6 @@ import {
   Copy,
   Trash2,
   TriangleAlert,
-  Cloud,
   RefreshCw,
   Settings,
 } from "lucide-react";
@@ -153,6 +153,8 @@ export function TreeView() {
   const [cabinetDeleteOpen, setCabinetDeleteOpen] = useState(false);
   const [kbCreating, setKbCreating] = useState(false);
   const [linkRepoOpen, setLinkRepoOpen] = useState(false);
+  const [connectDriveOpen, setConnectDriveOpen] = useState(false);
+  const [connectKnowledgeOpen, setConnectKnowledgeOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [moveToOpen, setMoveToOpen] = useState(false);
   const [moveToSource, setMoveToSource] = useState<TreeNodeType | null>(null);
@@ -843,7 +845,7 @@ export function TreeView() {
                     a right-click on a Drive node from also opening the cabinet
                     context menu. */}
                 <div onContextMenu={(e) => e.stopPropagation()}>
-                  <GoogleDriveTreeSection depth={1} padFn={pad} itemClass={itemClass} />
+                  <GoogleDriveTreeSection key={dataRootPath} depth={1} padFn={pad} itemClass={itemClass} cabinetPath={dataRootPath} />
                 </div>
               </SidebarSearch>
                   </div>
@@ -857,12 +859,9 @@ export function TreeView() {
                     <FilePlus2 className="h-4 w-4 me-2" />
                     {t("treeNode:createFile")}
                   </ContextMenuItem>
-                  <ContextMenuItem onClick={() => setLinkRepoOpen(true)}>
+                  <ContextMenuItem onClick={() => setConnectKnowledgeOpen(true)}>
                     <GitBranch className="h-4 w-4 me-2" />
                     {t("treeNode:connectKnowledge")}
-                    <ContextMenuShortcut className="text-muted-foreground/40">
-                      {t("treeNode:symlinkTag")}
-                    </ContextMenuShortcut>
                   </ContextMenuItem>
                   <ContextMenuItem
                     onClick={async () => {
@@ -952,6 +951,22 @@ export function TreeView() {
       open={linkRepoOpen}
       onOpenChange={setLinkRepoOpen}
       parentPath={dataRootPath}
+    />
+
+    <ConnectKnowledgeDialog
+      open={connectKnowledgeOpen}
+      onOpenChange={setConnectKnowledgeOpen}
+      onPick={(kind) => {
+        setConnectKnowledgeOpen(false);
+        if (kind === "local") setLinkRepoOpen(true);
+        else setConnectDriveOpen(true);
+      }}
+    />
+
+    <ConnectDriveDialog
+      open={connectDriveOpen}
+      onOpenChange={setConnectDriveOpen}
+      cabinetPath={dataRootPath}
     />
 
     <NewFileDialog
